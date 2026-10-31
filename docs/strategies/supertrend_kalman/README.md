@@ -43,7 +43,8 @@ roll exit); `asia` / `london` / `ny` = decision bar inside the sessions.py sessi
 positions closed at the next open after it, as fair_price_reversal (the bracket is cancelled first, as for `flip`).
 
 A runnable Pine v6 twin is in [`strategies/supertrend_kalman.pine`](../../../strategies/supertrend_kalman.pine).
-The twin does not have the owner roll exit, so `all` trades that cross a contract roll differ from TradingView.
+The twin does not have the owner roll exit, so trades open at a contract roll differ from TradingView: mostly in `all`,
+but a contract's last bar can fall inside a session too (NY: 10 roll exits 2010-2023).
 
 ## Test settings (TradingView Properties)
 
@@ -87,8 +88,8 @@ Every variant ran all 1728 combinations of the grid below at 0 ticks slippage. T
 
 ## Conclusion
 
-**No tradable edge on CL.** The top combination of every variant loses money at 2 ticks of slippage, and only
-London and New York stay above zero at 1 tick. These are the best of 1,728 combinations per variant (6,912 in
+**No tradable edge on CL.** The top combination of every variant loses money at 2 ticks of slippage; `all`,
+London and New York stay above zero at 1 tick, Asia does not. These are the best of 1,728 combinations per variant (6,912 in
 all) on the same 16 years they are reported on (in-sample), so even the 0-tick numbers are an upper bound.
 
 - **`all` (24 h):** +128,887 / +42,087 / -37,225 USD at 0 / 1 / 2 ticks over 4,471 trades (+28.83 USD per

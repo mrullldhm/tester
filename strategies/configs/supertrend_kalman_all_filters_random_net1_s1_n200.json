@@ -1,0 +1,43 @@
+{
+  "strategy": "supertrend_kalman",
+  "variant": "all",
+  "filters": [
+    [
+      "risk_ticks",
+      "min",
+      100.0
+    ]
+  ],
+  "params": {
+    "exit": "fixed",
+    "hours": "all",
+    "kalman_q": 0.0001,
+    "rr": 3,
+    "st_factor": 3,
+    "swing": 3,
+    "trail_mult": 1,
+    "trigger": "both",
+    "vol": "atr_ratio:1.3"
+  },
+  "interval": [
+    null,
+    "2024-01-01"
+  ],
+  "source": {
+    "search": "results/supertrend_kalman/search/all_filters_random_net1_s1_n200",
+    "trial": 85,
+    "objective": "net1"
+  },
+  "expected": {
+    "net0": 137285.07999999996,
+    "net1": 122375.07999999996,
+    "net2": 109195.07999999996,
+    "open0": 0.0,
+    "open1": 0.0,
+    "open2": 0.0,
+    "trades0": 546,
+    "trades1": 546,
+    "trades2": 546,
+    "objective": 122375.07999999996
+  }
+}

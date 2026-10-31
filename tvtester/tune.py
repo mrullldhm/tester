@@ -60,7 +60,8 @@ def cmd_features(name: str, variant: str) -> str:
                   ""]
         for ft, cat in [(f, False) for f in feats] + [("direction", True), ("weekday", True)]:
             b = associate.buckets(tf, ft, cat, seed=k)
-            lines += [f"### `{ft}`", "", "| Bucket | Trades | % profitable | Avg trade | 90% interval | Net profit |",
+            head = f"### `{ft}`" + (f" ({mod.STRATEGY(**params).report_tz} clock)" if ft == "weekday" else "")
+            lines += [head, "", "| Bucket | Trades | % profitable | Avg trade | 90% interval | Net profit |",
                       "|---|---|---|---|---|---|"]
             for _, r in b.iterrows():
                 lines.append(f"| {r['bucket']} | {r['trades']:,} | {report.pct(r['percent_profitable'])} | "

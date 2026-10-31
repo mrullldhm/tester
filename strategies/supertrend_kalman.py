@@ -20,10 +20,13 @@ tighter and on the right side of the close, never looser), `flip` (bracket plus 
 Supertrend flip).
 Hours (variant): `all` (no forced flat; only the owner roll exit) or a sessions.py session (entries inside
 [open, flat - 1 min), close_all after it).
+Filters (feature 2, default none): veto an entry at the decision bar; the M15 event expires as any untaken
+event does (docs/strategies/supertrend_kalman/optimize/README.md has the feature definitions).
 """
 
 import numpy as np
 
+from tvtester import features as fx
 from tvtester import ta
 from tvtester.config import TICK
 from tvtester.data import Bars
@@ -36,6 +39,9 @@ TRIGGERS = ("st", "trail", "both")
 VOLS = ("none", "stop_atr", "atr_ratio", "rvi")
 EXITS = ("fixed", "trail", "flip")
 KALMAN_Q = 0.01
+ER_LEN = 20
+GLOBEX_OPEN_NY = 18 * 60  # CME Globex trading day opens 18:00 New York
+FEATURES = ("risk_ticks", "risk_atr", "atr_ratio", "er", "hours_since_open", "rvi_side")
 
 
 def _shared(bars: Bars, key, fn):
@@ -75,6 +81,21 @@ def _last_value(x: np.ndarray) -> np.ndarray:
     return out
 
 
+def efficiency_ratio(c: np.ndarray, n: int) -> np.ndarray:
+    """Kaufman ER at k: abs(c[k] - c[k-n]) / sum of abs(c[j] - c[j-1]), j = k-n+1..k. NaN before k = n or when
+    the sum is 0 (Pine: division by zero gives na)."""
+    out = np.full(len(c), np.nan)
+    if len(c) <= n:
+        return out
+    step = np.abs(np.diff(c))
+    cs = np.concatenate([[0.0], np.cumsum(step)])  # cs[k] = sum of step[0..k-1] = moves up to bucket k
+    den = cs[n:] - cs[:-n]
+    num = np.abs(c[n:] - c[:-n])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        out[n:] = np.where(den > 0, num / den, np.nan)
+    return out
+
+
 def indicators(bars: Bars, st_factor: float, trail_mult: float, swing: int, atr_len: int, kalman_q: float) -> dict:
     """Per-bucket M15 series, each cached on the bars by its own parameters."""
     m = m15(bars)
@@ -88,8 +109,9 @@ def indicators(bars: Bars, st_factor: float, trail_mult: float, swing: int, atr_
     atr14 = _shared(bars, ("atr", 14), lambda: ta.atr(h, l, c, 14))
     atr100 = _shared(bars, ("atr", 100), lambda: ta.atr(h, l, c, 100))
     rvi = _shared(bars, "rvi", lambda: ta.rvi(c))
+    er = _shared(bars, ("er", ER_LEN), lambda: efficiency_ratio(c, ER_LEN))
     return {"c": c, "st_dir": st_dir, "tr_stop": tr_stop, "k_slope": k_slope, "sw_lo": sw_lo,
-            "sw_hi": sw_hi, "atr14": atr14, "atr100": atr100, "rvi": rvi}
+            "sw_hi": sw_hi, "atr14": atr14, "atr100": atr100, "rvi": rvi, "er": er}
 
 
 def bucket_signals(ind: dict, trigger: str) -> np.ndarray:
@@ -116,10 +138,11 @@ def bucket_signals(ind: dict, trigger: str) -> np.ndarray:
 
 class SupertrendKalman(Strategy):
     name = "supertrend_kalman"
+    report_tz = "America/New_York"  # weekday buckets on the New York clock (CME hours)
 
     def __init__(self, hours: str = "all", trigger: str = "st", vol: str = "none", exit: str = "fixed",
                  rr: float = 2.0, swing: int = 3, st_factor: float = 3.0, trail_mult: float = 2.0, atr_len: int = 10,
-                 kalman_q: float = KALMAN_Q):
+                 kalman_q: float = KALMAN_Q, filters=()):
         kind, _, x = vol.partition(":")
         if (trigger not in TRIGGERS or kind not in VOLS or exit not in EXITS
                 or (kind in ("stop_atr", "atr_ratio")) != bool(x)):
@@ -127,7 +150,7 @@ class SupertrendKalman(Strategy):
         if hours != "all" and hours not in SESSIONS:
             raise ValueError("hours must be 'all' or a session name")
         self.vol_kind, self.vol_x = kind, float(x) if x else 0.0
-        super().__init__((), hours=hours, trigger=trigger, vol=vol, exit=exit, rr=rr, swing=swing,
+        super().__init__(filters, hours=hours, trigger=trigger, vol=vol, exit=exit, rr=rr, swing=swing,
                          st_factor=st_factor, trail_mult=trail_mult, atr_len=atr_len, kalman_q=kalman_q)
 
     def prepare(self, bars: Bars) -> np.ndarray:
@@ -148,7 +171,50 @@ class SupertrendKalman(Strategy):
         sig = np.zeros(len(bars), dtype=np.int8)
         sig[ok] = self.bsig[k[ok]]
         self.sig = sig
-        return (sig != 0) & self.in_hours
+        self.allow = np.ones(len(bars), dtype=bool)
+        if self.filters:
+            self.allow = fx.gate(self.filters, self.features(bars), len(bars))
+        return (sig != 0) & self.in_hours & self.allow
+
+    def features(self, bars: Bars) -> dict[str, np.ndarray]:
+        """Feature values at candidate decision bars (signal, in hours, stop beyond the close, base `vol` filter
+        passed); NaN elsewhere. Every value uses bucket k = the last completed M15 bucket and bar i itself."""
+        ind, n = self.ind, len(bars)
+        out = {f: np.full(n, np.nan) for f in FEATURES}
+        cand = np.flatnonzero((self.sig != 0) & self.in_hours)
+        keep = []
+        for i in cand.tolist():
+            d, k, c = int(self.sig[i]), int(self.prev[i]), int(bars.c[i])
+            risk = self._risk(d, k, c)
+            if risk is not None and self._vol_ok(d, k, risk):
+                keep.append((i, d, k, risk))
+        if not keep:
+            return out
+        idx = np.array([x[0] for x in keep])
+        d = np.array([x[1] for x in keep])
+        k = np.array([x[2] for x in keep])
+        risk = np.array([x[3] for x in keep], dtype=float)
+        a14, a100 = ind["atr14"][k], ind["atr100"][k]
+        with np.errstate(invalid="ignore", divide="ignore"):
+            out["risk_ticks"][idx] = risk
+            out["risk_atr"][idx] = np.where(a14 > 0, risk / a14, np.nan)
+            out["atr_ratio"][idx] = np.where(a100 > 0, a14 / a100, np.nan)
+        out["er"][idx] = ind["er"][k]
+        mod, _ = _shared(bars, ("clock", "America/New_York"), lambda: local_clock(bars.ts, "America/New_York"))
+        out["hours_since_open"][idx] = ((mod[idx] - GLOBEX_OPEN_NY) % 1440) // 60
+        r = ind["rvi"][k]
+        out["rvi_side"][idx] = np.where(d == LONG, r, 100 - r)
+        return out
+
+    def _risk(self, d: int, k: int, c: int):
+        """Signal risk in ticks, or None when there is no swing level beyond the decision close."""
+        lvl = self.ind["sw_lo"][k] if d == LONG else self.ind["sw_hi"][k]
+        if lvl != lvl:
+            return None
+        stop = int(lvl)
+        if (d == LONG and stop >= c) or (d == SHORT and stop <= c):
+            return None
+        return abs(c - stop)
 
     def _vol_ok(self, d: int, k: int, risk: int) -> bool:
         ind = self.ind
@@ -186,17 +252,12 @@ class SupertrendKalman(Strategy):
                         ctx.exit("Exit", self.eid, stop=t, profit=self.profit)
             return
         d = int(self.sig[i])
-        if d == 0 or not self.in_hours[i]:
+        if d == 0 or not self.in_hours[i] or not self.allow[i]:
+            return  # a vetoed event expires here too: on_bar also runs on the bar a position closes
+        risk = self._risk(d, k, c)
+        if risk is None or not self._vol_ok(d, k, risk):
             return
-        lvl = ind["sw_lo"][k] if d == LONG else ind["sw_hi"][k]
-        if lvl != lvl:
-            return
-        stop = int(lvl)
-        if (d == LONG and stop >= c) or (d == SHORT and stop <= c):
-            return
-        risk = abs(c - stop)
-        if not self._vol_ok(d, k, risk):
-            return
+        stop = c - risk if d == LONG else c + risk
         self.eid = "Long" if d == LONG else "Short"
         self.stop, self.profit = stop, int(round(p["rr"] * risk))
         ctx.entry(self.eid, d)
@@ -217,6 +278,33 @@ GRID = {
     "kalman_q": [0.01, 0.0001],  # 0.01 agrees with ~97% of Supertrend flips (2023), 0.0001 with ~40%
 }
 VARIANTS = {"all": {"hours": "all"}, "asia": {"hours": "asia"}, "london": {"hours": "london"}, "ny": {"hours": "ny"}}
+
+# --- optimize definition (feature 2: python -m tvtester.cli features / search / replay) -------------------
+# Baselines: the feature-1 top combination of each variant (picked on 2010-06 .. 2026-10, see the ledger).
+BASELINES = {
+    "all": {"trigger": "both", "vol": "atr_ratio:1.3", "exit": "fixed", "rr": 3, "swing": 3, "trail_mult": 1,
+            "st_factor": 3, "kalman_q": 0.0001},
+    "asia": {"trigger": "trail", "vol": "none", "exit": "trail", "rr": 3, "swing": 3, "trail_mult": 2,
+             "st_factor": 3, "kalman_q": 0.01},
+    "london": {"trigger": "both", "vol": "stop_atr:3", "exit": "trail", "rr": 2, "swing": 5, "trail_mult": 2,
+               "st_factor": 3, "kalman_q": 0.0001},
+    "ny": {"trigger": "both", "vol": "rvi", "exit": "flip", "rr": 3, "swing": 5, "trail_mult": 1, "st_factor": 2,
+           "kalman_q": 0.0001},
+}
+FILTER_SPACE = {  # feature: (lowest threshold, highest threshold, step), declared before any feature-2 run
+    "risk_ticks": (10, 200, 5),
+    "risk_atr": (0.5, 5.0, 0.25),
+    "atr_ratio": (0.6, 2.0, 0.1),
+    "er": (0.05, 0.8, 0.05),
+    "hours_since_open": (0, 23, 1),
+    "rvi_side": (30, 80, 5),
+}
+SPACES = {
+    "filters": {"params": {}, "filters": FILTER_SPACE},  # baseline parameters frozen, filters searched
+    "full": {"params": GRID, "filters": FILTER_SPACE},  # base parameters and filters together
+}
+LINEAGE = ("baselines are the feature-1 top combinations, picked from 1,728 grid combinations per variant "
+           "(6,912 in all) on 2010-06-06 .. 2026-10-27 (includes the reserved interval)")
 ABOUT = """
 Owner idea: Supertrend plus an ATR trailing stop on M15, a Kalman filter for the trend, a volatility filter so it
 does not trade with a wide stop, stop at the swing high / low, target 1:2 to 1:3. The owner left every design fork
@@ -259,12 +347,13 @@ roll exit); `asia` / `london` / `ny` = decision bar inside the sessions.py sessi
 positions closed at the next open after it, as fair_price_reversal (the bracket is cancelled first, as for `flip`).
 
 A runnable Pine v6 twin is in [`strategies/supertrend_kalman.pine`](../../../strategies/supertrend_kalman.pine).
-The twin does not have the owner roll exit, so `all` trades that cross a contract roll differ from TradingView.
+The twin does not have the owner roll exit, so trades open at a contract roll differ from TradingView: mostly in `all`,
+but a contract's last bar can fall inside a session too (NY: 10 roll exits 2010-2023).
 """
 
 CONCLUSION = """
-**No tradable edge on CL.** The top combination of every variant loses money at 2 ticks of slippage, and only
-London and New York stay above zero at 1 tick. These are the best of 1,728 combinations per variant (6,912 in
+**No tradable edge on CL.** The top combination of every variant loses money at 2 ticks of slippage; `all`,
+London and New York stay above zero at 1 tick, Asia does not. These are the best of 1,728 combinations per variant (6,912 in
 all) on the same 16 years they are reported on (in-sample), so even the 0-tick numbers are an upper bound.
 
 - **`all` (24 h):** +128,887 / +42,087 / -37,225 USD at 0 / 1 / 2 ticks over 4,471 trades (+28.83 USD per

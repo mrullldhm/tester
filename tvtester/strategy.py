@@ -19,6 +19,7 @@ from .engine import Context
 
 class Strategy:
     name = "strategy"
+    report_tz = "UTC"  # clock of descriptive calendar buckets (association-report weekday); never trading logic
 
     def __init__(self, filters=(), **params):
         self.params = params

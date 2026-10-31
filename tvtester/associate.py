@@ -26,8 +26,7 @@ def trade_features(mod, params: dict, bars, ticks: int) -> pd.DataFrame:
     sb = tf["signal_bar"].to_numpy()
     for name, arr in vals.items():
         tf[name] = arr[sb]
-    tz = getattr(getattr(s, "s", None), "tz", "UTC")
-    tf["weekday"] = tf["signal_time"].dt.tz_convert(tz).dt.day_name().str[:3]
+    tf["weekday"] = tf["signal_time"].dt.tz_convert(s.report_tz).dt.day_name().str[:3]
     tf["direction"] = tf["type"]
     iso = tf["signal_time"].dt.tz_convert("UTC").dt.isocalendar()
     tf["week"] = iso["year"].astype(int) * 100 + iso["week"].astype(int)

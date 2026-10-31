@@ -19,8 +19,10 @@ Reviewed with Codex before and after it was built (`docs/REVIEWS.md`, R4 and R5)
 | Ledger | `results/<strategy>/ledger.jsonl`, append only: every association report, search, neighbour check and replay with its number of engine evaluations |
 
 ## Filters
-A filter vetoes an entry; it never changes the signal logic. Raw signal state is kept: a vetoed signal still uses up
-that session day's long (or short) signal, exactly as if it had been taken, so the twin needs no re-arming rule.
+A filter vetoes an entry; it never changes the signal logic or any feature value. Raw signal state is kept, so the
+Pine twin needs no re-arming rule; what a vetoed signal does is the strategy's own signal rule, the same in both twins:
+fair_price_reversal: it still uses up that session day's long (or short) signal, exactly as if it had been taken;
+supertrend_kalman: the M15 event expires like any untaken event (events are never carried to a later bar).
 The veto is checked at the entry decision in `on_bar` (the engine also calls `on_bar` while a position is open,
 so a mask in `prepare` alone would not stop an entry on the bar a position closes). With no filters the strategy
 is the feature-1 strategy, trade for trade (test).
@@ -50,6 +52,30 @@ Descriptive only (association report, no filter): direction, local weekday.
 
 Deferred (look-ahead or definition problems found in R4): higher-timeframe trend, settlement gap, EIA calendar,
 roll week, session-open relative volume.
+
+## Feature contracts (supertrend_kalman)
+Values at the decision bar i = the first 1m bar of the bucket after the completed M15 bucket k (`prev[i]`; the
+decision is at bar i's close, the fill at the next open). Every M15 value is from bucket k or earlier; the Pine twin
+reads them through `request.security(.., "15", expr[1], lookahead_on)`. Defined only at **structurally eligible**
+signals (signal on bucket k, inside the variant's hours, swing stop beyond the close, base `vol` filter passed),
+whatever the position, filters or slippage; NaN elsewhere. Tests (`tests/test_supertrend_kalman_f2.py`): a literal
+bar-by-bar transcription with its own ATR, swing pivots and ER, prefix invariance (prefix ending inside an M15
+bucket), future perturbation, a window with the US and UK DST changes and a contract roll (2023-03 .. 2023-05,
+code check only), and no filters = feature 1 trade for trade in all four variants.
+
+| Feature | Units | Definition at decision bar i | Available | Warm-up / missing | Pine |
+|---|---|---|---|---|---|
+| `risk_ticks` | ticks | abs(close[i] - stop), stop = last confirmed strict M15 swing low (long) / high (short) at k, `swing` buckets each side | bar i close | NaN when no swing level exists or it is not beyond the close (no trade then) | `math.round(math.abs(close - lvl) / syminfo.mintick)` |
+| `risk_atr` | ATR | risk_ticks / ATR14 of M15 bucket k, in ticks | bar i close | NaN while ATR14 is na (first 14 buckets) or 0 | `riskT / (a14B / syminfo.mintick)` |
+| `atr_ratio` | ratio | ATR14 / ATR100 of M15 bucket k | bucket k close | NaN while ATR100 is na (first 100 buckets) or 0 | `a14B / a100B` |
+| `er` | 0 .. 1 | abs(c[k] - c[k-20]) / sum of abs(c[j] - c[j-1]), j = k-19 .. k, M15 closes | bucket k close | NaN for k < 20 and when the sum is 0 (Pine x / 0 = na) | `math.abs(close - close[20]) / math.sum(math.abs(ta.change(close)), 20)` inside `m15()`, returned `[1]` |
+| `hours_since_open` | hours | `((NY minute of day of bar i's open - 1080) mod 1440) // 60`, always the New York clock | bar i open | none | `math.floor(((nyMinute - 18 * 60 + 1440) % 1440) / 60)` |
+| `rvi_side` | 0 .. 100 | TradingView RVI(10, 14) of bucket k for a long, 100 - RVI for a short | bucket k close | NaN while RVI is na | `sigB == 1 ? rviB : 100 - rviB` |
+
+Python works in ticks, Pine in price; every feature is a ratio of the two or an integer tick count, so the values
+are the same, but a value exactly on a threshold can differ by float rounding. The association report's weekday
+uses the strategy's `report_tz` (New York here; each session's own zone for fair_price_reversal).
+
 
 ## Where the results are
 One folder per strategy holds every readable feature-2 document: `docs/strategies/<strategy>/optimize/`.

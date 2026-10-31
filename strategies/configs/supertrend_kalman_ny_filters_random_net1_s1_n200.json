@@ -1,0 +1,43 @@
+{
+  "strategy": "supertrend_kalman",
+  "variant": "ny",
+  "filters": [
+    [
+      "rvi_side",
+      "min",
+      55.0
+    ]
+  ],
+  "params": {
+    "exit": "flip",
+    "hours": "ny",
+    "kalman_q": 0.0001,
+    "rr": 3,
+    "st_factor": 2,
+    "swing": 5,
+    "trail_mult": 1,
+    "trigger": "both",
+    "vol": "rvi"
+  },
+  "interval": [
+    null,
+    "2024-01-01"
+  ],
+  "source": {
+    "search": "results/supertrend_kalman/search/ny_filters_random_net1_s1_n200",
+    "trial": 33,
+    "objective": "net1"
+  },
+  "expected": {
+    "net0": 104217.05999999994,
+    "net1": 60457.05999999982,
+    "net2": 16487.059999999823,
+    "open0": 0.0,
+    "open1": 0.0,
+    "open2": 0.0,
+    "trades0": 2247,
+    "trades1": 2247,
+    "trades2": 2247,
+    "objective": 60457.05999999982
+  }
+}

@@ -183,6 +183,7 @@ class FairPriceReversal(Strategy):
         super().__init__(filters, session=session, window=window, atr_mult=atr_mult, swing=swing, target=target,
                          atr_len=atr_len)
         self.s = SESSIONS[session]
+        self.report_tz = self.s.tz
 
     def prepare(self, bars: Bars) -> np.ndarray:
         p = self.params
@@ -244,6 +245,8 @@ SPACES = {
     "filters": {"params": {}, "filters": FILTER_SPACE},  # baseline parameters frozen, filters searched
     "full": {"params": GRID, "filters": FILTER_SPACE},  # base parameters and filters together
 }
+LINEAGE = ("baselines are the feature-1 top combinations, picked from 192 grid combinations per variant on "
+           "2010-06-06 .. 2026-10-27 (includes the reserved interval)")
 ABOUT = """
 Source: LuxAlgo, [9:29 ET Fair Price Reversal](https://www.luxalgo.com/library/indicator/9-29-et-fair-price-reversal/)
 (Pine v6, MPL-2.0). The original reads NQ around the 9:30 ET stock open. Here it runs on CL1! with the anchor

@@ -70,10 +70,16 @@ def log(strategy: str, kind: str, evaluations: int, **info) -> dict:
     path = ledger_path(strategy)
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
+        import importlib
+
+        note = importlib.import_module(f"strategies.{strategy}").LINEAGE  # each strategy states its own
         lineage = {"time_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), "kind": "lineage",
-                   "evaluations": 0, "note": "baselines are the feature-1 top combinations, picked from 192 grid "
-                   "combinations per variant on 2010-06-06 .. 2026-10-27 (includes the reserved interval)"}
-        path.write_text(json.dumps(lineage) + "\n")
+                   "evaluations": 0, "note": note}
+        try:  # exclusive create: two first writers must not truncate each other's events
+            with path.open("x") as f:
+                f.write(json.dumps(lineage) + "\n")
+        except FileExistsError:
+            pass
     event = {"time_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), "kind": kind,
              "evaluations": int(evaluations), **info}
     with path.open("a") as f:

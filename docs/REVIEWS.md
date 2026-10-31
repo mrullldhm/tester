@@ -138,3 +138,34 @@ Codex's own code, all 5,667,487 bars, computed before opening Claude's trade lis
 | 1 tick | 4,461 | 42,086.78 USD | 42,086.78 USD | 0.00 |
 
 Every trade matched on signal bar, side, times, prices, profit and exit reason (121 roll exits in both).
+
+## R9: Supertrend + Kalman feature-2 plan and code review, 2026-10-31 (pytest log hash checked by Codex)
+Plan (logs/codex/r9_f2_plan_review.md): 1 high, 3 medium, 3 low, no look-ahead in the feature formulas.
+
+| Finding | Change |
+|---|---|
+| Feature eligibility must not depend on the position (filters and slippage change it) | Features defined at every structurally eligible signal; flatness and veto checked only at entry; test |
+| ER warm-up / zero denominator unspecified | NaN until 21 buckets and on a zero sum, in both twins; test |
+| Candidate acceptance not predeclared | Candidate rule written before E1 (1 and 2 ticks, 2/3 neighbours, no year above 50%, tie rule) |
+| H4 needs two bounds; cost wording; `all` 1-tick result misquoted | H4 split into two tails; cost per exit type; feature-1 conclusion corrected |
+
+Code (logs/codex/r9b_f2_code_review.md): no implementation defect; the exit-veto test was vacuous (filter incompatible
+with the NY base RVI rule). Rewritten: a veto on every bar after entry leaves the exit unchanged for flip / trail / fixed.
+
+## R10: independent replication of the NY feature-2 candidate (supertrend_kalman), 2026-10-31
+Codex's own code, 4,682,668 development bars, computed before opening Claude's trade lists.
+
+| Slippage | Trades | Codex net | Claude net | Difference |
+|---|---|---|---|---|
+| 0 ticks | 2,247 | 104,217.06 USD | 104,217.06 USD | 0.00 |
+| 1 tick | 2,247 | 60,457.06 USD | 60,457.06 USD | 0.00 |
+
+Every trade matched. Found: NY has 10 owner-rule roll exits the Pine twin does not do (twin and docs corrected).
+
+## R11: is feature 2 strategy-generic? 2026-10-31 (pytest log hash checked by Codex)
+Owner-requested audit of the feature-2 modules for fair_price_reversal assumptions. Fixed: association weekday clock
+came from the FPR session object (supertrend weekdays were UTC; now `Strategy.report_tz`), ledger lineage note
+per strategy with exclusive create, OPTIMIZE.md veto wording, supertrend feature-contract table, stronger tests,
+ledger corrections for 53 code-check engine runs. Codex (logs/codex/r11_f2_generic_audit.md): no remaining FPR
+assumption in features / search / tune / associate / experiment / cli / report / metrics; contracts, veto and
+ledger counts verified; low: label the old UTC weekday tables (done).

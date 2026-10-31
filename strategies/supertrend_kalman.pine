@@ -3,8 +3,9 @@
 // candles, full electronic session, no back-adjustment, Deep Backtesting for long ranges.
 // M15 values come from request.security(.., "15", values[1], lookahead_on): the last COMPLETED 15-minute bar,
 // read on the first 1m bar of the next one (decision at its close, market fill at the next 1m open).
-// Not in the twin: the tester's roll exit (a position open on a contract's last bar closes at its close). The
-// session variants never hold across the 00:00 UTC switch; the "All" variant can, so those trades differ.
+// Not in the twin: the tester's roll exit (a position open on a contract's last bar closes at its close). A
+// contract's last bar can fall inside a session (NY has 10 such exits 2010-2023, Codex R10), so trades open at a
+// roll differ in every variant, most in "All".
 //@version=6
 strategy("Supertrend Kalman M15 CL1! (tvtester twin)", overlay = true, initial_capital = 50000,
      default_qty_type = strategy.fixed, default_qty_value = 1,
@@ -24,6 +25,25 @@ float trailMult = input.float(2.0, "ATR trail multiple", step = 0.5)
 float kalmanQ = input.float(0.01, "Kalman q", step = 0.0001)
 float stFactor = input.float(3.0, "Supertrend factor")
 int atrLen = input.int(10, "Supertrend / trail ATR length")
+
+// --- Entry filters (feature 2, docs/strategies/supertrend_kalman/optimize/README.md). "off" = the plain strategy.
+// A vetoed M15 event expires, as any untaken event does. NaN (na) fails an enabled filter.
+string F = "Filters (feature 2)"
+string fRiskMode = input.string("off", "Risk (ticks)", options = ["off", "min", "max"], group = F, inline = "f1")
+float fRiskThr = input.float(0, "", group = F, inline = "f1")
+string fRiskAtrMode = input.string("off", "Risk / ATR14", options = ["off", "min", "max"], group = F, inline = "f2")
+float fRiskAtrThr = input.float(0, "", step = 0.25, group = F, inline = "f2")
+string fAtrRatioMode = input.string("off", "ATR14 / ATR100", options = ["off", "min", "max"], group = F, inline = "f3")
+float fAtrRatioThr = input.float(0, "", step = 0.1, group = F, inline = "f3")
+string fErMode = input.string("off", "Efficiency ratio (20)", options = ["off", "min", "max"], group = F, inline = "f4")
+float fErThr = input.float(0, "", step = 0.05, group = F, inline = "f4")
+string fHoursMode = input.string("off", "Hours since 18:00 NY", options = ["off", "min", "max"], group = F, inline = "f5")
+float fHoursThr = input.float(0, "", step = 1, group = F, inline = "f5")
+string fRviMode = input.string("off", "RVI on trade side", options = ["off", "min", "max"], group = F, inline = "f6")
+float fRviThr = input.float(0, "", step = 5, group = F, inline = "f6")
+
+passes(string mode, float v, float thr) =>
+    mode == "off" ? true : na(v) ? false : mode == "min" ? v >= thr : v <= thr
 
 // --- M15 helpers (run inside the M15 context, on every M15 bar) ---
 // UT Bot ATR trailing stop, close source
@@ -86,6 +106,7 @@ m15() =>
     float up = ta.ema(na(sd) or na(ch) ? na : ch <= 0 ? 0.0 : sd, 14)
     float dn = ta.ema(na(sd) or na(ch) ? na : ch > 0 ? 0.0 : sd, 14)
     float rv = up + dn > 0 ? 100 * up / (up + dn) : na
+    float er = math.abs(close - close[20]) / math.sum(math.abs(ta.change(close)), 20)
     bool stUp = stDir == -1
     bool stDn = stDir == 1
     bool lg = false
@@ -102,9 +123,9 @@ m15() =>
         lg := aUp and not aUp[1]
         sh := aDn and not aDn[1]
     int sig = lg and ks > 0 ? 1 : sh and ks < 0 ? -1 : 0
-    [sig[1], stDir[1], t[1], swLo[1], swHi[1], a14[1], a100[1], rv[1], time[1]]
+    [sig[1], stDir[1], t[1], swLo[1], swHi[1], a14[1], a100[1], rv[1], er[1], time[1]]
 
-[sigB, stDirB, utB, swLoB, swHiB, a14B, a100B, rviB, timeB] = request.security(syminfo.tickerid, "15", m15(),
+[sigB, stDirB, utB, swLoB, swHiB, a14B, a100B, rviB, erB, timeB] = request.security(syminfo.tickerid, "15", m15(),
      gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
 
 // --- 1m chart: hours, decisions, orders ---
@@ -138,7 +159,13 @@ else if newBucket and sigB != 0 and inHours
     if not na(lvl) and (sigB == 1 ? lvl < close : lvl > close)
         int riskTicks = math.round(math.abs(close - lvl) / syminfo.mintick)
         bool volOk = volInput == "stop_atr" ? riskTicks <= volX * a14B / syminfo.mintick : volInput == "atr_ratio" ? a14B <= volX * a100B : volInput == "rvi" ? (sigB == 1 ? rviB > 50 : rviB < 50) : true
-        if volOk
+        float riskT = float(riskTicks)
+        float a14T = a14B / syminfo.mintick
+        int nyMinute = hour(time, "America/New_York") * 60 + minute(time, "America/New_York")
+        float hoursSince = math.floor(((nyMinute - 18 * 60 + 1440) % 1440) / 60)
+        float rviSide = sigB == 1 ? rviB : 100 - rviB
+        bool filtersOk = passes(fRiskMode, riskT, fRiskThr) and passes(fRiskAtrMode, a14T > 0 ? riskT / a14T : na, fRiskAtrThr) and passes(fAtrRatioMode, a100B > 0 ? a14B / a100B : na, fAtrRatioThr) and passes(fErMode, erB, fErThr) and passes(fHoursMode, hoursSince, fHoursThr) and passes(fRviMode, rviSide, fRviThr)
+        if volOk and filtersOk
             eid := sigB == 1 ? "Long" : "Short"
             stopLvl := lvl
             profitTicks := riskTicks * rrInput
