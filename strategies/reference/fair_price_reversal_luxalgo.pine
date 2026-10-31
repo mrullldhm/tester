@@ -1,0 +1,173 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Source: LuxAlgo, "9:29 ET Fair Price Reversal" (https://www.luxalgo.com/library/indicator/9-29-et-fair-price-reversal/)
+// Reference for strategies/fair_price_reversal.py: the original's 1-minute-chart logic, verbatim except that the
+// sub-minute request.security branch, the line drawings and the alerts were removed. Signal logic is unchanged.
+//@version=6
+indicator("9:29 ET Fair Price Reversal", overlay = true, max_lines_count = 500)
+
+// --- Constants ---
+string NY_TZ = "America/New_York"
+string ONE_MINUTE = "1"
+int MINUTE_MS = 60000
+int MAX_DAYS = 250
+int MAX_PIVOT_BUFFER = 21
+int WINDOW_START_MINUTE = 9 * 60 + 30
+
+// --- Inputs ---
+string sourceSymbolInput = input.symbol("CME:NQ1!", "NQ reference symbol", tooltip = "The one-minute NQ candle, ATR measurement and market structure are read from this symbol, regardless of the chart symbol.")
+int setupWindowMinutesInput = input.int(60, "Setup window from 9:30 ET (minutes)", minval = 5, maxval = 120, group = "Reversal system", tooltip = "The significant ATR move and subsequent market-structure break must occur within this window. The 9:29 body levels are projected for the same duration.")
+int moveAtrLengthInput = input.int(14, "Move-away ATR length", minval = 2, maxval = 100, group = "Reversal system", tooltip = "ATR length used only to measure the initial move away from the 9:29 body.")
+float moveAtrMultipleInput = input.float(1.0, "Significant move: ATR multiple", minval = 0.1, maxval = 5.0, step = 0.1, group = "Reversal system", tooltip = "Price must move this many ATRs beyond the outer edge of the 9:29 candle body before market-structure signals are enabled.")
+int swingStrengthInput = input.int(2, "Structure pivot strength (bars each side)", minval = 1, maxval = 10, group = "Market structure", tooltip = "Bars required on both sides to confirm a swing high or low. Larger values filter noise but confirm structure later.")
+
+// --- Storage ---
+var float[] recentHighs = array.new_float()
+var float[] recentLows = array.new_float()
+var int[] recentTimes = array.new_int()
+var int lastDayKey = na
+var float bodyUpper = na
+var float bodyLower = na
+var float lastSwingHigh = na
+var float lastSwingLow = na
+var bool upperExcursionSeen = false
+var bool lowerExcursionSeen = false
+var bool longSignalSent = false
+var bool shortSignalSent = false
+var int upperExcursionTime = na
+var int lowerExcursionTime = na
+var bool longStructureReady = false
+var bool shortStructureReady = false
+var float longStructureTrigger = na
+var float shortStructureTrigger = na
+var int activeSetupDirection = 0 // +1 = bullish reversal setup, -1 = bearish reversal setup, 0 = none
+
+f_findPivotHigh(array<float> values, int strength) =>
+    float pivotPrice = na
+    int bufferSize = array.size(values)
+    int requiredBars = strength * 2 + 1
+    if bufferSize >= requiredBars
+        int centerIndex = bufferSize - strength - 1
+        int firstIndex = centerIndex - strength
+        int lastIndex = centerIndex + strength
+        float candidate = array.get(values, centerIndex)
+        bool isPivot = true
+        for i = firstIndex to lastIndex
+            if i != centerIndex and array.get(values, i) >= candidate
+                isPivot := false
+        if isPivot
+            pivotPrice := candidate
+    pivotPrice
+
+f_findPivotLow(array<float> values, int strength) =>
+    float pivotPrice = na
+    int bufferSize = array.size(values)
+    int requiredBars = strength * 2 + 1
+    if bufferSize >= requiredBars
+        int centerIndex = bufferSize - strength - 1
+        int firstIndex = centerIndex - strength
+        int lastIndex = centerIndex + strength
+        float candidate = array.get(values, centerIndex)
+        bool isPivot = true
+        for i = firstIndex to lastIndex
+            if i != centerIndex and array.get(values, i) <= candidate
+                isPivot := false
+        if isPivot
+            pivotPrice := candidate
+    pivotPrice
+
+// --- 1-minute chart path (the original script also supports sub-minute charts via request.security) ---
+bool longSignal = false
+bool shortSignal = false
+float moveAtr = ta.atr(moveAtrLengthInput)[1]
+if barstate.isconfirmed
+    int sourceTime = time
+    array.push(recentHighs, high)
+    array.push(recentLows, low)
+    array.push(recentTimes, sourceTime)
+    if array.size(recentHighs) > MAX_PIVOT_BUFFER
+        array.shift(recentHighs)
+        array.shift(recentLows)
+        array.shift(recentTimes)
+    float pivotHigh = f_findPivotHigh(recentHighs, swingStrengthInput)
+    float pivotLow = f_findPivotLow(recentLows, swingStrengthInput)
+    int pivotTime = array.size(recentTimes) >= swingStrengthInput * 2 + 1 ? array.get(recentTimes, array.size(recentTimes) - swingStrengthInput - 1) : na
+    bool isTargetMinute = hour(sourceTime, NY_TZ) == 9 and minute(sourceTime, NY_TZ) == 29
+    if isTargetMinute
+        int dayKey = year(sourceTime, NY_TZ) * 10000 + month(sourceTime, NY_TZ) * 100 + dayofmonth(sourceTime, NY_TZ)
+        if na(lastDayKey) or dayKey != lastDayKey
+            bodyUpper := math.max(open, close)
+            bodyLower := math.min(open, close)
+            upperExcursionSeen := false
+            lowerExcursionSeen := false
+            longSignalSent := false
+            shortSignalSent := false
+            activeSetupDirection := 0
+            upperExcursionTime := na
+            lowerExcursionTime := na
+            longStructureReady := false
+            shortStructureReady := false
+            longStructureTrigger := na
+            shortStructureTrigger := na
+            lastDayKey := dayKey
+    int minuteOfDay = hour(sourceTime, NY_TZ) * 60 + minute(sourceTime, NY_TZ)
+    bool inSignalWindow = minuteOfDay >= WINDOW_START_MINUTE and minuteOfDay < WINDOW_START_MINUTE + setupWindowMinutesInput
+    if inSignalWindow and not na(moveAtr) and moveAtr > 0 and not na(bodyUpper) and not na(bodyLower)
+        float moveDistance = moveAtr * moveAtrMultipleInput
+        if upperExcursionSeen and activeSetupDirection != -1 and not shortSignalSent and close < bodyUpper + moveDistance
+            upperExcursionSeen := false
+        if lowerExcursionSeen and activeSetupDirection != 1 and not longSignalSent and close > bodyLower - moveDistance
+            lowerExcursionSeen := false
+        bool upperMoveHit = not upperExcursionSeen and not shortSignalSent and high >= bodyUpper + moveDistance
+        bool lowerMoveHit = not lowerExcursionSeen and not longSignalSent and low <= bodyLower - moveDistance
+        if upperMoveHit and lowerMoveHit
+            upperExcursionSeen := true
+            lowerExcursionSeen := true
+            upperExcursionTime := sourceTime
+            lowerExcursionTime := sourceTime
+            activeSetupDirection := 0
+            longStructureReady := false
+            shortStructureReady := false
+            longStructureTrigger := na
+            shortStructureTrigger := na
+        else if upperMoveHit
+            upperExcursionSeen := true
+            upperExcursionTime := sourceTime
+            activeSetupDirection := -1
+            longStructureReady := false
+            shortStructureReady := false
+            longStructureTrigger := na
+            shortStructureTrigger := na
+        else if lowerMoveHit
+            lowerExcursionSeen := true
+            lowerExcursionTime := sourceTime
+            activeSetupDirection := 1
+            longStructureReady := false
+            shortStructureReady := false
+            longStructureTrigger := na
+            shortStructureTrigger := na
+    if not na(pivotHigh)
+        if inSignalWindow and activeSetupDirection == 1 and lowerExcursionSeen and not longSignalSent and not na(lastSwingHigh) and not na(pivotTime) and pivotTime > lowerExcursionTime and pivotHigh < lastSwingHigh
+            longStructureReady := true
+            longStructureTrigger := pivotHigh
+        lastSwingHigh := pivotHigh
+    if not na(pivotLow)
+        if inSignalWindow and activeSetupDirection == -1 and upperExcursionSeen and not shortSignalSent and not na(lastSwingLow) and not na(pivotTime) and pivotTime > upperExcursionTime and pivotLow > lastSwingLow
+            shortStructureReady := true
+            shortStructureTrigger := pivotLow
+        lastSwingLow := pivotLow
+    if inSignalWindow and activeSetupDirection == 1 and longStructureReady and not longSignalSent and close > longStructureTrigger and close < bodyLower
+        longSignal := true
+        longSignalSent := true
+        longStructureReady := false
+        activeSetupDirection := 0
+    if inSignalWindow and activeSetupDirection == -1 and shortStructureReady and not shortSignalSent and close < shortStructureTrigger and close > bodyUpper
+        shortSignal := true
+        shortSignalSent := true
+        shortStructureReady := false
+        activeSetupDirection := 0
+    if minuteOfDay >= WINDOW_START_MINUTE + setupWindowMinutesInput
+        longStructureReady := false
+        shortStructureReady := false
+
+plotshape(shortSignal, title = "Short reversal: higher-low break", style = shape.labeldown, location = location.abovebar, color = #f23645, text = "MSS SHORT", textcolor = color.white, size = size.tiny)
+plotshape(longSignal, title = "Long reversal: lower-high break", style = shape.labelup, location = location.belowbar, color = #089981, text = "MSS LONG", textcolor = color.white, size = size.tiny)

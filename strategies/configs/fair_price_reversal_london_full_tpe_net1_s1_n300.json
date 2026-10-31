@@ -1,0 +1,49 @@
+{
+  "strategy": "fair_price_reversal",
+  "variant": "london",
+  "filters": [
+    [
+      "minutes_from_open",
+      "max",
+      75.0
+    ],
+    [
+      "range_ratio",
+      "max",
+      0.7
+    ],
+    [
+      "risk_atr",
+      "min",
+      1.75
+    ]
+  ],
+  "params": {
+    "atr_mult": 1.5,
+    "session": "london",
+    "swing": 3,
+    "target": "rr2",
+    "window": 90
+  },
+  "interval": [
+    null,
+    "2024-01-01"
+  ],
+  "source": {
+    "search": "results/fair_price_reversal/search/london_full_tpe_net1_s1_n300",
+    "trial": 213,
+    "objective": "net1"
+  },
+  "expected": {
+    "net0": 12869.440000000017,
+    "net1": 5929.440000000024,
+    "net2": -950.5599999999831,
+    "open0": 0.0,
+    "open1": 0.0,
+    "open2": 0.0,
+    "trades0": 428,
+    "trades1": 428,
+    "trades2": 428,
+    "objective": 5929.440000000024
+  }
+}

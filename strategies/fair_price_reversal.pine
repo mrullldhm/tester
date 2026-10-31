@@ -1,0 +1,229 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Signal logic: LuxAlgo "9:29 ET Fair Price Reversal" (MPL-2.0), anchor moved to each CL session open.
+// Pine twin of strategies/fair_price_reversal.py: same properties, signals and trade rules, so trades can be
+// checked against the Python tester. Use on NYMEX:CL1!, 1-minute chart, Deep Backtesting for long ranges.
+// Not in the twin: the tester's roll exit (a position open on a contract's last bar closes at its close).
+// Intraday sessions never hold a position across the 00:00 UTC roll switch, so it does not change results here.
+//@version=6
+strategy("Fair Price Reversal CL1! (tvtester twin)", overlay = true, initial_capital = 50000,
+     default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 2.01, slippage = 0,
+     pyramiding = 0, margin_long = 0, margin_short = 0, calc_on_every_tick = false, calc_on_order_fills = false,
+     process_orders_on_close = false, backtest_fill_limits_assumption = 0, use_bar_magnifier = false)
+
+// --- Inputs (defaults: the indicator's own defaults; set them to a combination from the results doc) ---
+string sessionInput = input.string("NY", "Session", options = ["Asia", "London", "NY"])
+int windowInput = input.int(60, "Setup window from session open (minutes)", minval = 5, maxval = 120)
+int atrLengthInput = input.int(14, "Move-away ATR length", minval = 2, maxval = 100)
+float atrMultInput = input.float(1.0, "Significant move: ATR multiple", minval = 0.1, maxval = 5.0, step = 0.1)
+int swingInput = input.int(2, "Structure pivot strength (bars each side)", minval = 1, maxval = 10)
+string targetInput = input.string("near", "Target", options = ["near", "far", "rr1", "rr2"])
+
+// --- Entry filters (feature 2, docs/OPTIMIZE.md). "off" = the plain strategy. A vetoed signal still uses up the
+// day's long / short signal. Set them from a frozen configuration in strategies/configs/*.json ---
+string F = "Filters (feature 2)"
+string fMinutesMode = input.string("off", "Minutes from open", options = ["off", "min", "max"], group = F, inline = "f1")
+float fMinutesThr = input.float(0, "", group = F, inline = "f1")
+string fBodyMode = input.string("off", "Anchor body / ATR", options = ["off", "min", "max"], group = F, inline = "f2")
+float fBodyThr = input.float(0, "", step = 0.1, group = F, inline = "f2")
+string fRiskTicksMode = input.string("off", "Risk (ticks)", options = ["off", "min", "max"], group = F, inline = "f3")
+float fRiskTicksThr = input.float(0, "", group = F, inline = "f3")
+string fRiskAtrMode = input.string("off", "Risk / ATR", options = ["off", "min", "max"], group = F, inline = "f4")
+float fRiskAtrThr = input.float(0, "", step = 0.25, group = F, inline = "f4")
+string fRangeMode = input.string("off", "Range ratio", options = ["off", "min", "max"], group = F, inline = "f5")
+float fRangeThr = input.float(0, "", step = 0.1, group = F, inline = "f5")
+int RANGE_BARS = 1380
+int RANGE_DAYS = 20
+
+// --- Session clock: own time zone per session (US, UK and Asia change clocks on different dates) ---
+string tz = sessionInput == "Asia" ? "Asia/Shanghai" : sessionInput == "London" ? "Europe/London" : "America/New_York"
+int openMinute = sessionInput == "London" ? 8 * 60 : 9 * 60
+int flatMinute = sessionInput == "Asia" ? 15 * 60 : sessionInput == "London" ? 13 * 60 : 14 * 60 + 30
+int anchorMinute = openMinute - 1
+int MAX_PIVOT_BUFFER = 21
+
+var float[] recentHighs = array.new_float()
+var float[] recentLows = array.new_float()
+var int[] recentTimes = array.new_int()
+var int lastDayKey = na
+var float bodyUpper = na
+var float bodyLower = na
+var float lastSwingHigh = na
+var float lastSwingLow = na
+var bool upperExcursionSeen = false
+var bool lowerExcursionSeen = false
+var bool longSignalSent = false
+var bool shortSignalSent = false
+var int upperExcursionTime = na
+var int lowerExcursionTime = na
+var bool longStructureReady = false
+var bool shortStructureReady = false
+var float longStructureTrigger = na
+var float shortStructureTrigger = na
+var int activeSetupDirection = 0
+var float lowSinceLowerExcursion = na
+var float highSinceUpperExcursion = na
+var float anchorBodyAtr = na
+var float rangeRatio = na
+var float[] rangeHist = array.new_float()
+
+f_pivot(array<float> values, int strength, bool isHigh) =>
+    float pivotPrice = na
+    int bufferSize = array.size(values)
+    if bufferSize >= strength * 2 + 1
+        int centerIndex = bufferSize - strength - 1
+        float candidate = array.get(values, centerIndex)
+        bool isPivot = true
+        for i = centerIndex - strength to centerIndex + strength
+            if i != centerIndex and (isHigh ? array.get(values, i) >= candidate : array.get(values, i) <= candidate)
+                isPivot := false
+        if isPivot
+            pivotPrice := candidate
+    pivotPrice
+
+f_pass(string mode, float thr, float v) =>
+    mode == "off" ? true : na(v) ? false : mode == "min" ? v >= thr : v <= thr
+
+float moveAtr = ta.atr(atrLengthInput)[1]
+float highPrior = ta.highest(high, RANGE_BARS)[1]  // every bar (global scope), sampled at the anchor reset
+float lowPrior = ta.lowest(low, RANGE_BARS)[1]
+bool longSignal = false
+bool shortSignal = false
+int minuteOfDay = hour(time, tz) * 60 + minute(time, tz)
+
+array.push(recentHighs, high)
+array.push(recentLows, low)
+array.push(recentTimes, time)
+if array.size(recentHighs) > MAX_PIVOT_BUFFER
+    array.shift(recentHighs)
+    array.shift(recentLows)
+    array.shift(recentTimes)
+float pivotHigh = f_pivot(recentHighs, swingInput, true)
+float pivotLow = f_pivot(recentLows, swingInput, false)
+int pivotTime = array.size(recentTimes) >= swingInput * 2 + 1 ? array.get(recentTimes, array.size(recentTimes) - swingInput - 1) : na
+lowSinceLowerExcursion := na(lowSinceLowerExcursion) ? na : math.min(lowSinceLowerExcursion, low)
+highSinceUpperExcursion := na(highSinceUpperExcursion) ? na : math.max(highSinceUpperExcursion, high)
+
+if minuteOfDay == anchorMinute
+    int dayKey = year(time, tz) * 10000 + month(time, tz) * 100 + dayofmonth(time, tz)
+    if na(lastDayKey) or dayKey != lastDayKey
+        bodyUpper := math.max(open, close)
+        bodyLower := math.min(open, close)
+        upperExcursionSeen := false
+        lowerExcursionSeen := false
+        longSignalSent := false
+        shortSignalSent := false
+        activeSetupDirection := 0
+        upperExcursionTime := na
+        lowerExcursionTime := na
+        longStructureReady := false
+        shortStructureReady := false
+        longStructureTrigger := na
+        shortStructureTrigger := na
+        lowSinceLowerExcursion := na
+        highSinceUpperExcursion := na
+        lastDayKey := dayKey
+        anchorBodyAtr := not na(moveAtr) and moveAtr > 0 ? math.abs(close - open) / moveAtr : na
+        float priorRange = bar_index >= RANGE_BARS ? highPrior - lowPrior : na
+        rangeRatio := na
+        if not na(priorRange)
+            if array.size(rangeHist) == RANGE_DAYS and array.avg(rangeHist) > 0
+                rangeRatio := priorRange / array.avg(rangeHist)
+            array.push(rangeHist, priorRange)
+            if array.size(rangeHist) > RANGE_DAYS
+                array.shift(rangeHist)
+
+bool inSignalWindow = minuteOfDay >= openMinute and minuteOfDay < openMinute + windowInput
+if inSignalWindow and not na(moveAtr) and moveAtr > 0 and not na(bodyUpper) and not na(bodyLower)
+    float moveDistance = moveAtr * atrMultInput
+    if upperExcursionSeen and activeSetupDirection != -1 and not shortSignalSent and close < bodyUpper + moveDistance
+        upperExcursionSeen := false
+    if lowerExcursionSeen and activeSetupDirection != 1 and not longSignalSent and close > bodyLower - moveDistance
+        lowerExcursionSeen := false
+    bool upperMoveHit = not upperExcursionSeen and not shortSignalSent and high >= bodyUpper + moveDistance
+    bool lowerMoveHit = not lowerExcursionSeen and not longSignalSent and low <= bodyLower - moveDistance
+    if upperMoveHit and lowerMoveHit
+        upperExcursionSeen := true
+        lowerExcursionSeen := true
+        upperExcursionTime := time
+        lowerExcursionTime := time
+        highSinceUpperExcursion := high
+        lowSinceLowerExcursion := low
+        activeSetupDirection := 0
+        longStructureReady := false
+        shortStructureReady := false
+        longStructureTrigger := na
+        shortStructureTrigger := na
+    else if upperMoveHit
+        upperExcursionSeen := true
+        upperExcursionTime := time
+        highSinceUpperExcursion := high
+        activeSetupDirection := -1
+        longStructureReady := false
+        shortStructureReady := false
+        longStructureTrigger := na
+        shortStructureTrigger := na
+    else if lowerMoveHit
+        lowerExcursionSeen := true
+        lowerExcursionTime := time
+        lowSinceLowerExcursion := low
+        activeSetupDirection := 1
+        longStructureReady := false
+        shortStructureReady := false
+        longStructureTrigger := na
+        shortStructureTrigger := na
+if not na(pivotHigh)
+    if inSignalWindow and activeSetupDirection == 1 and lowerExcursionSeen and not longSignalSent and not na(lastSwingHigh) and not na(pivotTime) and pivotTime > lowerExcursionTime and pivotHigh < lastSwingHigh
+        longStructureReady := true
+        longStructureTrigger := pivotHigh
+    lastSwingHigh := pivotHigh
+if not na(pivotLow)
+    if inSignalWindow and activeSetupDirection == -1 and upperExcursionSeen and not shortSignalSent and not na(lastSwingLow) and not na(pivotTime) and pivotTime > upperExcursionTime and pivotLow > lastSwingLow
+        shortStructureReady := true
+        shortStructureTrigger := pivotLow
+    lastSwingLow := pivotLow
+if inSignalWindow and activeSetupDirection == 1 and longStructureReady and not longSignalSent and close > longStructureTrigger and close < bodyLower
+    longSignal := true
+    longSignalSent := true
+    longStructureReady := false
+    activeSetupDirection := 0
+if inSignalWindow and activeSetupDirection == -1 and shortStructureReady and not shortSignalSent and close < shortStructureTrigger and close > bodyUpper
+    shortSignal := true
+    shortSignalSent := true
+    shortStructureReady := false
+    activeSetupDirection := 0
+if minuteOfDay >= openMinute + windowInput
+    longStructureReady := false
+    shortStructureReady := false
+
+// --- Trade rules ---
+bool inSession = minuteOfDay >= openMinute and minuteOfDay < flatMinute - 1
+float rMult = targetInput == "rr1" ? 1.0 : 2.0
+float signalStop = longSignal ? lowSinceLowerExcursion : shortSignal ? highSinceUpperExcursion : na
+float riskTicks = na(signalStop) ? na : math.round(math.abs(close - signalStop) / syminfo.mintick)
+float riskAtr = not na(riskTicks) and not na(moveAtr) and moveAtr > 0 ? riskTicks * syminfo.mintick / moveAtr : na
+bool allowed = f_pass(fMinutesMode, fMinutesThr, minuteOfDay - openMinute) and f_pass(fBodyMode, fBodyThr, anchorBodyAtr)
+     and f_pass(fRiskTicksMode, fRiskTicksThr, riskTicks) and f_pass(fRiskAtrMode, fRiskAtrThr, riskAtr)
+     and f_pass(fRangeMode, fRangeThr, rangeRatio)
+if strategy.position_size != 0 and not inSession
+    strategy.close_all(comment = "Session end")
+else if strategy.position_size == 0 and inSession and allowed
+    if longSignal
+        float stopLong = lowSinceLowerExcursion
+        strategy.entry("Long", strategy.long)
+        if targetInput == "near" or targetInput == "far"
+            strategy.exit("Exit", "Long", stop = stopLong, limit = targetInput == "near" ? bodyLower : bodyUpper)
+        else
+            strategy.exit("Exit", "Long", stop = stopLong, profit = math.round((close - stopLong) / syminfo.mintick) * rMult)
+    else if shortSignal
+        float stopShort = highSinceUpperExcursion
+        strategy.entry("Short", strategy.short)
+        if targetInput == "near" or targetInput == "far"
+            strategy.exit("Exit", "Short", stop = stopShort, limit = targetInput == "near" ? bodyUpper : bodyLower)
+        else
+            strategy.exit("Exit", "Short", stop = stopShort, profit = math.round((stopShort - close) / syminfo.mintick) * rMult)
+
+plotshape(shortSignal, title = "MSS SHORT", style = shape.labeldown, location = location.abovebar, color = #f23645, text = "MSS SHORT", textcolor = color.white, size = size.tiny)
+plotshape(longSignal, title = "MSS LONG", style = shape.labelup, location = location.belowbar, color = #089981, text = "MSS LONG", textcolor = color.white, size = size.tiny)
+plot(inSignalWindow ? bodyUpper : na, "Anchor body top", color = #f6a623, style = plot.style_linebr)
+plot(inSignalWindow ? bodyLower : na, "Anchor body bottom", color = #5b9cf6, style = plot.style_linebr)

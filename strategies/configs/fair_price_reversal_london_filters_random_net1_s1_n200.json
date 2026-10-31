@@ -1,0 +1,39 @@
+{
+  "strategy": "fair_price_reversal",
+  "variant": "london",
+  "filters": [
+    [
+      "risk_ticks",
+      "min",
+      30.0
+    ]
+  ],
+  "params": {
+    "atr_mult": 2.0,
+    "session": "london",
+    "swing": 3,
+    "target": "rr2",
+    "window": 120
+  },
+  "interval": [
+    null,
+    "2024-01-01"
+  ],
+  "source": {
+    "search": "results/fair_price_reversal/search/london_filters_random_net1_s1_n200",
+    "trial": 89,
+    "objective": "net1"
+  },
+  "expected": {
+    "net0": 39017.279999999955,
+    "net1": 32197.279999999926,
+    "net2": 23121.29999999993,
+    "open0": 0.0,
+    "open1": 0.0,
+    "open2": 0.0,
+    "trades0": 436,
+    "trades1": 436,
+    "trades2": 435,
+    "objective": 32197.279999999926
+  }
+}

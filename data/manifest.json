@@ -1,0 +1,31 @@
+{
+  "written_utc": "2026-10-29T06:25:08+00:00",
+  "source": "market-tester data/processed: ohlcv-1m CL.v.0 (Databento GLBX.MDP3) + ohlcv-1m-ext (Massive)",
+  "first_bar": "2010-06-07 00:00:00+00:00",
+  "last_bar": "2026-10-27 20:59:00+00:00",
+  "rows": 5667487,
+  "rows_by_vendor": {
+    "databento": 5653891,
+    "massive": 13596
+  },
+  "updates": [],
+  "files_sha256": {
+    "year=2010.parquet": "462ad3bd00cf12631a757b0a5cb505dabff9e7f081c6a38cf97157f57a0be4ff",
+    "year=2011.parquet": "7cbde9920cf57198da0669c893b0db7d80c9d286a03ac3ffdc6999a73bff9718",
+    "year=2012.parquet": "42f41b23e661b6541742a411b6ebb311a7abeefa6897c5972fbac18b76f1b347",
+    "year=2013.parquet": "8ae7594385fda42f150e637f7b94c2db996e8e78bea8ca8f75d9969b7a88b74b",
+    "year=2014.parquet": "dc453fc604fc3c34b520dbdd186e89212eb959222a19ea007586d7b98a9c1ff2",
+    "year=2015.parquet": "c9b6598f2257496b7d8398486da0119c5aa50f492305a5828da7767f9cb52d16",
+    "year=2016.parquet": "f8c2271c61c6eee6a3e11fed7465c0fc61054e7bf83f9dc3e9213c88d2646440",
+    "year=2017.parquet": "dcfd0a0de72f563cbe4ec14e639e0cbcc8794b75fd330e988665fe19b3c74d3e",
+    "year=2018.parquet": "369d87db9da066f7d70a4cab38e40642a31e82fdb9e1db0e66d5e10ebb3fa6b3",
+    "year=2019.parquet": "16ce13a99a17bc82c32818cd66f5708474839f5263338095abd39e330b2d092c",
+    "year=2020.parquet": "a340d2a4bcf0125fe09375d7eff263fe49fc8628fefbacc17cfd6c66feed1678",
+    "year=2021.parquet": "fa56e87921e6db54e862cc90fd7df5e491f7393d098e53082d59c0f434f49f9a",
+    "year=2022.parquet": "20bccfe72089c1063239e66d6864f867e56beb9b9d8fd50260857298d3ecbe89",
+    "year=2023.parquet": "d7589fd931db809594a0f63363b5c9e32b325db4684f7054299f61859d731773",
+    "year=2024.parquet": "6aa7a3ce531d22eae94e1ae35113aa1da67f3c013dd7b8e97d9faada9f4cb318",
+    "year=2025.parquet": "543af0bc4941bc2b68a0b70cd0a578bd2099f078c841e496d5d1866e953f1b45",
+    "year=2026.parquet": "cd199f6cc602e2461b23fa7b5d43cdeb27e8179d98efd2890c97e82bdb7aa3e1"
+  }
+}
