@@ -10,7 +10,7 @@ Generated 2026-10-31 05:46 UTC by `python -m tvtester.cli replay strategies/conf
 
 Replay matches the search trial: **yes**.
 
-![Equity curve](equity_ny_filters_random_net1_s1_n200.png)
+![Equity curve](winner_ny_filters_random_net1_s1_n200.png)
 
 ## Against the baseline (same interval, same costs)
 

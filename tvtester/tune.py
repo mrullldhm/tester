@@ -16,6 +16,11 @@ from .config import DEFAULT, ROOT
 from .engine import run
 
 CONFIG_DIR = ROOT / "strategies" / "configs"
+
+
+def doc_dir(name: str):
+    """Every readable feature-2 document of a strategy lives here; results/ keeps only raw data."""
+    return ROOT / "docs" / "strategies" / name / "optimize"
 IN_SAMPLE = ("> **In-sample.** Development interval only (bars before {end} UTC). {extra}Nothing here shows a "
              "tradable edge: out-of-sample validation is a later feature.")
 
@@ -35,7 +40,7 @@ def cmd_features(name: str, variant: str) -> str:
     params = {**mod.VARIANTS[variant], **mod.BASELINES[variant]}
     out = ROOT / "results" / name / "features" / variant
     out.mkdir(parents=True, exist_ok=True)
-    doc = ROOT / "docs" / "strategies" / name / f"features_{variant}.md"
+    doc = doc_dir(name) / f"features_{variant}.md"
     lines = [f"# {mod.TITLE}: feature association, {variant}", "",
              f"Generated {_now()} UTC by `python -m tvtester.cli features {name} --variant {variant}`.", "",
              IN_SAMPLE.format(end=experiment.DEV_END, extra=""), "",
@@ -141,12 +146,12 @@ def cmd_search(name: str, variant: str, space_name: str, sampler: str, trials: i
             "expected": {f"{m}{k}": (int(best[f"{m}{k}"]) if m == "trades" else float(best[f"{m}{k}"]))
                          for m in ("net", "open", "trades") for k in search.SCENARIOS} | {"objective": float(best["objective"])},
         }, indent=2, default=float))
-    write_search_report(out, meta, df, nb_df, winner, cfg_path, claimed[0])
+    doc = write_search_report(out, meta, df, nb_df, winner, cfg_path, claimed[0])
     experiment.log(name, "search", 0, engine_runs=claimed[0], run_id=run_id, variant=variant, space=space_name, sampler=sampler,
                    objective=objective, seed=seed, trials=len(df), duplicates=int(df["duplicate"].sum()),
                    eligible=int(df["eligible"].sum()), winner=None if winner is None else best["label"],
                    code_hash=prov["code_hash"], data_hash=prov["data_hash"])
-    return str(out / "report.md")
+    return str(doc)
 
 
 def _trial_rows(df: pd.DataFrame, n: int) -> list[str]:
@@ -189,9 +194,12 @@ def write_search_report(out, meta, df, nb_df, winner, cfg_path, n_eval) -> None:
     lines += ["", "## Top 20 trials", ""] + _trial_rows(df, 20)
     lines += ["", f"Eligible trials: {int(df['eligible'].sum())} of {len(df)}. Trials with objective above zero: "
                   f"{int(((df['objective'] > 0) & df['eligible']).sum())}.", "",
-              "Files: `trials.csv` (every trial, all scenarios), `neighbours.csv`, `run.json` (space, hashes, "
-              "versions)."]
-    (out / "report.md").write_text("\n".join(lines) + "\n")
+              f"Raw files in `{out.relative_to(ROOT)}/`: `trials.csv` (every trial, all scenarios), "
+              "`neighbours.csv`, `run.json` (space, hashes, versions)."]
+    doc = doc_dir(meta["strategy"]) / f"search_{out.name}.md"
+    doc.parent.mkdir(parents=True, exist_ok=True)
+    doc.write_text("\n".join(lines) + "\n")
+    return doc
 
 
 # --- replay ----------------------------------------------------------------------------------------------
@@ -224,8 +232,7 @@ def cmd_replay(cfg_file: str) -> str:
                  and abs(sums[k]["open_pnl"] - exp[f"open{k}"]) < 1e-6
                  and sums[k]["all"]["total_closed_trades"] == exp[f"trades{k}"] for k in search.SCENARIOS)
              and abs(sums[obj_k]["all"]["net_profit"] + sums[obj_k]["open_pnl"] - exp["objective"]) < 1e-6) if exp else None
-    doc_dir = ROOT / "docs" / "strategies" / name / "optimized"
-    png = doc_dir / f"equity_{tag}.png"
+    png = doc_dir(name) / f"winner_{tag}.png"
     report.equity_png(results, png, f"{mod.TITLE}: {variant} {tag} (in-sample)")
     tf0 = metrics.trade_frame(results[0])
     filt = ", ".join(f"`{f} {'>=' if o == 'min' else '<='} {t:g}`" for f, o, t in cfg["filters"]) or "none"
@@ -237,7 +244,7 @@ def cmd_replay(cfg_file: str) -> str:
              f"**Parameters:** {', '.join(f'`{k}={v}`' for k, v in cfg['params'].items())}", "",
              f"**Filters:** {filt}", "",
              f"Replay matches the search trial: **{'yes' if match else 'NO' if match is False else 'n/a'}**.", "",
-             f"![Equity curve](equity_{tag}.png)", "",
+             f"![Equity curve](winner_{tag}.png)", "",
              "## Against the baseline (same interval, same costs)", "",
              "| Scenario | Baseline net | Optimized net | Baseline trades | Optimized trades | Baseline PF | "
              "Optimized PF | Baseline max DD | Optimized max DD |", "|---|---|---|---|---|---|---|---|---|"]
@@ -253,7 +260,7 @@ def cmd_replay(cfg_file: str) -> str:
     for k in (1, 2):
         lines += [f"## {k} tick{'s' if k > 1 else ''} slippage", "",
                   report.full_report(sums[k], metrics.trade_frame(results[k]), level=3)]
-    doc = doc_dir / f"{tag}.md"
+    doc = doc_dir(name) / f"winner_{tag}.md"
     doc.write_text("\n".join(lines))
     print(f"  replay matches search trial: {match}")
     return str(doc)

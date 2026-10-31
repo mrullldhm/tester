@@ -1,4 +1,17 @@
-# Fair Price Reversal: feature-2 experiments
+# Fair Price Reversal: feature 2 (optimize) results
+
+**Start here.** Verdict at the bottom. Other files in this folder:
+
+| File | What |
+|---|---|
+| [`features_ny.md`](features_ny.md), [`features_london.md`](features_london.md), [`features_asia.md`](features_asia.md) | E1: which feature values go with good / bad trades |
+| `search_<session>_filters_random_net1_s1_n200.md` | E2 search reports: baseline vs winner, neighbours, top 20 |
+| `search_<session>_full_tpe_net1_s1_n300.md` | E3 search reports |
+| `winner_<same name>.md` + `.png` | Full TradingView-style report of each frozen winner |
+
+The two candidates: [`winner_ny_filters_random_net1_s1_n200.md`](winner_ny_filters_random_net1_s1_n200.md) and
+[`winner_london_filters_random_net1_s1_n200.md`](winner_london_filters_random_net1_s1_n200.md). The feature-1
+result is [`../README.md`](../README.md).
 
 Lab notebook (docs/OPTIMIZE.md, "Agent loop"). Hypotheses and budgets are written **before** the runs they
 describe. Every run is in `results/fair_price_reversal/ledger.jsonl`. All numbers are in-sample, development
@@ -53,7 +66,7 @@ Run twice (the second run only fixed bucket labels; both are in the ledger). At 
 | london | `risk_ticks >= 30` | +39,017 / +32,197 / +23,121 | 436 | -13,754 | 28 and 32 ticks: +29,712 / +32,865 |
 | asia | `minutes_from_open >= 15` | +1,216 / -2,924 / -8,744 | 302 | -4,085 | still losing; no eligible profitable trial |
 
-Reports: `results/fair_price_reversal/search/<variant>_filters_random_net1_s1_n200/report.md`.
+Reports: [`search_ny_filters_random_net1_s1_n200.md`](search_ny_filters_random_net1_s1_n200.md), [`search_london_filters_random_net1_s1_n200.md`](search_london_filters_random_net1_s1_n200.md), [`search_asia_filters_random_net1_s1_n200.md`](search_asia_filters_random_net1_s1_n200.md).
 
 **Reading.** The one pre-declared, cost-based hypothesis (H2) is what the search found in both sessions with
 enough trades, and its neighbours form a plateau, not a spike. Mechanism: at 1 tick a round trip costs
@@ -84,7 +97,7 @@ configurations were never affected.
 
 ### Replays
 All six frozen configurations replayed through `cli replay` and matched their search trials exactly (net, open
-P&L, trades, objective, every scenario): [`optimized/`](optimized/).
+P&L, trades, objective, every scenario): the `winner_*.md` files in this folder.
 
 ### By year: the candidates depend on high-volatility years
 At 1 tick, development interval:

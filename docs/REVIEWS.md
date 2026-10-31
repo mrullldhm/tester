@@ -93,7 +93,7 @@ quantity and commission. Findings (2 high, 4 medium), all fixed:
 | Sev | Finding | Fix |
 |---|---|---|
 | High | Engine runs only reached the ledger after a whole search finished | Each batch (and the neighbour batch) is logged before it runs; test with an engine failure in the second batch |
-| High | Notebook claimed a strict advance budget and development-only selection while the ledger shows three after-the-fact looks, one on reserved data | Exceptions disclosed in `experiments.md` |
+| High | Notebook claimed a strict advance budget and development-only selection while the ledger shows three after-the-fact looks, one on reserved data | Exceptions disclosed in the lab notebook (`docs/strategies/fair_price_reversal/optimize/README.md`) |
 | Medium | "Both candidates turn a loss into a profit": NY's development baseline already made +2,423 at 1 tick | Reworded per variant |
 | Medium | A flat $24.02 round-trip cost ignored unslipped limit exits ($14.02) | Cost stated by exit type |
 | Medium | "Asia has no configuration that makes money" ignored trials under the trade minimum | "No eligible trial" |

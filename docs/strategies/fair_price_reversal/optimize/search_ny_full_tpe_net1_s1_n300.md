@@ -1,6 +1,6 @@
 # Search ny_full_tpe_net1_s1_n300
 
-Generated 2026-10-31 05:44 UTC. Strategy `fair_price_reversal`, variant `ny`, space `full`, sampler `tpe`, seed 1, objective `net1` (net profit + open P&L at 1 tick), at least 300 closed trades.
+Generated 2026-10-31 12:37 UTC. Strategy `fair_price_reversal`, variant `ny`, space `full`, sampler `tpe`, seed 1, objective `net1` (net profit + open P&L at 1 tick), at least 300 closed trades.
 
 > **In-sample.** Development interval only (bars before 2024-01-01 UTC). The winner is the best of 300 trials (6 duplicates) and 13 neighbours: 921 engine runs. Nothing here shows a tradable edge: out-of-sample validation is a later feature.
 
@@ -62,4 +62,4 @@ Neighbour objective: median 24,486.32 USD, worst 9,922.44 USD, 13 of 13 above ze
 
 Eligible trials: 187 of 300. Trials with objective above zero: 89.
 
-Files: `trials.csv` (every trial, all scenarios), `neighbours.csv`, `run.json` (space, hashes, versions).
+Raw files in `results/fair_price_reversal/search/ny_full_tpe_net1_s1_n300/`: `trials.csv` (every trial, all scenarios), `neighbours.csv`, `run.json` (space, hashes, versions).

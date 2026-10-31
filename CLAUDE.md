@@ -12,5 +12,5 @@
 - Codex reviews and replicates (`AGENTS.md`) before a result is called real. Give it a hashed pytest log.
 - Databento downloads cost money: always show the quote and ask the owner first.
 - Feature 2 (optimize, `docs/OPTIMIZE.md`): development interval only (before 2024-01-01; 2024+ is reserved, not
-  clean OOS). Declare hypothesis, objective and trial budget in `experiments.md` before running; every run goes to the
+  clean OOS). Declare hypothesis, objective and trial budget in `docs/strategies/<name>/optimize/README.md` before running; every run goes to the
   ledger; every optimized number says in-sample and best of N.

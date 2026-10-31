@@ -51,6 +51,18 @@ Descriptive only (association report, no filter): direction, local weekday.
 Deferred (look-ahead or definition problems found in R4): higher-timeframe trend, settlement gap, EIA calendar,
 roll week, session-open relative volume.
 
+## Where the results are
+One folder per strategy holds every readable feature-2 document: `docs/strategies/<strategy>/optimize/`.
+
+| File | Written by |
+|---|---|
+| `README.md` | the lab notebook: hypotheses, budgets, results, verdict (hand-written) |
+| `features_<variant>.md` | `features` |
+| `search_<run_id>.md` | `search` (baseline vs winner, neighbours, top 20) |
+| `winner_<config>.md` + `.png` | `replay` (full TradingView-style report of a frozen winner) |
+
+`results/<strategy>/` holds only raw data (CSV, JSON, the ledger) for scripts and replication.
+
 ## Commands
 ```bash
 .venv/bin/python -m tvtester.cli features fair_price_reversal --variant ny            # association report
@@ -93,11 +105,11 @@ can let in another trade the baseline never took).
 
 ### Replay (`replay`)
 A frozen configuration (`strategies/configs/*.json`: strategy, variant, every parameter, filters, interval, source
-run and trial) runs at 0 / 1 / 2 ticks without any grid, and writes `results/<strategy>/replay/<name>/` and its
-section in `docs/strategies/<strategy>/OPTIMIZE.md`. It never touches the feature-1 document.
+run and trial) runs at 0 / 1 / 2 ticks without any grid, and writes raw files to `results/<strategy>/replay/<name>/`
+and its report to `docs/strategies/<strategy>/optimize/winner_<name>.md`. It never touches the feature-1 document.
 
 ## Agent loop
-1. Hypothesis, written in `docs/strategies/<strategy>/experiments.md` before running anything.
+1. Hypothesis, written in the lab notebook `docs/strategies/<strategy>/optimize/README.md` before running anything.
 2. Association report. 3. Feature code + tests (if a new feature is needed). 4. Search with a declared budget and
-objective. 5. Winner, neighbours, slippage scenarios. 6. Verdict in `experiments.md`. 7. Freeze the winner; Codex
+objective. 5. Winner, neighbours, slippage scenarios. 6. Verdict in the lab notebook. 7. Freeze the winner; Codex
 reviews and replicates it before it is called real.

@@ -238,8 +238,10 @@ def test_constant_feature_buckets():
     assert b["bucket"].tolist() == ["2 .. 2", "NaN"] and b["trades"].tolist() == [6, 1]
 
 
-def test_search_report_baseline_row_is_trial_0_even_if_resuggested(tmp_path):
+def test_search_report_baseline_row_is_trial_0_even_if_resuggested(tmp_path, monkeypatch):
     from tvtester import tune
+    monkeypatch.setattr(tune, "ROOT", tmp_path)
+    out = tmp_path / "results" / "x" / "search" / "run"
     row = _fake_rows("x", [search.canonical(SPACE["base"], [])], 1)[0]
     cfgs = [search.canonical(SPACE["base"], []), search.canonical(SPACE["base"], [["risk_ticks", "min", 8.0]]),
             search.canonical(SPACE["base"], [])]
@@ -247,8 +249,9 @@ def test_search_report_baseline_row_is_trial_0_even_if_resuggested(tmp_path):
     df = search.rank(search.table(cfgs, rows, SPACE["base"], [False, False, True]), "net1")
     meta = {"strategy": "x", "variant": "ny", "space_name": "filters", "sampler": "tpe", "seed": 1,
             "objective": "net1", "min_trades": 300}
-    tune.write_search_report(tmp_path, meta, df, pd.DataFrame(), None, None, 6)
-    text = (tmp_path / "report.md").read_text()
+    doc = tune.write_search_report(out, meta, df, pd.DataFrame(), None, None, 6)
+    assert doc == tmp_path / "docs" / "strategies" / "x" / "optimize" / "search_run.md"
+    text = doc.read_text()
     head = text.split("## Baseline vs winner")[1].split("## Top 20")[0]
     assert "| 1 | 0 | baseline |" in head and "| 2 | 1 | risk_ticks >= 8 |" in head
 

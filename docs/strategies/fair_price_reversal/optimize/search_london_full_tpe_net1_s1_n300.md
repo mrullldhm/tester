@@ -1,6 +1,6 @@
 # Search london_full_tpe_net1_s1_n300
 
-Generated 2026-10-31 05:44 UTC. Strategy `fair_price_reversal`, variant `london`, space `full`, sampler `tpe`, seed 1, objective `net1` (net profit + open P&L at 1 tick), at least 300 closed trades.
+Generated 2026-10-31 12:37 UTC. Strategy `fair_price_reversal`, variant `london`, space `full`, sampler `tpe`, seed 1, objective `net1` (net profit + open P&L at 1 tick), at least 300 closed trades.
 
 > **In-sample.** Development interval only (bars before 2024-01-01 UTC). The winner is the best of 300 trials (7 duplicates) and 17 neighbours: 930 engine runs. Nothing here shows a tradable edge: out-of-sample validation is a later feature.
 
@@ -66,4 +66,4 @@ Neighbour objective: median 5,247.64 USD, worst -6,142.80 USD, 11 of 17 above ze
 
 Eligible trials: 160 of 300. Trials with objective above zero: 25.
 
-Files: `trials.csv` (every trial, all scenarios), `neighbours.csv`, `run.json` (space, hashes, versions).
+Raw files in `results/fair_price_reversal/search/london_full_tpe_net1_s1_n300/`: `trials.csv` (every trial, all scenarios), `neighbours.csv`, `run.json` (space, hashes, versions).

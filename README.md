@@ -155,9 +155,9 @@ All fill and metric rules are listed one by one in [`docs/ENGINE.md`](docs/ENGIN
 | `docs/ENGINE.md` | Every engine and metric rule |
 | `docs/SESSIONS.md` | How the CL session times were verified |
 | `docs/PLAN.md` | The build plan, reviewed by Codex |
-| `docs/strategies/<name>/README.md` | Results document per strategy |
 | `docs/OPTIMIZE.md` | Feature 2 protocol and feature contracts |
-| `docs/strategies/<name>/experiments.md`, `features_<variant>.md`, `optimized/` | Feature-2 lab notebook, association reports, replayed winners |
+| `docs/strategies/<name>/README.md` | Feature 1 result (TradingView-style report) |
+| `docs/strategies/<name>/optimize/` | Feature 2 result: `README.md` (summary and verdict), `features_*`, `search_*`, `winner_*` reports |
 | `results/<name>/search/<run>/`, `results/<name>/ledger.jsonl` | Every search trial, neighbours, run provenance; the append-only record of every feature-2 run |
 | `strategies/configs/*.json` | Frozen winning configurations (replayable) |
 | `results/<name>/<variant>/` | `grid.csv` (all combinations), `trades_slippage{0,1,2}.csv`, `summary.json` |
@@ -331,7 +331,7 @@ parquet files: 3,710 trades and +42,475.80 USD at 0 ticks, 3,704 trades and −2
 trade matched on side, times, prices, profit and exit reason ([`docs/REVIEWS.md`](docs/REVIEWS.md)).
 
 **Feature 2 (optimize), development interval 2010-06 to 2023-12, in-sample:** lab notebook
-[`docs/strategies/fair_price_reversal/experiments.md`](docs/strategies/fair_price_reversal/experiments.md).
+[`docs/strategies/fair_price_reversal/optimize/README.md`](docs/strategies/fair_price_reversal/optimize/README.md).
 
 | Session | Candidate | Net 0 / 1 / 2 ticks | Trades | Baseline at 1 tick |
 |---|---|---|---|---|

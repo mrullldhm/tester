@@ -1,6 +1,6 @@
 # Search asia_filters_random_net1_s1_n200
 
-Generated 2026-10-31 05:44 UTC. Strategy `fair_price_reversal`, variant `asia`, space `filters`, sampler `random`, seed 1, objective `net1` (net profit + open P&L at 1 tick), at least 300 closed trades.
+Generated 2026-10-31 12:37 UTC. Strategy `fair_price_reversal`, variant `asia`, space `filters`, sampler `random`, seed 1, objective `net1` (net profit + open P&L at 1 tick), at least 300 closed trades.
 
 > **In-sample.** Development interval only (bars before 2024-01-01 UTC). The winner is the best of 200 trials (0 duplicates) and 3 neighbours: 609 engine runs. Nothing here shows a tradable edge: out-of-sample validation is a later feature.
 
@@ -52,4 +52,4 @@ Neighbour objective: median -4,084.84 USD, worst -4,388.76 USD, 1 of 3 above zer
 
 Eligible trials: 24 of 200. Trials with objective above zero: 0.
 
-Files: `trials.csv` (every trial, all scenarios), `neighbours.csv`, `run.json` (space, hashes, versions).
+Raw files in `results/fair_price_reversal/search/asia_filters_random_net1_s1_n200/`: `trials.csv` (every trial, all scenarios), `neighbours.csv`, `run.json` (space, hashes, versions).

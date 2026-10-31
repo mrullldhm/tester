@@ -1,6 +1,6 @@
 # Search asia_full_tpe_net1_s1_n300
 
-Generated 2026-10-31 05:44 UTC. Strategy `fair_price_reversal`, variant `asia`, space `full`, sampler `tpe`, seed 1, objective `net1` (net profit + open P&L at 1 tick), at least 300 closed trades.
+Generated 2026-10-31 12:37 UTC. Strategy `fair_price_reversal`, variant `asia`, space `full`, sampler `tpe`, seed 1, objective `net1` (net profit + open P&L at 1 tick), at least 300 closed trades.
 
 > **In-sample.** Development interval only (bars before 2024-01-01 UTC). The winner is the best of 300 trials (57 duplicates) and 10 neighbours: 759 engine runs. Nothing here shows a tradable edge: out-of-sample validation is a later feature.
 
@@ -59,4 +59,4 @@ Neighbour objective: median -3,482.63 USD, worst -24,977.78 USD, 0 of 10 above z
 
 Eligible trials: 162 of 300. Trials with objective above zero: 0.
 
-Files: `trials.csv` (every trial, all scenarios), `neighbours.csv`, `run.json` (space, hashes, versions).
+Raw files in `results/fair_price_reversal/search/asia_full_tpe_net1_s1_n300/`: `trials.csv` (every trial, all scenarios), `neighbours.csv`, `run.json` (space, hashes, versions).
