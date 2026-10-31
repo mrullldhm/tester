@@ -71,6 +71,12 @@ Where TradingView does not document a case, the rule is marked **convention**.
 | Buy & hold return | (last close - first trade's entry price) / first trade's entry price, applied to the initial capital (all capital at the first entry, as TradingView). The unadjusted front-month series includes roll gaps |
 | Open P&L | the open position at the end, marked at the last close, after entry commission |
 
+Period tables (extra, not a TradingView tab; `metrics.by_period`, `metrics.by_year` is its year case): closed trades
+grouped by the **UTC calendar date of the exit**, by year, month, ISO week (Monday start, named by that Monday) or
+day. Per period: trades, net profit (sum of trade profits), % profitable (profit > 0), profit factor (gross profit /
+gross loss, undefined with no losing trade). Periods without exits are left out. UTC dates are not CL trading days:
+a Sunday 18:00 New York open is still the previous UTC week.
+
 ## Data and parity limits
 - Bars: Databento `CL.v.0` (front month by previous-day volume, switching at 00:00 UTC) plus Massive bars
   for the latest days. TradingView's CL1! also switches by volume, with its own per-symbol rule, so a few roll

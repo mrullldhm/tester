@@ -189,13 +189,39 @@ def summary(res: Result) -> dict:
     return out
 
 
-def by_year(tf: pd.DataFrame) -> pd.DataFrame:
+PERIOD_GRAINS = ("year", "month", "week", "day")
+
+
+def _period_key(exit_time: pd.Series, grain: str) -> pd.Series:
+    """Bucket by UTC exit date. Weeks start on Monday and are named by that Monday (YYYY-MM-DD)."""
+    t = pd.to_datetime(exit_time, utc=True)
+    if grain == "year":
+        return t.dt.year
+    if grain == "month":
+        return t.dt.strftime("%Y-%m")
+    if grain == "week":
+        return (t.dt.normalize() - pd.to_timedelta(t.dt.day_of_week, unit="D")).dt.strftime("%Y-%m-%d")
+    if grain == "day":
+        return t.dt.strftime("%Y-%m-%d")
+    raise ValueError(f"unknown period grain {grain!r}; expected one of {PERIOD_GRAINS}")
+
+
+def by_period(tf: pd.DataFrame, grain: str) -> pd.DataFrame:
+    """Closed trades grouped by exit period: trades, net profit, % profitable, profit factor (NaN with no loss).
+
+    Extra, not a TradingView tab. Periods without exits are absent."""
+    cols = ["period", "trades", "net_profit", "percent_profitable", "profit_factor"]
     if tf.empty:
-        return pd.DataFrame(columns=["year", "trades", "net_profit", "percent_profitable", "profit_factor"])
-    g = tf.groupby(tf["exit_time"].dt.year)
+        _period_key(pd.Series([], dtype="datetime64[ns, UTC]"), grain)
+        return pd.DataFrame(columns=cols)
+    g = tf.groupby(_period_key(tf["exit_time"], grain))
     out = g.agg(trades=("profit", "size"), net_profit=("profit", "sum"),
                 wins=("profit", lambda s: (s > 0).sum()),
                 gp=("profit", lambda s: s[s > 0].sum()), gl=("profit", lambda s: -s[s < 0].sum()))
     out["percent_profitable"] = out["wins"] / out["trades"] * 100
     out["profit_factor"] = out["gp"] / out["gl"].replace(0, np.nan)
-    return out.drop(columns=["wins", "gp", "gl"]).reset_index(names="year")
+    return out.drop(columns=["wins", "gp", "gl"]).reset_index(names="period")
+
+
+def by_year(tf: pd.DataFrame) -> pd.DataFrame:
+    return by_period(tf, "year").rename(columns={"period": "year"})
