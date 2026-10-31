@@ -236,6 +236,32 @@ and feature definitions: [`docs/OPTIMIZE.md`](docs/OPTIMIZE.md).
 
 ---
 
+## Validating a candidate (feature 3)
+
+Feature 3 asks whether a feature-2 result survives its own selection, on the development interval only (bars
+before 2024-01-01; nothing reserved is read). Protocol and verdict rules: [`docs/VALIDATE.md`](docs/VALIDATE.md).
+
+```bash
+.venv/bin/python -m tvtester.cli validate strategies/configs/<candidate>.json --jobs 4
+```
+
+| Check | Question | Pass |
+|---|---|---|
+| Walk-forward re-selection | Each year, pick the best of the same 200 E2 configurations on the years before, then trade it for that year. Would that have made money? | sum > 0 at 1 and 2 ticks, 7+ of 10 years positive |
+| CSCV / PBO | How often does the best configuration of one half of the data land in the bottom half of the other? | PBO <= 0.5 |
+| Deflated Sharpe | Is the candidate's Sharpe higher than the best of 200 tries would show by luck? | DSR >= 0.95 |
+
+A candidate goes on to feature 4 (Topstep 50K prop layer) only if both the procedure and the candidate pass. Feature
+5 is the one check on the reserved 2024+ data. Roadmap renumbered by the owner on 2026-11-01.
+
+**Result (2026-11-01): none of the three feature-2 candidates advances.** Codex replicated every number (R13).
+
+| Candidate | Walk-forward 1 / 2 ticks | Positive years | PBO | DSR | Advance |
+|---|---|---|---|---|---|
+| fair_price_reversal NY | +22,840 / +9,740 USD | 6 of 10 | 0.18 | 0.43 | no |
+| fair_price_reversal London | −4,335 / −11,691 USD | 4 of 10 | 0.19 | 0.09 | no |
+| supertrend_kalman NY | +32,245 / +6,035 USD | 7 of 10 | 0.18 | 0.18 | no (procedure passes, DSR fails) |
+
 ## Reading a results document
 
 Each document follows the TradingView layout, top to bottom:
@@ -342,7 +368,7 @@ trade matched on side, times, prices, profit and exit reason ([`docs/REVIEWS.md`
 A minimum stop size (a hypothesis declared before the search: costs are a large share of a small R) is what the
 searches found, with stable neighbours. Picked from 1,500 trials; profits lean on volatile years (London 2022 is
 58% of its total). Codex replicated the New York candidate trade for trade. Not a tradable edge until it passes
-out-of-sample validation (feature 3).
+validation (feature 3, below: it does not advance).
 
 ### Supertrend + ATR trail + Kalman trend + volatility filter, M15 signals
 

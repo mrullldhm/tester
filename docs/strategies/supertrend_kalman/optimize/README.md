@@ -147,5 +147,7 @@ times, prices, profit, exit reason). It flagged that NY has 10 owner-rule roll e
   come with volatile years. A tick threshold should not be trusted without out-of-sample data.
 - **Count against the candidate:** 6,912 feature-1 configurations, then 2,000 feature-2 trials and their
   neighbours (ledger: every engine run, including 53 code-check runs). Everything above is in-sample, best of N.
-- **Next:** feature 3 (walk-forward and the reserved 2024+ data) on NY E2 only. Not checked on TradingView yet:
+- **Next:** feature 3 (validation A, development interval only) on NY E2 only,
+  [`../validate/README.md`](../validate/README.md). The reserved 2024+ data is feature 5 (roadmap renumbered
+  2026-11-01). Not checked on TradingView yet:
   the Pine twin has the filters, but compiling and matching it on NYMEX:CL1! 1m is the owner's step.

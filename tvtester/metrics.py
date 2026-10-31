@@ -95,6 +95,28 @@ def _monthly_returns(res: Result) -> np.ndarray:
     return eq / prev - 1
 
 
+def daily_equity(res: Result) -> dict[str, np.ndarray]:
+    """Equity marked to market at the last bar of every UTC date that has bars (feature 3, docs/VALIDATE.md).
+
+    equity = initial capital + closed profit (exit bar <= day end) + open P&L of a position open at that bar's
+    close, entry commission included (as `_monthly_returns` and TV's open P&L). closed = closed trades so far.
+    The last value equals capital + net profit + open P&L of the run."""
+    b = res.bars
+    day = np.asarray(b.t_ms, dtype=np.int64) // 86_400_000
+    ends = np.flatnonzero(np.r_[day[1:] != day[:-1], True])
+    exit_bars = np.sort(np.array([t.exit_bar for t in res.trades], dtype=np.int64))
+    profits = np.array([t.profit for t in sorted(res.trades, key=lambda t: t.exit_bar)], dtype=float)
+    csum = np.concatenate([[0.0], np.cumsum(profits)])
+    n_closed = np.searchsorted(exit_bars, ends, side="right")
+    eq = res.props.initial_capital + csum[n_closed]
+    spans = [(t, t.exit_bar) for t in res.trades] + ([(res.open_trade, len(b.c))] if res.open_trade else [])
+    for t, end in spans:
+        k0, k1 = np.searchsorted(ends, t.entry_bar), np.searchsorted(ends, end)  # day ends in [entry, exit)
+        for m in range(k0, k1):
+            eq[m] += _open_pnl_at(t, b.c[ends[m]], res.props.commission_per_order * t.qty)
+    return {"day": day[ends], "end_bar": ends, "equity": eq, "closed": n_closed}
+
+
 def _side_stats(tf: pd.DataFrame) -> dict:
     win, loss = tf[tf["profit"] > 0], tf[tf["profit"] < 0]
     gp, gl = win["profit"].sum(), -loss["profit"].sum()

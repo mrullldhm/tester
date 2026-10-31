@@ -123,5 +123,7 @@ filter, and its trade count swings with the price level (2017: 7 trades in NY, 2
 - **Still in-sample.** Picked from 1,500 search trials (plus neighbours), 4,534 engine runs in the ledger, on top
   of the feature-1 grid (192 combinations per variant) that picked the baselines with the reserved data included.
   Nothing here shows a tradable edge.
-- Next (feature 3): walk-forward and the reserved interval for the two candidates, with the ledger's trial count
-  in a deflated-Sharpe style correction; check whether a scale-free risk filter holds up better than ticks.
+- Next: feature 3 (validation A, development interval only: walk-forward re-selection, CSCV / PBO, deflated
+  Sharpe) on the two candidates, [`../validate/README.md`](../validate/README.md). Roadmap renumbered 2026-11-01:
+  feature 4 = Topstep prop layer, feature 5 = the one reserved-interval check. The scale-free `risk_atr` question
+  is not part of feature 3 (it would be a new feature-2 experiment with its own budget).

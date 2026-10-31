@@ -609,3 +609,6 @@
 {"time_utc": "2026-10-31T14:45:31+00:00", "kind": "search_batch", "evaluations": 78, "run_id": "all_full_tpe_net1_s1_n300", "part": "neighbours", "configurations": 26}
 {"time_utc": "2026-10-31T14:51:16+00:00", "kind": "search", "evaluations": 0, "engine_runs": 978, "run_id": "all_full_tpe_net1_s1_n300", "variant": "all", "space": "full", "sampler": "tpe", "objective": "net1", "seed": 1, "trials": 300, "duplicates": 0, "eligible": 195, "winner": "swing=5, trigger=trail, atr_ratio >= 1.1, hours_since_open >= 8, risk_atr >= 1, risk_ticks >= 25", "code_hash": "0fba4cfcd67f1a32", "data_hash": "93fc8344a86603ea"}
 {"time_utc": "2026-10-31T14:52:08+00:00", "kind": "replay", "evaluations": 6, "config": "strategies/configs/supertrend_kalman_all_full_tpe_net1_s1_n300.json", "data_hash": "93fc8344a86603ea"}
+{"time_utc": "2026-10-31T16:18:50+00:00", "kind": "validate_matrix", "evaluations": 600, "tag": "ny_filters_random_net1_s1_n200", "configurations": 200}
+{"time_utc": "2026-10-31T16:21:11+00:00", "kind": "validate_folds", "evaluations": 60, "tag": "ny_filters_random_net1_s1_n200", "configurations": 5}
+{"time_utc": "2026-10-31T16:21:37+00:00", "kind": "validate", "evaluations": 0, "tag": "ny_filters_random_net1_s1_n200", "engine_runs": 660, "advance": false, "procedure": true, "candidate": false, "code_hash": "e808727adddeece8", "data_hash": "93fc8344a86603ea"}

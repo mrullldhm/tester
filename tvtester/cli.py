@@ -14,6 +14,9 @@ Feature 2 (docs/OPTIMIZE.md; development interval only, every run logged to resu
     features <name> --variant ny                      association report of the baseline trades
     search <name> --variant ny --space filters --sampler random --trials 200 --objective net1 --seed 1 --jobs 3
     replay strategies/configs/<file>.json             frozen configuration at 0 / 1 / 2 ticks
+
+Feature 3 (docs/VALIDATE.md; development interval only, logged to the ledger):
+    validate strategies/configs/<file>.json --jobs 4  walk-forward re-selection, CSCV / PBO, deflated Sharpe
 """
 
 import argparse
@@ -173,7 +176,16 @@ def main() -> None:
     se.add_argument("--jobs", type=int, default=1)
     r = sub.add_parser("replay", help="run a frozen configuration (development interval)")
     r.add_argument("config")
+    v = sub.add_parser("validate", help="feature 3: validate a frozen feature-2 candidate (development interval)")
+    v.add_argument("config")
+    v.add_argument("--jobs", type=int, default=1)
     a = ap.parse_args()
+    if a.cmd == "validate":
+        from . import validate
+
+        t0 = time.time()
+        print(f"wrote {validate.cmd_validate(a.config, a.jobs)} in {time.time() - t0:.0f}s")
+        return
     if a.cmd != "test":
         from . import tune
 

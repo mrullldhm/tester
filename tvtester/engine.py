@@ -289,15 +289,19 @@ class Engine:
             t.best, t.worst = min(t.best, px), max(t.worst, px)
 
 
-def run(strategy, bars: Bars, props: Properties = DEFAULT) -> Result:
+def run(strategy, bars: Bars, props: Properties = DEFAULT, start: int = 0) -> Result:
     """Run a strategy over the bars. The strategy is called only on bars where it asked to be (`prepare`
     returns a bool mask) or while it has a position or working orders, which TV-equivalent strategies allow
-    when they are flat and idle outside their mask."""
+    when they are flat and idle outside their mask.
+
+    `start` (feature 3 fold runs): indicators are still prepared over every bar, but the account starts flat and
+    `on_bar` is first called on the first active bar at or after `start`."""
     e = Engine(bars, props)
     active = np.asarray(strategy.prepare(bars), dtype=bool)
     idx = np.flatnonzero(active)
     n = len(bars)
-    i = int(idx[0]) if len(idx) else n
+    k0 = int(np.searchsorted(idx, start))
+    i = int(idx[k0]) if k0 < len(idx) else n
     while i < n:
         e.process_bar(i)
         strategy.on_bar(e.ctx, i)

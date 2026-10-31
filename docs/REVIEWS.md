@@ -169,3 +169,21 @@ per strategy with exclusive create, OPTIMIZE.md veto wording, supertrend feature
 ledger corrections for 53 code-check engine runs. Codex (logs/codex/r11_f2_generic_audit.md): no remaining FPR
 assumption in features / search / tune / associate / experiment / cli / report / metrics; contracts, veto and
 ledger counts verified; low: label the old UTC weekday tables (done).
+
+## R12: feature-3 plan, spec and code review, 2026-11-01 (pytest log hash checked by Codex)
+Four rounds. (1) Topstep prop plan (now feature 4): CL limit 3 minis not 5, per-attempt account state, bar-path
+MLL/DLL, null baseline for variance seeking. (2) Feature-3 spec draft: frozen candidate vs re-selection need
+separate verdicts; closed-trade slicing did not reproduce the E2 objective (now daily marked-to-market equity);
+switched configurations need executable fold runs (now `engine.run(start=...)`); DSR N and variance must come from
+the same population; CSCV ties, ranks and no-eligible rules frozen; stale "feature 3 = reserved data" notes fixed.
+(3) Revised spec: a rebuilt prefix lost the last bar's roll flag (fold runs keep the development set's flags); E2's
+profit-factor tie-break restored; "always flat at midnight" claim removed. (4) Code (logs/pytest_review12.log,
+121 passed, hash verified): the command now rejects any source search that is not the declared E2 random draw;
+the walk-forward chart includes the fold-end market close. No other finding.
+
+## R13: independent replication of the feature-3 results, 2026-11-01
+Codex recomputed from `matrix.npz` with its own code: every anchored pick 2014-2023 of all three candidates, PBO
+(12,870 splits) and primary DSR (N = 200): differences 0. It re-ran one executable fold with its own engine from the
+parquet files (bars before 2016): supertrend_kalman NY trial 33, flat from the first 2015 bar, 1 tick: +7,658.66 USD,
+167 trades, difference 0. Verdicts agree: none advances.
+
