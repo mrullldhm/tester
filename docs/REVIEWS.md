@@ -238,27 +238,3 @@ supertrend_kalman London, BE touch 0.5T +1 tick + EMA(9) trail from 0.5T, no tar
 
 All four runs: 721 trades, every trade matched. This shows the code is internally consistent, not TradingView
 parity. Log: logs/codex/r18_exit_replication_st_london.md.
-
-## R20: momentum_thrust plan review, 2026-11-01
-Codex (logs/codex_momentum_plan.log) on docs/research/momentum_thrust_plan.md r0. Confirmed the indicator's plan
-state is redundant for the scan (a plan ends within the 5-bar pause). Changed: hold clock anchored on the actual
-fill; exit-rule tracking must not see fill-bar extremes that precede a stop / limit fill; pending-order lifecycle
-and roll handling specified; stop-only configurations kept; coverage matrix declared with exclusions justified
-(swing / SAR trailing unverified); `barstate.isconfirmed` dropped inside `request.security`; Pine primitive edge
-cases (RSI seed, `barssince` on bar 0) specified; feature 3 only for E2 winners.
-
-## R21: momentum_thrust code review, 2026-11-01 (pytest log hashes checked by Codex)
-Two rounds (logs/codex_momentum_code_r1.log, logs/pytest_momentum_r1.log 32 passed). High: a fresh order could be
-placed on a contract's last bar and fill in the next contract (fixed, test). Medium: Pine `ta.sma` skips NaN
-volume (the data has none: frames() now refuses NaN volume); the literal oracle read constants from the module
-(frozen as literals); grid rows lacked open P&L (added, ranking unchanged). Round 2 (logs/pytest_momentum_r2.log,
-33 passed): fixes verified; no other defect in pending expiry, same-bar fill and exit, hold age, close-through
-invalidation, later hard-stop amendments or completed-bucket consumption.
-
-## R22: momentum_thrust Pine twin review, 2026-11-01
-Codex (logs/codex_momentum_code_r3.log), line by line against the Python. High: `bestFor != eb` with `bestFor = na`
-is false in Pine v6, so breakeven-touch and every trailing preset never activated in the twin (fixed:
-`na(bestFor) or ...`). Medium: Python's `round` (ties to even) vs Pine `math.round` for fractional R targets
-(Python now uses `exits.rnd`; the grid's integer R never hit it). No mismatch found in detection, `detPrev()`
-offset, the 1m path, bucket indexing, fill anchor, hold age, pending expiry or invalidation. Not compiled on
-TradingView yet.
