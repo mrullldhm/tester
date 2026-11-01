@@ -14,6 +14,9 @@ Trade rules (ours: the indicator has none; the Pine twin is strategies/fair_pric
   at the next open (usually the flat minute). Entries are only placed while inside that range.
 - Filters (feature 2, default none): veto an entry at the signal bar; the vetoed signal still uses up that day's
   long / short signal (docs/OPTIMIZE.md has the feature contracts).
+- Exit management (exit study, default off): breakeven / trailing stop / time exit at each bar close while in a
+  position (tvtester/exits.py). T = the profit ticks (rr) or |limit - fill| (near / far). A time exit cancels the
+  bracket and closes at the next open; the session-end close keeps the bracket working (unchanged).
 """
 
 import numpy as np
@@ -22,6 +25,7 @@ from tvtester import features as fx
 from tvtester import ta
 from tvtester.data import Bars
 from tvtester.engine import LONG, SHORT, Context
+from tvtester.exits import ExitRule, Manager
 from tvtester.sessions import SESSIONS, local_clock
 from tvtester.strategy import Strategy
 
@@ -177,17 +181,22 @@ class FairPriceReversal(Strategy):
     name = "fair_price_reversal"
 
     def __init__(self, session: str = "ny", window: int = 60, atr_mult: float = 1.0, swing: int = 2,
-                 target: str = "near", atr_len: int = 14, filters=()):
+                 target: str = "near", atr_len: int = 14, filters=(), **exit_rule):
         if target not in TARGETS:
             raise ValueError(f"target must be one of {TARGETS}")
+        self.rule = ExitRule(**exit_rule)  # exit management (tvtester/exits.py), default off
         super().__init__(filters, session=session, window=window, atr_mult=atr_mult, swing=swing, target=target,
-                         atr_len=atr_len)
+                         atr_len=atr_len, **self.rule.params())
         self.s = SESSIONS[session]
         self.report_tz = self.s.tz
+        self.exits = Manager(self.rule)
+        self.t_bar = -1
 
     def prepare(self, bars: Bars) -> np.ndarray:
         p = self.params
         self.bars = bars
+        self.exits.prepare(bars)  # exit-management state starts fresh with every run
+        self.t_bar = -1
         self.sig = signals(bars, p["session"], p["window"], p["atr_mult"], p["swing"], p["atr_len"])
         self.mod, _ = _shared(bars, ("clock", self.s.tz), lambda: local_clock(bars.ts, self.s.tz))
         self.allow = np.ones(len(bars), dtype=bool)
@@ -205,20 +214,47 @@ class FairPriceReversal(Strategy):
         if ctx.position_size != 0 and not self._in_session(i):
             ctx.close_all("Session end")
             return
+        if ctx.position_size != 0:
+            if self.rule.active:
+                self._manage(ctx, i)
+            return
         d = int(self.sig["sig"][i])
-        if d == 0 or not self.allow[i] or ctx.position_size != 0 or not self._in_session(i):
+        if d == 0 or not self.allow[i] or not self._in_session(i):
             return  # a vetoed signal is dropped here too: on_bar also runs on bars where a position closes
         sg, target, c = self.sig, self.params["target"], int(self.bars.c[i])
         stop = int(sg["stop"][i])
         eid = "Long" if d == LONG else "Short"
         ctx.entry(eid, d)
+        self.eid, self.stop, self.limit, self.profit = eid, stop, None, None
         if target in ("near", "far"):
             near = sg["body_lo"][i] if d == LONG else sg["body_up"][i]
             far = sg["body_up"][i] if d == LONG else sg["body_lo"][i]
-            ctx.exit("Exit", eid, stop=stop, limit=int(near if target == "near" else far))
+            self.limit = int(near if target == "near" else far)
         else:
-            r = abs(c - stop) * (1 if target == "rr1" else 2)
-            ctx.exit("Exit", eid, stop=stop, profit=r)
+            self.profit = abs(c - stop) * (1 if target == "rr1" else 2)
+        self._bracket(ctx, stop)
+
+    def _bracket(self, ctx: Context, stop: int) -> None:
+        """The one `Exit` bracket: stop plus the target leg (none with keep_target=False)."""
+        keep = self.rule.keep_target
+        ctx.exit("Exit", self.eid, stop=stop, limit=self.limit if keep else None,
+                 profit=self.profit if keep else None)
+
+    def _manage(self, ctx: Context, i: int) -> None:
+        """Breakeven / trailing stop / time exit at the bar close (tvtester/exits.py)."""
+        d = LONG if ctx.position_size > 0 else SHORT
+        eb, entry = ctx.position_entry_bar, ctx.position_avg_price
+        if eb != self.t_bar:  # T frozen at the entry fill
+            self.t_bar = eb
+            self.t_ticks = self.profit if self.profit is not None else abs(self.limit - entry)
+        if self.exits.time_up(eb, i):
+            ctx.cancel("Exit")  # only the market close works at the next open
+            ctx.close_all("Time exit")
+            return
+        s = self.exits.new_stop(i, d, eb, entry, self.t_ticks, self.stop)
+        if s is not None:
+            self.stop = s
+            self._bracket(ctx, s)
 
 
 # --- test definition (python -m tvtester.cli test fair_price_reversal) -----------------------------------

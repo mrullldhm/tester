@@ -84,6 +84,11 @@ class Context:
         return None if self._e.pos is None else self._e.pos.entry_price
 
     @property
+    def position_entry_bar(self) -> int | None:
+        """Bar index of the open position's entry fill (Pine strategy.opentrades.entry_bar_index(0))."""
+        return None if self._e.pos is None else self._e.pos.entry_bar
+
+    @property
     def bar_index(self) -> int:
         return self._e.i
 

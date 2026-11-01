@@ -187,3 +187,78 @@ Codex recomputed from `matrix.npz` with its own code: every anchored pick 2014-2
 parquet files (bars before 2016): supertrend_kalman NY trial 33, flat from the first 2015 bar, 1 tick: +7,658.66 USD,
 167 trades, difference 0. Verdicts agree: none advances.
 
+
+## R14: exit study v1 plan review (breakeven / trailing stop), 2026-11-01
+Codex reviewed the plan before the build. Main findings:
+- Selecting on the full feature-1 interval uses up the reserved 2024+ bars. Owner decision: full interval, labelled.
+- Ranking on closed net profit can reward a losing position left open at the end. Now net profit + open P&L.
+- The ST position management was gated on M15 buckets. The new rules now run at every 1m close.
+- "Breakeven" is a stop price, not a guaranteed result (slippage, gaps, $4.02 commission).
+- The ledger must count runs before a crash can hide them. Also wanted: default equivalence at 0/1/2 ticks and
+  amendment edge cases.
+
+## R15: exit study v1 code review, 2026-11-01 (pytest log hash checked by Codex)
+147 passed, hash verified. No Python/Pine mismatch. Codex compared the pre-change and current defaults on 2023
+bars: all 7 baselines gave identical trade records at 0/1/2 ticks. Fixed after review:
+- per-run ledger accounting;
+- a never-overwritten results folder per run;
+- open P&L shown at every tick scenario;
+- the chart labelled closed-trade equity;
+- a triggered-stop test whose next open gaps back;
+- a trade-for-trade default test against the feature-1 trade CSVs.
+
+## R16: exit study v2 plan review (all styles), 2026-11-01
+The owner asked for every common style. Codex: revise before the build.
+- Rule counts corrected to 428.
+- The swing-pivot and SAR transcriptions need a TradingView check. Owner: include them, flagged unverified.
+- Frozen definitions for: BE-time (age >= N and close in profit), step rounding, directional rounding of
+  indicator levels, side-of-close eligibility for EMA / SAR, and indicators computed on every bar.
+- Time exit added as its own family.
+The full report was lost with /tmp on a reboot; this summary is from the session.
+
+## R17: exit study v2 code review, 2026-11-01 (pytest log hash checked by Codex)
+171 passed, hash verified. No execution-logic mismatch across the styles, rounding, state resets or precedence.
+Both Pine defaults are unchanged. Codex checked EMA tick vs dollar levels on 2023 bars for lengths 9/20/50: 0
+differences. Fixed after review:
+- one ledger event per engine run (a batch could lose finished runs);
+- an "(unverified)" mark on every rule that uses pivots or SAR, combined rules included;
+- the time-exit count now counts trades the time exit actually closed.
+Swing and SAR remain unverified against TradingView.
+
+## R18: independent replication of the exit-study London winner, 2026-11-01
+Codex's own code (no tvtester / strategies import), from all 5,667,487 bars before 2026-10-28:
+supertrend_kalman London, BE touch 0.5T +1 tick + EMA(9) trail from 0.5T, no target.
+
+| Run | Codex | Claude | Difference |
+|---|---|---|---|
+| Winner, 0 ticks | +18,681.58 | +18,681.58 | 0 |
+| Winner, 1 tick | +5,381.58 | +5,381.58 | 0 |
+| Baseline, 0 ticks | +16,241.58 | +16,241.58 | 0 |
+| Baseline, 1 tick | +2,481.58 | +2,481.58 | 0 |
+
+All four runs: 721 trades, every trade matched. This shows the code is internally consistent, not TradingView
+parity. Log: logs/codex/r18_exit_replication_st_london.md.
+
+## R20: momentum_thrust plan review, 2026-11-01
+Codex (logs/codex_momentum_plan.log) on docs/research/momentum_thrust_plan.md r0. Confirmed the indicator's plan
+state is redundant for the scan (a plan ends within the 5-bar pause). Changed: hold clock anchored on the actual
+fill; exit-rule tracking must not see fill-bar extremes that precede a stop / limit fill; pending-order lifecycle
+and roll handling specified; stop-only configurations kept; coverage matrix declared with exclusions justified
+(swing / SAR trailing unverified); `barstate.isconfirmed` dropped inside `request.security`; Pine primitive edge
+cases (RSI seed, `barssince` on bar 0) specified; feature 3 only for E2 winners.
+
+## R21: momentum_thrust code review, 2026-11-01 (pytest log hashes checked by Codex)
+Two rounds (logs/codex_momentum_code_r1.log, logs/pytest_momentum_r1.log 32 passed). High: a fresh order could be
+placed on a contract's last bar and fill in the next contract (fixed, test). Medium: Pine `ta.sma` skips NaN
+volume (the data has none: frames() now refuses NaN volume); the literal oracle read constants from the module
+(frozen as literals); grid rows lacked open P&L (added, ranking unchanged). Round 2 (logs/pytest_momentum_r2.log,
+33 passed): fixes verified; no other defect in pending expiry, same-bar fill and exit, hold age, close-through
+invalidation, later hard-stop amendments or completed-bucket consumption.
+
+## R22: momentum_thrust Pine twin review, 2026-11-01
+Codex (logs/codex_momentum_code_r3.log), line by line against the Python. High: `bestFor != eb` with `bestFor = na`
+is false in Pine v6, so breakeven-touch and every trailing preset never activated in the twin (fixed:
+`na(bestFor) or ...`). Medium: Python's `round` (ties to even) vs Pine `math.round` for fractional R targets
+(Python now uses `exits.rnd`; the grid's integer R never hit it). No mismatch found in detection, `detPrev()`
+offset, the 1m path, bucket indexing, fill anchor, hold age, pending expiry or invalidation. Not compiled on
+TradingView yet.

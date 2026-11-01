@@ -18,6 +18,9 @@ Volatility filter `vol`: `none`, `stop_atr:X` (risk <= X x ATR14 of the bucket, 
 Exit `exit`: `fixed` (bracket only), `trail` (stop moved to the ATR trail level at each new bucket when it is
 tighter and on the right side of the close, never looser), `flip` (bracket plus close_all on an opposite
 Supertrend flip).
+Exit management (exit study, default off): breakeven / trailing stop / time exit at every 1m close while in a
+position (tvtester/exits.py), T = the profit ticks; with exit=trail the tighter of the ATR level and these levels
+wins. Order at a close: session end, ST flip, time exit, stop moves.
 Hours (variant): `all` (no forced flat; only the owner roll exit) or a sessions.py session (entries inside
 [open, flat - 1 min), close_all after it).
 Filters (feature 2, default none): veto an entry at the decision bar; the M15 event expires as any untaken
@@ -31,6 +34,7 @@ from tvtester import ta
 from tvtester.config import TICK
 from tvtester.data import Bars
 from tvtester.engine import LONG, SHORT, Context
+from tvtester.exits import ExitRule, Manager
 from tvtester.sessions import SESSIONS, local_clock
 from tvtester.strategy import Strategy
 
@@ -142,8 +146,9 @@ class SupertrendKalman(Strategy):
 
     def __init__(self, hours: str = "all", trigger: str = "st", vol: str = "none", exit: str = "fixed",
                  rr: float = 2.0, swing: int = 3, st_factor: float = 3.0, trail_mult: float = 2.0, atr_len: int = 10,
-                 kalman_q: float = KALMAN_Q, filters=()):
+                 kalman_q: float = KALMAN_Q, filters=(), **exit_rule):
         kind, _, x = vol.partition(":")
+        self.rule = ExitRule(**exit_rule)  # exit management (tvtester/exits.py), default off
         if (trigger not in TRIGGERS or kind not in VOLS or exit not in EXITS
                 or (kind in ("stop_atr", "atr_ratio")) != bool(x)):
             raise ValueError(f"trigger in {TRIGGERS}, vol in {VOLS}, exit in {EXITS}")
@@ -151,11 +156,14 @@ class SupertrendKalman(Strategy):
             raise ValueError("hours must be 'all' or a session name")
         self.vol_kind, self.vol_x = kind, float(x) if x else 0.0
         super().__init__(filters, hours=hours, trigger=trigger, vol=vol, exit=exit, rr=rr, swing=swing,
-                         st_factor=st_factor, trail_mult=trail_mult, atr_len=atr_len, kalman_q=kalman_q)
+                         st_factor=st_factor, trail_mult=trail_mult, atr_len=atr_len, kalman_q=kalman_q,
+                         **self.rule.params())
+        self.exits = Manager(self.rule)
 
     def prepare(self, bars: Bars) -> np.ndarray:
         p = self.params
         self.bars = bars
+        self.exits.prepare(bars)  # exit-management state starts fresh with every run
         m = m15(bars)
         self.ind = indicators(bars, p["st_factor"], p["trail_mult"], p["swing"], p["atr_len"], p["kalman_q"])
         self.bsig = bucket_signals(self.ind, p["trigger"])
@@ -236,20 +244,33 @@ class SupertrendKalman(Strategy):
                 ctx.cancel("Exit")  # as the ST flip: only the market close works at the next open
                 ctx.close_all("Session end")
                 return
-            if not self.first[i] or k < 0:
-                return
             d = LONG if ctx.position_size > 0 else SHORT
-            if p["exit"] == "flip" and ind["st_dir"][k] == (1 if d == LONG else -1):
-                ctx.cancel("Exit")  # only the market close works at the next open (no bracket race)
-                ctx.close_all("ST flip")
-            elif p["exit"] == "trail":
-                t = ind["tr_stop"][k]
-                if t == t:
-                    # 1e-6 guard: the Pine twin divides dollars by mintick, so a whole tick can land just below
-                    t = int(np.floor(t + 1e-6)) if d == LONG else int(np.ceil(t - 1e-6))
-                    if (d == LONG and self.stop < t < c) or (d == SHORT and c < t < self.stop):
-                        self.stop = t
-                        ctx.exit("Exit", self.eid, stop=t, profit=self.profit)
+            stop = None  # the amended stop, if any
+            if self.first[i] and k >= 0:
+                if p["exit"] == "flip" and ind["st_dir"][k] == (1 if d == LONG else -1):
+                    ctx.cancel("Exit")  # only the market close works at the next open (no bracket race)
+                    ctx.close_all("ST flip")
+                    return
+                if p["exit"] == "trail":
+                    t = ind["tr_stop"][k]
+                    if t == t:
+                        # 1e-6 guard: the Pine twin divides dollars by mintick, so a whole tick can land just below
+                        t = int(np.floor(t + 1e-6)) if d == LONG else int(np.ceil(t - 1e-6))
+                        if (d == LONG and self.stop < t < c) or (d == SHORT and c < t < self.stop):
+                            stop = t
+            if self.rule.active:  # breakeven / trailing stop / time exit at every 1m close (tvtester/exits.py)
+                eb = ctx.position_entry_bar
+                if self.exits.time_up(eb, i):
+                    ctx.cancel("Exit")  # as the ST flip: only the market close works at the next open
+                    ctx.close_all("Time exit")
+                    return
+                s = self.exits.new_stop(i, d, eb, ctx.position_avg_price, self.profit,
+                                        self.stop if stop is None else stop)
+                if s is not None:
+                    stop = s
+            if stop is not None:
+                self.stop = stop
+                self._bracket(ctx, stop)
             return
         d = int(self.sig[i])
         if d == 0 or not self.in_hours[i] or not self.allow[i]:
@@ -261,7 +282,11 @@ class SupertrendKalman(Strategy):
         self.eid = "Long" if d == LONG else "Short"
         self.stop, self.profit = stop, int(round(p["rr"] * risk))
         ctx.entry(self.eid, d)
-        ctx.exit("Exit", self.eid, stop=stop, profit=self.profit)
+        self._bracket(ctx, stop)
+
+    def _bracket(self, ctx: Context, stop: int) -> None:
+        """The one `Exit` bracket: stop plus the profit leg (none with keep_target=False)."""
+        ctx.exit("Exit", self.eid, stop=stop, profit=self.profit if self.rule.keep_target else None)
 
 
 # --- test definition (python -m tvtester.cli test supertrend_kalman) -------------------------------------

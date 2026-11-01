@@ -51,6 +51,35 @@ Where TradingView does not document a case, the rule is marked **convention**.
 - Every trade records its **signal bar** (the bar whose close placed the entry order): `signal_bar` and
   `signal_time` in the trades CSV. Feature values are read at that bar, never at the fill bar.
 
+## Exit management (exit study; `tvtester/exits.py`, both Pine twins)
+Custom stops moved at the bar close, plus an optional time exit. Not Pine's native `trail_points` / `trail_offset`
+(which trail intrabar), so the twins compute every level themselves and amend the bracket with `strategy.exit`
+(same id). `tvtester/exits.py` has the exact formulas; summary:
+- **When.** At every 1-minute bar close while in a position, after the session-end / ST-flip checks. A moved stop
+  works from the next bar; a level hit and given back inside one bar cannot exit on that bar. A time exit cancels
+  the bracket and closes at market (next open), like the ST flip.
+- **Units.** T = the trade's target distance in ticks, frozen at entry (`profit=` ticks, or |limit - fill|).
+  Entry = the actual fill, slippage included (`strategy.position_avg_price`). best = most favourable high / low
+  since the entry bar, entry bar included (entries are market orders at an open, so the whole entry bar follows
+  the fill). rnd = round half up (Pine `math.round`); indicator levels round toward the trade's side.
+- **Breakeven** (stop to entry + `be_offset` ticks): `touch` (best reaches `be_x` x T), `close` (a close reaches
+  it), `time` (after `be_x` bars if the close is more than `be_offset` ticks in profit).
+- **Trailing** (active once best reaches `trail_at` x T): `frac` (best - x T), `atr` (best - k x ATR(14) of the 1m
+  chart), `swing` (last confirmed 1m pivot low / high, `ta.pivotlow(n, n)`), `step` (lock one step behind each step
+  of T reached), `close` (best close - x T), `ema` (EMA(n) of the 1m close), `sar` (`ta.sar` of the 1m chart).
+  EMA and SAR count only while on the trade's side of the close. Indicators are computed on every bar, flat or not.
+- The stop becomes the tightest of the current stop and the active levels. Never looser: a strategy policy, not an
+  engine rule. supertrend_kalman `exit=trail`: its ATR level competes the same way.
+- A level already through the close is a triggered stop: it fills at the next open, with stop slippage. Breakeven
+  is a stop price, not a guaranteed result. If that next open is also past the kept target, the stop leg fills
+  (stop checked first at the open, **convention**: not checked against a TradingView export).
+- `keep_target=False` (with a trailing stop or a time exit): no profit leg from the entry on (`profit = na`).
+- **Unverified:** `swing` and `sar` use Python transcriptions of `ta.pivotlow` (tie rule: a low pivot is <= the
+  older bars and < the newer bars) and of the Pine reference `pine_sar`. Not yet checked against a TradingView export.
+- Defaults (`be="none"`, `trail="none"`, `time_exit=0`) are the plain strategy, trade for trade (test).
+- `python -m tvtester.cli exits <name>` sweeps 428 rules on each variant's frozen feature-1 baseline over the full
+  feature-1 interval (`tvtester/exitstudy.py`). In-sample, best of N, uses the reserved 2024+ bars.
+
 ## Owner rules (not TradingView behaviour)
 - **Roll exit.** A position open on the last bar of a contract is closed at that bar's close (reason `roll`).
   TradingView's CL1! would hold through the roll and book the price gap as profit or loss.

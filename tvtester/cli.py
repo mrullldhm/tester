@@ -15,6 +15,9 @@ Feature 2 (docs/OPTIMIZE.md; development interval only, every run logged to resu
     search <name> --variant ny --space filters --sampler random --trials 200 --objective net1 --seed 1 --jobs 3
     replay strategies/configs/<file>.json             frozen configuration at 0 / 1 / 2 ticks
 
+Exit study (docs/ENGINE.md "Exit management"; full feature-1 interval, logged to the ledger):
+    exits <name> --jobs 6                             breakeven / trailing stop sweep on the frozen baselines
+
 Feature 3 (docs/VALIDATE.md; development interval only, logged to the ledger):
     validate strategies/configs/<file>.json --jobs 4  walk-forward re-selection, CSCV / PBO, deflated Sharpe
 """
@@ -179,7 +182,17 @@ def main() -> None:
     v = sub.add_parser("validate", help="feature 3: validate a frozen feature-2 candidate (development interval)")
     v.add_argument("config")
     v.add_argument("--jobs", type=int, default=1)
+    x = sub.add_parser("exits", help="exit study: breakeven / trailing stop on the frozen feature-1 baselines")
+    x.add_argument("strategy")
+    x.add_argument("--jobs", type=int, default=6)
+    x.add_argument("--variants", nargs="*")
     a = ap.parse_args()
+    if a.cmd == "exits":
+        from . import exitstudy
+
+        t0 = time.time()
+        print(f"wrote {exitstudy.cmd_exits(a.strategy, a.jobs, a.variants)} in {time.time() - t0:.0f}s")
+        return
     if a.cmd == "validate":
         from . import validate
 
