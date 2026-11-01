@@ -1,0 +1,140 @@
+// Owner swing points (structure_break study). Pine v6 indicator, any chart timeframe.
+//
+// Owner rule (2026-11-01):
+// - Swing high at candle k: high[k-1] <= high[k] (left lower or EQUAL) and high[k+1] < high[k] (right strictly lower).
+//   Swing low mirror. Label vs the previous swing of the same type: equal high = HH, equal low = LL.
+//   Known when candle k+1 closes, so labels appear one candle late. The newest swing can still move (rule 2)
+//   until a swing of the other type is added: its label and line end jump to the replacing candle.
+// - Alternation: two swing highs with no swing low between -> the higher one stays (equal: the later one), the
+//   other is no longer a swing (owner rule 2: a new HH needs a HL first). Lows mirror.
+// - Outside candle that is both a swing high and a swing low: added in the order its extremes printed. Low first ->
+//   new HL and new HH (owner rule 1). High first -> its high replaces the HH, then its low is added.
+//   Order from the 1m candles inside it (first 1m candle printing each extreme; same 1m candle: open nearer the
+//   high -> high first, the TradingView broker-emulator rule). No 1m data (history limit) -> the same open rule on
+//   the chart candle itself; such outside candles are marked "?".
+// Runs on the continuous CL1! series (no reset at contract rolls). Use the exchange-time chart.
+//@version=6
+indicator("Owner swings (structure break)", "Owner swings", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+showZig  = input.bool(true, "Zigzag line")
+showLab  = input.bool(true, "Labels (HH / LH / HL / LL)")
+useLtf   = input.bool(true, "Order outside candles with 1m candles")
+markFb   = input.bool(true, "Mark outside candles ordered without 1m data (?)")
+hiColor  = input.color(color.teal, "Swing high")
+loColor  = input.color(color.red, "Swing low")
+zigColor = input.color(color.gray, "Zigzag")
+
+const int SH = 1
+const int SL = -1
+
+if timeframe.isseconds or timeframe.isticks
+    runtime.error("Use a 1-minute or higher chart.")
+
+// Broker-emulator path: high first when the high is nearer the open (tie -> low first). Same as tvtester.engine.
+openRule(float o, float h, float l) =>
+    (h - o) < (o - l)
+
+// 1 = high printed first, 0 = low first, -1 = unknown (no 1m data for this candle)
+ltfOrder(array<float> hs, array<float> ls, array<float> os, float bh, float bl) =>
+    int fh = -1
+    int fl = -1
+    int n = hs.size()
+    float eps = syminfo.mintick / 2
+    if n > 0
+        for i = 0 to n - 1
+            if fh < 0 and math.abs(hs.get(i) - bh) < eps
+                fh := i
+            if fl < 0 and math.abs(ls.get(i) - bl) < eps
+                fl := i
+    int res = -1
+    if fh >= 0 and fl >= 0
+        res := fh < fl ? 1 : fl < fh ? 0 : (openRule(os.get(fh), hs.get(fh), ls.get(fh)) ? 1 : 0)
+    res
+
+[ltfH, ltfL, ltfO] = request.security_lower_tf(syminfo.tickerid, "1", [high, low, open])
+
+bool oneMin   = timeframe.isminutes and timeframe.multiplier == 1
+int  ord      = oneMin or not useLtf ? -1 : ltfOrder(ltfH, ltfL, ltfO, high, low)
+bool fallback = not oneMin and ord == -1
+bool hiFirst  = ord == -1 ? openRule(open, high, low) : ord == 1
+
+type Zig
+    int   lastType = 0
+    float lastPrice
+    int   lastTime
+    float curH
+    float prevH
+    float curL
+    float prevL
+    line  ln
+    label lb
+
+// Label against the previous swing of the same type. Equal counts as a break (owner, 2026-11-02): equal high = HH,
+// equal low = LL, same "or equal" as the pivot rule's left candle.
+method tag(Zig z, int t) =>
+    string s = ""
+    if t == SH
+        s := na(z.prevH) ? "H" : z.curH >= z.prevH ? "HH" : "LH"
+    else
+        s := na(z.prevL) ? "L" : z.curL <= z.prevL ? "LL" : "HL"
+    s
+
+method push(Zig z, int t, float p, int b, bool fb) =>  // b = open time of the swing candle (xloc.bar_time)
+    string mark = fb and markFb ? " ?" : ""
+    if z.lastType == t
+        bool more = t == SH ? p >= z.lastPrice : p <= z.lastPrice
+        if more  // replaces the last swing; otherwise the pivot is dropped
+            z.lastPrice := p
+            z.lastTime := b
+            if t == SH
+                z.curH := p
+            else
+                z.curL := p
+            if not na(z.ln)
+                z.ln.set_xy2(b, p)
+            if not na(z.lb)
+                z.lb.set_xy(b, p)
+                z.lb.set_text(z.tag(t) + mark)
+    else
+        if t == SH
+            z.prevH := z.curH
+            z.curH := p
+        else
+            z.prevL := z.curL
+            z.curL := p
+        z.ln := na
+        z.lb := na
+        if showZig and not na(z.lastTime)
+            z.ln := line.new(z.lastTime, z.lastPrice, b, p, xloc = xloc.bar_time, color = zigColor, width = 1)
+        if showLab
+            z.lb := label.new(b, p, z.tag(t) + mark, xloc = xloc.bar_time, style = t == SH ? label.style_label_down : label.style_label_up,
+                 color = color(na), textcolor = t == SH ? hiColor : loColor, size = size.small)
+        z.lastType := t
+        z.lastPrice := p
+        z.lastTime := b
+    z
+
+var Zig z = Zig.new()
+
+// Candle k = the previous candle; its right neighbour (this candle) has just closed
+bool hiFirstK = hiFirst[1]
+bool fbK      = fallback[1]
+if bar_index >= 2 and barstate.isconfirmed
+    bool isH = high[2] <= high[1] and high < high[1]
+    bool isL = low[2] >= low[1] and low > low[1]
+    int k = time[1]
+    if isH and isL
+        if hiFirstK
+            z.push(SH, high[1], k, fbK)
+            z.push(SL, low[1], k, fbK)
+        else
+            z.push(SL, low[1], k, fbK)
+            z.push(SH, high[1], k, fbK)
+    else if isH
+        z.push(SH, high[1], k, false)
+    else if isL
+        z.push(SL, low[1], k, false)
+
+// Last confirmed swing levels, for alerts / other scripts
+plot(z.curH, "Last swing high", hiColor, style = plot.style_stepline, display = display.data_window)
+plot(z.curL, "Last swing low", loColor, style = plot.style_stepline, display = display.data_window)
