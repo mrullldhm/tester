@@ -1,7 +1,9 @@
 # Tupa Trade (owner strategy, being written down)
 
-Status: **capturing the owner's idea**. No code, no backtest yet. Every rule below is the owner's words turned into a
-testable statement; anything marked *open* still needs the owner's answer before it can be coded.
+Status: **draft code, not run on data yet** (2026-11-03). Section 3c is coded as `strategies/tupa_trade.py` with the
+Pine twin `strategies/tupa_trade.pine` (section 3d). No backtest result yet: the owner runs the test locally (bars are
+not in the repo), then Codex reviews and replicates. Every rule below is the owner's words turned into a testable
+statement; anything marked *open* still needs the owner's answer, and section 3d lists what Claude chose for now.
 
 ## 1. Core idea
 
@@ -61,8 +63,9 @@ Owner lives and trades in **Malaysia time (UTC+8, no DST)**. All times in the wa
 Example (26 Oct): break point 100.76, stop 101.02 = 26 ticks > 25, so sell limit 100.77 (stop - limit = 25 ticks),
 triggered once price touches 100.76. If the break point were 100.81, sell limit 100.81.
 
-Backtest note: `docs/ENGINE.md` rule 8 says stop-limit entries are **not supported yet**; the engine needs them
-(Pine supports `strategy.entry(stop=, limit=)`) before this strategy can be tested.
+Backtest note: the engine now supports stop-limit entries (`docs/ENGINE.md`, fills rule 8): trigger at the stop,
+then a limit order that fills when the rest of the bar path (or a later bar) touches it. Convention until checked
+against a TradingView export of the Pine twin.
 
 ## 3c. Draft algorithm (Claude, from answers 4, 10, 18-28; owner to confirm)
 
@@ -84,6 +87,31 @@ Check on 26 Oct 22:32 (owner answer 29): tested timeframe T = **1H** (candidate 
 
 Open points for code: which timeframes count as "T" candidates (daily, 4H, 1H?), what if two timeframes both
 have a candidate, and whether T itself must also be checked against the daily bias (answer 9: daily decides).
+
+## 3d. Code (Claude, draft; owner to confirm the marked choices)
+
+Files: `strategies/tupa_trade.py` (strategy), `tvtester/swings.py` (owner swings, timeframe candles, trend),
+`strategies/tupa_trade.pine` (Pine twin), tests `tests/test_tupa_trade.py` (vectorized code = literal bar-by-bar
+transcription of the Pine script, `tests/tupa_literal.py`, on synthetic bars; plus the 26 Oct trade on real bars).
+
+| Item | Coded as | Source |
+|---|---|---|
+| Swings | Indicator rule, all timeframes, 1m order for outside candles | owner (section 2) |
+| Timeframes | 5m, 15m, 1H (clock), 4H from 18:00 New York (last one 14:00-17:00), daily = CME day from 18:00 New York | owner charts (4H table) |
+| Closed candle | at the close of its last 1m bar if that is the candle's last minute, else when the next bar closes | answer 4 |
+| Trend | down when the current swing low, labelled HL, is touched (low <= HL) by a closed candle; up when the current LH is touched. Stays until the opposite touch. Both in one candle: the later touch (1m) | answers 21, 28 |
+| Tested timeframe T | **lowest** timeframe from `t_min` up to daily whose newest swing is a swing low (short) / high (long) | answer 27; *Claude: "lowest" and `t_min`* |
+| Bias | every timeframe below T, down to 5m, in downtrend (long: uptrend) | answers 25, 29 |
+| Entry | newest 1m swing is a swing high, the swing low before it is a HL. Sell stop-limit, stop = HL, limit = HL or stop loss - 25 ticks | section 3b, answer 18 |
+| Not armed | when that HL was already touched before the order could be placed (MSS already happened) | *Claude* |
+| Before trigger | the order follows the setup each 1m close: moved when the levels change, cancelled when the bias or setup goes | *Claude* |
+| After trigger | stays until filled or the next 1m swing high is confirmed (long: swing low) | answers 23, 26 |
+| Exits | stop loss at the 1m swing high, TP 25 ticks from the fill, close at 14:30 New York (order at the 14:29 close) | answers 19, 20, 24 |
+| Session | orders work 09:00-14:29 New York; one filled trade per session | answers 6, 22 |
+| Daily bias override (answer 9) | not coded | *open* |
+
+Grid: `t_min` in 15m / 1h / 4h / 1d (which timeframes may be T, open point Q27/29). On 26 Oct, `t_min` = 15m or 1h
+gives T = 1H (15m newest swing was the LH 101.92), 4h gives T = 4H, which needs the 1H down too, so no trade.
 
 ## 4. Worked example: week of 26-30 Oct 2026
 

@@ -26,7 +26,7 @@ def synthetic(days=24, seed=0, start="2026-03-01 18:00", drop=0.03):
     rng = np.random.default_rng(seed)
     t = pd.date_range(pd.Timestamp(start, tz=NY), periods=days * 1440, freq="1min")
     m = t.hour * 60 + t.minute
-    wd = t.dayofweek
+    wd = t.day_of_week
     keep = ~((m >= 17 * 60) & (m < 18 * 60))
     keep &= ~(wd == 5) & ~((wd == 4) & (m >= 17 * 60)) & ~((wd == 6) & (m < 18 * 60))
     keep &= rng.random(len(t)) > drop
@@ -127,16 +127,16 @@ def test_four_hour_and_daily_candles_follow_the_cme_day():
 
 
 def test_trend_down_when_hl_touched_by_closed_candle():
-    # 5m candles from 1m bars. Swing lows L 100, then HL 104, swing high between; a later candle touches 104 -> down
-    five = [(110, 112, 100, 105), (105, 115, 104, 114), (114, 120, 113, 116), (116, 117, 104, 106),
-            (106, 108, 101, 102), (102, 125, 102, 124), (124, 125, 104, 110), (110, 111, 100, 101),
-            (101, 103, 99, 100)]
+    # 5m candles (high, low): L 100 (candle 1), H 115 (2), HL 104 (3), HH 120 (4); candle 5 touches 104 -> down
+    five = [(110, 105), (108, 100), (115, 106), (112, 104), (120, 107), (118, 103), (110, 101)]
     one = []
-    for o, h, l, c in five:  # five 1m bars per 5m candle with the same extremes
-        one += [(o, h, o and l, c)] + [(c, c, c, c)] * 4
-    bars = make(one, start="2026-03-04 15:00")
-    st = sw.timeframe_state(bars, "5m")
-    assert st.trend[-1] == -1
+    for h, l in five:  # five 1m bars per 5m candle
+        mid = (h + l) // 2
+        one += [(mid, h, l, mid)] + [(mid,) * 4] * 4
+    st = sw.timeframe_state(make(one, start="2026-03-04 15:00"), "5m")
+    assert list(st.trend) == [0, 0, 0, 0, 0, -1, -1]
+    assert list(st.last_type[4:6]) == [sw.SL, sw.SH]  # HL 104 confirmed by candle 4, HH 120 by candle 5
+    assert st.cur_l[5] == 104 and st.cur_h[5] == 120
 
 
 @pytest.mark.skipif(not any(DATA_DIR.glob("*.parquet")), reason="no data")

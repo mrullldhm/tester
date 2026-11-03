@@ -39,10 +39,17 @@ Where TradingView does not document a case, the rule is marked **convention**.
 7. **Entries.** With `pyramiding = 0`, an entry in the same direction as the open position is ignored. An entry
    in the opposite direction reverses the position (TradingView behaviour) and keeps the new entry's exits.
    Strategies here only enter when flat.
-8. **Not supported (raises an error instead of guessing):** stop-limit entries, and more than one
-   `strategy.exit` id per entry (Pine's quantity reservation across partial exits).
-9. **Slippage.** Market and stop fills move N ticks against the trader. Limit fills never slip.
-10. **Commission.** $2.01 x contracts on every fill. Cancelled orders cost nothing.
+8. **Stop-limit entries** (`strategy.entry(stop=, limit=)`). The stop is only a trigger: when the path reaches it,
+   or the open gaps through it, the order becomes a limit order at its limit price and fills when the rest of the
+   path touches that limit, on the same bar or later (at the open if a later open is already through the limit).
+   A limit already marketable at the trigger point fills there (limit = stop: at the stop). Touching the limit before
+   the trigger does nothing. Limit fills never slip. **Convention**, not yet checked against a TradingView export
+   (the first check is the 26 Oct 2026 tupa_trade trade). A stop-limit placed with its stop already through the
+   close raises an error (TradingView's behaviour there is not verified).
+9. **Not supported (raises an error instead of guessing):** more than one `strategy.exit` id per entry (Pine's
+   quantity reservation across partial exits).
+10. **Slippage.** Market and stop fills move N ticks against the trader. Limit fills never slip.
+11. **Commission.** $2.01 x contracts on every fill. Cancelled orders cost nothing.
 
 ## Filters (feature 2)
 - An entry filter vetoes an order at the signal bar's close; the signal logic and its state are unchanged (a vetoed
