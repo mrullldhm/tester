@@ -407,3 +407,8 @@ needed for a 5m swing low), and the 1m broke its swing low 100.76.
   New log `logs/pytest_tupa_r19.log`: 203 passed, SHA-256 `d0878544c2ac88fe8a3d74a4000d90fd3884b7930cff2f50a67a4cc7019dc87b` verified. Python strategy / engine unchanged.
   Own code on all 5,672,666 bars: 26 Oct short 22:32 MYT @ 100.77, exit 22:33 @ 100.52, +245.98; top ny / 1d / TP 25 / max risk 25: 858 trades, net -14,149.16 / -20,179.16 / -26,209.16 at 0/1/2 ticks, all differences 0.
   In-sample, best of 4, a loss; internal consistency, not TV parity (export still needed). Additional High: historical bars in the assumed halt produce eight literal vs two Python trades over 7 June-9 July 2010; separate candle-grouping fix needed (R19).
+
+- 2026-11-03, rerun at `890e02b` ([R19](../../REVIEWS.md)): 211 tests passed; all four combinations match every trade field over all 5,672,666 bars; no swing-state or bias divergence, including historical halt-hour bars.
+  Top NY / 1d / TP 25 / max risk 25 unchanged: 858 trades; net -14,149.16 / -20,179.16 / -26,209.16 USD at 0/1/2 ticks. All four grid nets unchanged.
+  Independent in-memory replication (no project imports): 858 trades at each slippage level, all net differences 0.00 USD. Internal consistency, not TradingView parity.
+  Low documentation caveat: a present 17:59 ET bar closes the day's last 4H/daily candle on that bar (2018-08-05); the reopen-bar wording needs qualification. Source left unchanged.

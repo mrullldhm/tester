@@ -292,3 +292,70 @@ three. Regression `test_bars_inside_the_daily_halt_match_literal` (synthetic bar
 18:00 reopen instead of 16:59 or the last halt bar; no order decision falls in 14:30-09:00). Not yet run on data:
 owner reruns the full suite and `test tupa_trade`, Codex checks the Python / literal parity on 7 June-9 July 2010
 and that the headline numbers are unchanged. The static `curDay` test now finds the line itself.
+
+
+**Rerun at 890e02b (Codex, 2026-11-03).**
+
+HEAD verified: `890e02b7c884184842c1fec76592b0f97c87268a`.
+`logs/pytest_tupa_890e02b.log`: **211 passed in 169.68s (0:02:49)**.
+SHA-256 `ac05a31ed64dc0d822cd585004064379e6eb100c31e7dfc017ce9c90b0ca7512` verified after execution.
+
+`.venv/bin/python -m tvtester.cli test tupa_trade --jobs 4` completed; log:
+`logs/tupa_trade_890e02b.log`. Top combination unchanged: `session=ny`, `t_min=1d`, `tp=25`,
+`max_risk=25`, 858 trades at each of 0 / 1 / 2 ticks; net **-14,149.16 / -20,179.16 / -26,209.16 USD**.
+All four grid rows are byte-for-byte unchanged versus the captured pre-run grid
+(`logs/tupa_grid_before_890e02b.csv`).
+
+| Combination (t_min; NY, TP 25, max risk 25) | Previous net, 0 ticks | Rerun net, 0 ticks | Difference |
+|---|---|---|---|
+| 1d | -14,149.16 USD | -14,149.16 USD | 0.00 USD |
+| 1h | -32,852.42 USD | -32,852.42 USD | 0.00 USD |
+| 4h | -33,554.12 USD | -33,554.12 USD | 0.00 USD |
+| 15m | -34,157.98 USD | -34,157.98 USD | 0.00 USD |
+
+Full-history parity: each Python strategy and the unchanged `tests/tupa_literal.py` order/indicator logic ran
+through the engine over **all 5,672,666 bars**, 2010-06-07 00:00 UTC through 2026-11-02 16:30 UTC.
+Four process workers, continuous history (no yearly resets or sampling), approximately 16.7 minutes per run.
+An instrumentation subclass calls the original literal indicator routine, observes state, and leaves order
+logic unchanged. Comparison covers every `Trade` dataclass field, the final open trade, every bar's bias,
+all exposed higher-timeframe state fields (`last_type`, `trend`, `cur_h`, `cur_l`), and every minute-swing
+snapshot field (type, current/previous prices, pivot indices and counts).
+
+| Combination | Python trades | Literal trades | First difference |
+|---|---|---|---|
+| ny / 15m / TP 25 / max risk 25 | 4,099 | 4,099 | none |
+| ny / 1h / TP 25 / max risk 25 | 3,421 | 3,421 | none |
+| ny / 4h / TP 25 / max risk 25 | 2,006 | 2,006 | none |
+| ny / 1d / TP 25 / max risk 25 | 858 | 858 | none |
+
+**First swing-state divergence bar: none for every combination; first bias divergence: none.** All runs end flat.
+Halt-hour bars (17:00-17:59 New York) are included, not filtered: 2010: 1,977; 2011: 3,494; 2012: 3,432;
+2013: 3,573; 2014: 3,547; 2015: 2,619; 2018: 38; 2019: 1; 2024: 1. Every such bar and all later bars are covered
+by the continuous state comparison. The previously open High historical halt-bar grouping mismatch is resolved
+for this dataset. Logs: `logs/tupa_parity_890e02b.log` and `logs/tupa_parity_890e02b_{15m,1h,4h,1d}.json`.
+
+Independent replication: separate in-memory code reads the raw CL parquet files, builds candles, swings, bias,
+orders and fills, and applies $2.01 per order / $4.02 round trip. No `tvtester` or `strategies` imports.
+Engine trade CSVs are read only after computing the independent trades, as comparators.
+
+| Quantity | Codex | Claude | Difference |
+|---|---|---|---|
+| Trades, 0 / 1 / 2 ticks | 858 / 858 / 858 | 858 / 858 / 858 | 0 / 0 / 0 |
+| Net, 0 ticks | -14,149.16 USD | -14,149.16 USD | 0.00 USD |
+| Net, 1 ticks | -20,179.16 USD | -20,179.16 USD | 0.00 USD |
+| Net, 2 ticks | -26,209.16 USD | -26,209.16 USD | 0.00 USD |
+
+All independently replicated trades match side, entry/exit timestamps, entry/exit prices and exit reason at
+each slippage level. No open position. Logs: `logs/tupa_replication_890e02b.log` and
+`logs/tupa_replication_890e02b.json`. Net differences are reported at USD cent precision.
+
+This shows **internal consistency, not TradingView parity**; a TradingView export comparison is still needed.
+In-sample, best of four combinations, a loss. No engine, strategy, swing, Pine or test code changed.
+
+Remaining documentation finding (no execution mismatch; left unchanged under the owner's scope):
+
+Low | `tvtester/swings.py:15` (also `:45`, `strategies/tupa_trade.pine:64`,
+`docs/strategies/tupa_trade/README.md:101`) | The last 4H/daily candle is described as always closing on the
+18:00 reopen bar, although the general last-minute rule has an exception | On 2018-08-05 the data contains
+a 17:59 New York bar; both candles become visible on that bar's close (18:00 ET), rather than the 18:00 bar's
+close (18:01 ET) | Qualify the reopen statement with "when the 17:59 bar is absent"; retain current code.

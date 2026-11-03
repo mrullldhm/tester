@@ -1,6 +1,6 @@
 # Tupa Trade (owner price action, MSS stop-limit), CL1! New York session: results
 
-Generated 2026-11-03 05:24 UTC by `python -m tvtester.cli test tupa_trade`.
+Generated 2026-11-03 08:27 UTC by `python -m tvtester.cli test tupa_trade`.
 
 Owner strategy, spec in [README.md](README.md) (sections 3b and 3c). Pure price action on the owner swing points
 ([`indicators/structure_swings.pine`](../../../indicators/structure_swings.pine)), New York session only
@@ -23,10 +23,12 @@ below; the long side is the mirror.
 Stop-limit fills follow the engine's stop-limit rule (`docs/ENGINE.md`, fills rule 8), not yet checked against a
 TradingView export. A runnable Pine v6 twin is in [`strategies/tupa_trade.pine`](../../../strategies/tupa_trade.pine).
 
-Review status (2026-11-03): Codex independently replicated the top combination ([R19](../../REVIEWS.md)),
-in-sample, best of 4: 858 trades, a loss of 14,149.16 USD before slippage. This confirms internal consistency;
-a TradingView export comparison is still needed for parity.
-R19 also records a separate candle-grouping discrepancy on bars within the assumed daily halt.
+Review status (2026-11-03, rerun at `890e02b`): **211 tests passed**. All four combinations match the
+Pine literal trade-for-trade over all 5,672,666 bars, with no per-bar swing-state or bias divergence, including
+historical halt-hour bars ([R19](../../REVIEWS.md)). All grid nets and the winner are unchanged.
+Independent replication: 858 trades; net -14,149.16 / -20,179.16 / -26,209.16 USD at 0/1/2 ticks, differences 0.
+This confirms internal consistency, not TradingView parity; a TradingView export comparison is still needed.
+In-sample, best of four, a loss. R19 records a remaining low-severity wording caveat about present 17:59 bars.
 
 ## Test settings (TradingView Properties)
 
