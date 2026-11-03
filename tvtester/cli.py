@@ -5,6 +5,7 @@
 
 A strategy module in strategies/ exposes:
     STRATEGY  Strategy subclass          TITLE, ABOUT  Markdown header text (CONCLUSION optional, shown after the summary)
+    DOC       optional result file name in docs/strategies/<name>/ (default README.md)
     GRID      {param: [values]}          VARIANTS      {variant: {fixed params}} (one doc section each)
     notes(tf, params) -> list[str]       optional extra lines per variant
 For each variant the grid runs at 0 ticks slippage, the highest net profit wins, and the winner is run again
@@ -150,7 +151,7 @@ def write_doc(mod, module_name: str, outputs: list, n_combos: int) -> str:
               for n, (_, r) in enumerate(top.iterrows(), 1)],
             f"", f"Profitable combinations: {(grid['net_profit'] > 0).sum()} of {len(grid)}.", "",
         ]
-    path = doc_dir / "README.md"
+    path = doc_dir / getattr(mod, "DOC", "README.md")  # a strategy whose README.md is its spec writes elsewhere
     path.write_text("\n".join(lines))
     return str(path)
 

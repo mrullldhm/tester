@@ -151,10 +151,64 @@ def test_absolute_and_relative_levels_nearest_wins():
 
 def test_unsupported_orders_raise():
     bars = make_bars([(100,) * 4, (100,) * 4])
-    with pytest.raises(NotImplementedError):
-        run(Script({0: lambda c: c.entry("L", LONG, stop=110, limit=95)}), bars)
+    with pytest.raises(NotImplementedError):  # stop-limit with its stop already through the close
+        run(Script({0: lambda c: c.entry("L", LONG, stop=100, limit=95)}), bars)
     with pytest.raises(NotImplementedError):
         run(Script({0: lambda c: (c.entry("L", LONG), c.exit("A", "L", limit=110), c.exit("B", "L", stop=95))}), bars)
+
+
+def test_stop_limit_short_triggers_then_fills_limit_on_the_way_back():
+    # 26 Oct 2026 case in ticks: sell stop 10076 (trigger), limit 10077. Bar O 10083 H 10086 L 10076 C 10078:
+    # high nearer the open -> O-H-L-C; triggers at the low, fills 10077 on the way to the close
+    bars = make_bars([(10090,) * 4, (10083, 10086, 10076, 10078), (10078, 10080, 10050, 10055)])
+    s = Script({0: lambda c: (c.entry("S", SHORT, stop=10076, limit=10077), c.exit("X", "S", stop=10102, profit=25))})
+    t = one(run(s, bars))
+    assert (t.entry_bar, t.entry_price, t.exit_bar, t.exit_price, t.exit_reason) == (1, 10077, 2, 10052, "limit")
+    assert t.profit == pytest.approx(250 - 4.02)
+
+
+def test_stop_limit_no_fill_when_price_never_returns_to_limit():
+    # triggers at 10076 but the bar closes at its low (O-H-L-C): the limit 10077 is not touched after the trigger
+    bars = make_bars([(10090,) * 4, (10083, 10084, 10070, 10070), (10070, 10076, 10060, 10061)])
+    s = Script({0: lambda c: c.entry("S", SHORT, stop=10076, limit=10077)})
+    assert run(s, bars).trades == [] and run(Script(s.actions), bars).open_trade is None
+    # next bar rises to 10077: the (already triggered) limit fills there
+    bars = make_bars([(10090,) * 4, (10083, 10084, 10070, 10070), (10070, 10077, 10069, 10075)])
+    res = run(Script({0: lambda c: c.entry("S", SHORT, stop=10076, limit=10077)}), bars)
+    assert (res.open_trade.entry_bar, res.open_trade.entry_price) == (2, 10077)
+
+
+def test_stop_limit_rise_before_trigger_does_not_fill():
+    # price is above the sell limit (10077) until the trigger (10076) and never rises after it: no fill, the limit
+    # only works after the trigger
+    bars = make_bars([(10090,) * 4, (10080, 10080, 10076, 10076)])
+    res = run(Script({0: lambda c: c.entry("S", SHORT, stop=10076, limit=10077)}), bars)
+    assert res.open_trade is None and res.trades == []
+
+
+def test_stop_limit_equal_prices_fill_at_trigger_and_gap_rules():
+    bars = make_bars([(10090,) * 4, (10085, 10086, 10070, 10071)])
+    res = run(Script({0: lambda c: c.entry("S", SHORT, stop=10076, limit=10076)}), bars)
+    assert (res.open_trade.entry_bar, res.open_trade.entry_price) == (1, 10076)
+    # open gaps below the trigger: triggered at the open, the sell limit 10077 waits for the rise
+    bars = make_bars([(10090,) * 4, (10070, 10080, 10068, 10072)])
+    res = run(Script({0: lambda c: c.entry("S", SHORT, stop=10076, limit=10077)}), bars)
+    assert res.open_trade.entry_price == 10077
+    # long mirror: buy stop 120, buy limit 118; open gaps above the trigger and the limit -> fills on the dip
+    bars = make_bars([(100,) * 4, (125, 126, 117, 120)])
+    res = run(Script({0: lambda c: c.entry("L", LONG, stop=120, limit=118)}), bars)
+    assert res.open_trade.entry_price == 118
+    # limit fills never slip
+    res = run(Script({0: lambda c: c.entry("L", LONG, stop=120, limit=118)}), bars, DEFAULT.with_slippage(2))
+    assert res.open_trade.entry_price == 118
+
+
+def test_stop_limit_exit_works_from_fill_point_on_entry_bar():
+    # short fills at 10077 then the bar rises to its high 10110: stop 10102 fills on the same bar
+    bars = make_bars([(10090,) * 4, (10080, 10110, 10076, 10105)])  # O-L-H-C: trigger at the low, fill, then stop
+    s = Script({0: lambda c: (c.entry("S", SHORT, stop=10076, limit=10077), c.exit("X", "S", stop=10102, profit=25))})
+    t = one(run(s, bars))
+    assert (t.entry_price, t.exit_bar, t.exit_price, t.exit_reason) == (10077, 1, 10102, "stop")
 
 
 def test_open_trade_counts_in_drawdown_runup_and_buy_hold():

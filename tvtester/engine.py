@@ -6,6 +6,9 @@ Semantics (docs/ENGINE.md has the full list):
 - Market orders fill at the next open. A stop or limit the open gaps through fills at the open; otherwise it
   fills at its own price when the path reaches it. A stop already through the close when it was placed is
   triggered and fills at the next open like a market order.
+- Stop-limit entries (stop and limit both given): the stop is only a trigger. When the path reaches it (or the open
+  gaps through it) the order becomes a limit order at its limit price, which can fill later on the same bar
+  along the path (at once, at the trigger point, when the limit is already marketable there).
 - Exits (strategy.exit) wait for their entry and can fill on the entry bar, from the fill point on.
 - Slippage: market and stop fills move N ticks against the trader; limits never slip.
 - Commission per filled order.
@@ -39,6 +42,7 @@ class Order:
     placed_in_position: bool = False
     abs_stop: int | None = None  # exit: absolute levels as given, kept apart from profit / loss distances
     abs_limit: int | None = None
+    triggered: bool = False  # stop-limit entry: the stop has been reached, only the limit works now
 
 
 @dataclass
@@ -89,13 +93,21 @@ class Context:
         return None if self._e.pos is None else self._e.pos.entry_bar
 
     @property
+    def closed_trades(self) -> int:
+        """Number of closed trades (Pine strategy.closedtrades)."""
+        return len(self._e.trades)
+
+    @property
     def bar_index(self) -> int:
         return self._e.i
 
     def entry(self, id: str, direction: int, stop: int | None = None, limit: int | None = None,
               oca: str | None = None, comment: str = "") -> None:
         if stop is not None and limit is not None:
-            raise NotImplementedError("stop-limit entries are not supported")
+            c = self._e.c[self._e.i]
+            if (direction == LONG and stop <= c) or (direction == SHORT and stop >= c):
+                raise NotImplementedError("stop-limit entry with its stop already through the close: TradingView's "
+                                          "behaviour is not verified")
         self._e.orders[id] = Order(id, "entry", direction, stop, limit, oca=oca, placed_bar=self._e.i, comment=comment)
 
     def exit(self, id: str, from_entry: str, stop: int | None = None, limit: int | None = None,
@@ -228,6 +240,12 @@ class Engine:
         if order.kind == "close" or (order.stop is None and order.limit is None):
             return "market"
         s = order.side
+        if order.kind == "entry" and order.stop is not None and order.limit is not None:
+            if not order.triggered and ((s == LONG and order.stop <= o) or (s == SHORT and order.stop >= o)):
+                order.triggered = True  # the open gapped through the trigger: the limit works from the open
+            if order.triggered and ((s == LONG and order.limit >= o) or (s == SHORT and order.limit <= o)):
+                return "limit"
+            return None
         if order.stop is not None:
             fresh = order.placed_bar == self.i - 1 and (order.kind == "entry" or order.placed_in_position)
             if (s == LONG and order.stop <= o) or (s == SHORT and order.stop >= o):
@@ -245,11 +263,14 @@ class Engine:
         while True:
             best = None  # (distance, order, price, leg)
             for order in self._working():
-                for leg, px in (("stop", order.stop), ("limit", order.limit)):
+                legs = (("stop", order.stop), ("limit", order.limit))
+                if order.kind == "entry" and order.stop is not None and order.limit is not None:
+                    legs = (("limit", order.limit),) if order.triggered else (("trigger", order.stop),)
+                for leg, px in legs:
                     if px is None:
                         continue
                     s = order.side
-                    hit = (leg == "stop" and ((s == LONG and up) or (s == SHORT and not up))) or \
+                    hit = (leg in ("stop", "trigger") and ((s == LONG and up) or (s == SHORT and not up))) or \
                           (leg == "limit" and ((s == LONG and not up) or (s == SHORT and up)))
                     if not hit:
                         continue
@@ -264,6 +285,15 @@ class Engine:
                 break
             _, order, px, leg = best
             self._mark(px)
+            if leg == "trigger":
+                order.triggered = True  # now a limit order; it fills here if the limit is already marketable
+                cur = px
+                s = order.side
+                if (s == LONG and order.limit >= px) or (s == SHORT and order.limit <= px):
+                    self._fill(order, px, "limit")
+                    if self.pos is not None:
+                        self._marketable_now(px)
+                continue
             had_pos = self.pos is not None
             self._fill(order, px, leg)
             cur = px
