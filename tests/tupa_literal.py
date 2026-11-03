@@ -132,7 +132,7 @@ class Tf:
 
 
 def cid(t, tf):
-    """Candle id of a UTC pandas Timestamp; -1 inside the 17:00-18:00 New York halt (for the next-minute test)."""
+    """Candle id of a UTC pandas Timestamp (and its New York minute of day)."""
     lt = t.tz_convert(NY)
     m = lt.hour * 60 + lt.minute
     if tf in ("5m", "15m", "1h"):
@@ -170,9 +170,7 @@ class LiteralTupa(Strategy):
         t, tn = b.ts[i], self.next_t[i]
         for tf, f in zip(TFS, self.tfs):
             c, _ = cid(t, tf)
-            cn, mn = cid(tn, tf)
-            if 17 * 60 <= mn < 18 * 60:
-                cn = -1
+            cn, _ = cid(tn, tf)
             if f.id is not None and pine_ne(c, f.id):
                 f.close()  # the previous candle missed its last minute: closed now
             if f.id is None:

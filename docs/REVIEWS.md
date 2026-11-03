@@ -283,3 +283,12 @@ The replicated Python headline numbers remain unchanged.
 
 Fix verification: `logs/pytest_tupa_r19.log`, 203 passed in 128.40s (0:02:08).
 SHA-256 `d0878544c2ac88fe8a3d74a4000d90fd3884b7930cff2f50a67a4cc7019dc87b` verified.
+
+Fix of the open High finding (Claude, 2026-11-03, for Codex to recheck): no 17:00-18:00 halt special case in
+`tvtester/swings.py`, `strategies/tupa_trade.pine` or `tests/tupa_literal.py`. The day's last 4h candle and the daily
+candle run to 18:00 New York and close on the next session's first bar; halt bars (2010) stay inside them in all
+three. Regression `test_bars_inside_the_daily_halt_match_literal` (synthetic bars with 17:00-17:14 trading): fails
+8 of 8 on the old code, passes on the new. Expected effect on Python trades: none (the candles now close at the
+18:00 reopen instead of 16:59 or the last halt bar; no order decision falls in 14:30-09:00). Not yet run on data:
+owner reruns the full suite and `test tupa_trade`, Codex checks the Python / literal parity on 7 June-9 July 2010
+and that the headline numbers are unchanged. The static `curDay` test now finds the line itself.

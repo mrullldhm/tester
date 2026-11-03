@@ -66,7 +66,8 @@ def test_pine_na_initialized_vars_have_guarded_comparisons():
     source = (root / "strategies/tupa_trade.pine").read_text()
     old = source.replace("if na(curDay) or dayKey != curDay", "if dayKey != curDay")
     assert old != source
-    assert unguarded_na_comparisons(old) == [(300, "curDay")]
+    line = old.splitlines().index("if dayKey != curDay") + 1
+    assert unguarded_na_comparisons(old) == [(line, "curDay")]
     assert unguarded_na_comparisons("var int x = na\nif x == 1\n    x := 2") == [(2, "x")]
 
 
@@ -92,14 +93,15 @@ def test_na_session_reset_old_pine_stops_after_first_trade(data_window):
     assert fixed.open_trade is None and python.open_trade is None
 
 
-def synthetic(days=24, seed=0, start="2026-03-01 18:00", drop=0.03):
+def synthetic(days=24, seed=0, start="2026-03-01 18:00", drop=0.03, halt_bars=False):
     """CL-like 1m bars in ticks: CME hours (Sun 18:00 - Fri 17:00 New York, daily halt 17:00-18:00), random gaps,
-    trending random walk. Spans the 8 March 2026 US DST change."""
+    trending random walk. Spans the 8 March 2026 US DST change. `halt_bars`: also trade 17:00-17:14 (2010 data
+    has bars there: CME's daily break was shorter)."""
     rng = np.random.default_rng(seed)
     t = pd.date_range(pd.Timestamp(start, tz=NY), periods=days * 1440, freq="1min")
     m = t.hour * 60 + t.minute
     wd = t.day_of_week
-    keep = ~((m >= 17 * 60) & (m < 18 * 60))
+    keep = ~((m >= (17 * 60 + 15 if halt_bars else 17 * 60)) & (m < 18 * 60))
     keep &= ~(wd == 5) & ~((wd == 4) & (m >= 17 * 60)) & ~((wd == 6) & (m < 18 * 60))
     keep &= rng.random(len(t)) > drop
     t = t[keep].tz_convert("UTC")
@@ -193,9 +195,24 @@ def test_four_hour_and_daily_candles_follow_the_cme_day():
     assert h4[0] == h4[1] != h4[2]  # 22:00-02:00 ET, then 02:00
     d = sw.candle_ids(ts, "1d")
     assert d[0] == d[3] != d[4] == d[6]  # 18:00 ET starts the next trading day
-    nxt = sw.candle_ids(pd.DatetimeIndex(pd.to_datetime(["2026-10-26 16:59"]).tz_localize(NY).tz_convert("UTC")),
-                        "4h", next_minute=True)
-    assert nxt[0] == -1  # the 14:00 ET 4h candle and the day close on the 16:59 bar
+    halt = pd.DatetimeIndex(pd.to_datetime(["2026-10-26 14:00", "2026-10-26 16:59", "2026-10-26 17:10"])
+                            .tz_localize(NY).tz_convert("UTC"))
+    for tf in ("4h", "1d"):  # no halt special case: halt bars stay in the day's last candle (R19)
+        ids = sw.candle_ids(halt, tf)
+        assert ids[0] == ids[1] == ids[2] == sw.candle_ids(halt[1:2], tf, next_minute=True)[0]
+
+
+@pytest.mark.parametrize("seed", [0, 1])
+@pytest.mark.parametrize("t_min", T_CHOICES)
+def test_bars_inside_the_daily_halt_match_literal(seed, t_min):
+    """R19: 2010 data has bars in 17:00-18:00 New York. Python and the Pine transcription must group them the same way."""
+    bars = synthetic(seed=seed, halt_bars=True)
+    lit = LiteralTupa(t_min=t_min)
+    a = run(TupaTrade(t_min=t_min), bars)
+    b = run(lit, Bars(bars.ts, bars.t_ms, bars.o, bars.h, bars.l, bars.c, bars.volume, bars.raw_symbol,
+                      bars.last_of_contract))
+    np.testing.assert_array_equal(bias(bars, t_min), lit.bias_log)
+    assert trade_rows(a) == trade_rows(b)
 
 
 def test_trend_down_when_hl_touched_by_closed_candle():

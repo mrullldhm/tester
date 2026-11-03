@@ -97,8 +97,8 @@ transcription of the Pine script, `tests/tupa_literal.py`, on synthetic bars; pl
 | Item | Coded as | Source |
 |---|---|---|
 | Swings | Indicator rule, all timeframes, 1m order for outside candles | owner (section 2) |
-| Timeframes | 5m, 15m, 1H (clock), 4H from 18:00 New York (last one 14:00-17:00), daily = CME day from 18:00 New York | owner charts (4H table) |
-| Closed candle | at the close of its last 1m bar if that is the candle's last minute, else when the next bar closes | answer 4 |
+| Timeframes | 5m, 15m, 1H (clock), 4H from 18:00 New York (last one 14:00-18:00), daily = CME day from 18:00 New York. Bars in the 17:00-18:00 halt (2010 data) stay in the day's last candle | owner charts (4H table); R19 |
+| Closed candle | at the close of its last 1m bar if that is the candle's last minute, else when the next bar closes (so the day's last 4H and daily candles close on the 18:00 reopen bar; no trade decision falls between 14:30 and 09:00) | answer 4 |
 | Trend | down when the current swing low, labelled HL, is touched (low <= HL) by a closed candle; up when the current LH is touched. Stays until the opposite touch. Both in one candle: the later touch (1m) | answers 21, 28 |
 | Tested timeframe T | **lowest** timeframe from `t_min` up to daily whose newest swing is a swing low (short) / high (long) | answer 27; *Claude: "lowest" and `t_min`* |
 | Bias | every timeframe below T, down to 5m, in downtrend (long: uptrend) | answers 25, 29 |

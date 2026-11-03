@@ -7,10 +7,12 @@ extremes printed (first 1m bar printing each; same 1m bar: high first when the h
 equal high = HH, equal low = LL.
 
 Higher-timeframe candles (CL1! exchange sessions, America/New_York clock; the CME day runs 18:00 to 17:00 ET):
-- 5m / 15m / 1h: clock aligned. 4h: anchored at 18:00 ET (18, 22, 02, 06, 10, 14; the last one ends 17:00).
+- 5m / 15m / 1h: clock aligned. 4h: anchored at 18:00 ET (18, 22, 02, 06, 10, 14; the last one runs to 18:00, so
+  bars in the 17:00-18:00 halt, which 2010 data has, belong to it).
   1d: the trading day starting 18:00 ET (Sunday evening belongs to Monday).
 - Closed candles only. A candle closes at the close of its last 1m bar when that bar is the candle's last minute;
-  otherwise (missing last minute, early close) when the next bar, the first of a later candle, closes.
+  otherwise (missing last minute, early close, the day's last 4h / daily candle) when the next bar, the first of a
+  later candle, closes. The day's last 4h and daily candles therefore close on the 18:00 ET reopen bar.
 
 Trend per timeframe (owner, answers 21 and 28): down when the last uptrend HL (the current swing low, labelled HL)
 is touched by a closed candle (low <= HL); up when the last downtrend LH is touched (high >= LH). A touched level is
@@ -30,7 +32,6 @@ NY = "America/New_York"
 SH, SL = 1, -1
 TIMEFRAMES = ("5m", "15m", "1h", "4h", "1d")  # bias timeframes, low to high
 _MS = {"5m": 300_000, "15m": 900_000, "1h": 3_600_000}
-BREAK = (17 * 60, 18 * 60)  # CME daily halt, New York minutes: no candle lives here
 NONE = -(2 ** 62)  # "no swing yet" in tick arrays (CL traded below zero, so -1 is a price)
 
 
@@ -40,8 +41,10 @@ def open_rule_high_first(o, h, l):
 
 
 def candle_ids(ts: pd.DatetimeIndex, tf: str, next_minute: bool = False) -> np.ndarray:
-    """Candle id of each bar open (or of the minute after it). Minutes in the 17:00-18:00 ET halt get -1 when
-    `next_minute` (so a candle ending at 17:00 closes on its 16:59 bar)."""
+    """Candle id of each bar open (or of the minute after it). No special case for the 17:00-18:00 ET halt: the day's
+    last 4h candle and the daily candle run to 18:00, so they close when the next session's first bar closes (no
+    trading decision falls in between). Bars inside the halt (2010 data: CME's break was shorter) stay in that
+    candle (R19)."""
     t = ts + pd.Timedelta(minutes=1) if next_minute else ts
     lt = t.tz_convert(NY)
     m = (lt.hour * 60 + lt.minute).to_numpy()
@@ -51,10 +54,7 @@ def candle_ids(ts: pd.DatetimeIndex, tf: str, next_minute: bool = False) -> np.n
         d = (t + pd.Timedelta(hours=6)).tz_convert(NY)
         day = (d.year * 10000 + d.month * 100 + d.day).to_numpy().astype(np.int64)
         ids = day * 10 + ((m + 360) % 1440) // 240 if tf == "4h" else day
-    ids = np.asarray(ids, dtype=np.int64)
-    if next_minute:
-        ids = np.where((m >= BREAK[0]) & (m < BREAK[1]), -1, ids)
-    return ids
+    return np.asarray(ids, dtype=np.int64)
 
 
 @dataclass

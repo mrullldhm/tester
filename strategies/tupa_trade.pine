@@ -61,11 +61,10 @@ candleId(int t, int tf) =>
         res := day
     res
 
-// Id of the minute after the bar; -1 in the 17:00-18:00 New York halt (a candle ending 17:00 closes on 16:59)
+// Id of the minute after the bar. No halt special case: the day's last 4H and daily candles run to 18:00 and close
+// on the next session's first bar; bars inside the 17:00-18:00 halt (2010 data) stay in that candle (R19)
 nextId(int t, int tf) =>
-    int tn = t + 60000
-    int m = hour(tn, NY) * 60 + minute(tn, NY)
-    m >= 17 * 60 and m < 18 * 60 ? -1 : candleId(tn, tf)
+    candleId(t + 60000, tf)
 
 type Zig
     int lastType = 0
