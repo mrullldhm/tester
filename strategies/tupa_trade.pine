@@ -297,7 +297,7 @@ var int nClosed = 0
 int mod = hour(time, NY) * 60 + minute(time, NY)
 int dayKey = year(time, NY) * 10000 + month(time, NY) * 100 + dayofmonth(time, NY)
 bool win = mod >= OPEN_MIN - 1 and mod < FLAT_MIN - 1
-if dayKey != curDay
+if na(curDay) or dayKey != curDay
     curDay := dayKey
     traded := false
 if strategy.position_size != 0 or strategy.closedtrades != nClosed

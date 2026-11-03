@@ -7,17 +7,89 @@
 - With data: the owner's 26 Oct 2026 trade (docs/strategies/tupa_trade/README.md, 1m section) is reproduced.
 """
 
+from pathlib import Path
+import re
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from strategies.tupa_trade import T_CHOICES, TupaTrade, bias
-from tests.tupa_literal import LiteralTupa
+from tests.tupa_literal import LiteralTupa, pine_eq, pine_ne
 from tvtester import swings as sw
 from tvtester.data import DATA_DIR, Bars, load_bars
 from tvtester.engine import run
 
 NY = "America/New_York"
+
+
+@pytest.mark.parametrize("a,b,eq,ne", [(None, None, False, False), (1, None, False, False),
+                                    (None, 1, False, False), (1, 1, True, False), (1, 2, False, True)])
+def test_pine_na_equality(a, b, eq, ne):
+    assert pine_eq(a, b) is eq
+    assert pine_ne(a, b) is ne
+
+
+def unguarded_na_comparisons(source):
+    """Check direct ==/!= uses of na-initialized var scalars, including reversed operands.
+
+    Accept an explicit na() check before the comparison, on its line or an enclosing if.
+    This deliberately conservative source check requires guards to remain visible.
+    """
+    source = re.sub(r"//[^\n]*", "", source)
+    names = re.findall(r"\bvar\s+\w+\s+(\w+)\s*=\s*na\b", source)
+    enclosing = []
+    failures = []
+    for lineno, line in enumerate(source.splitlines(), 1):
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        while enclosing and enclosing[-1][0] >= indent:
+            enclosing.pop()
+        for name in names:
+            comparison = rf"\b{re.escape(name)}\b\s*(?:==|!=)|(?:==|!=)\s*\b{re.escape(name)}\b"
+            for match in re.finditer(comparison, line):
+                guards = " ".join(text for _, text in enclosing) + " " + line[:match.start()]
+                if not re.search(rf"\bna\s*\(\s*{re.escape(name)}\s*\)", guards):
+                    failures.append((lineno, name))
+        if line.lstrip().startswith("if "):
+            enclosing.append((indent, line.strip()))
+    return failures
+
+
+def test_pine_na_initialized_vars_have_guarded_comparisons():
+    root = Path(__file__).resolve().parents[1]
+    for path in ("strategies/tupa_trade.pine", "indicators/structure_swings.pine"):
+        source = (root / path).read_text()
+        assert not unguarded_na_comparisons(source), path
+    # Prove that removing the fix fails the static check.
+    source = (root / "strategies/tupa_trade.pine").read_text()
+    old = source.replace("if na(curDay) or dayKey != curDay", "if dayKey != curDay")
+    assert old != source
+    assert unguarded_na_comparisons(old) == [(300, "curDay")]
+    assert unguarded_na_comparisons("var int x = na\nif x == 1\n    x := 2") == [(2, "x")]
+
+
+@pytest.mark.parametrize("data_window", ["synthetic", pytest.param(
+    "2026-10", marks=pytest.mark.skipif(not (DATA_DIR / "year=2026.parquet").exists(), reason="no 2026 CL data"))])
+def test_na_session_reset_old_pine_stops_after_first_trade(data_window):
+    class OldPineTupa(LiteralTupa):
+        def _new_session(self, day):
+            return pine_ne(day, self.cur_day)  # OLD Pine: if dayKey != curDay
+
+    # Exercise both the existing CL session / DST fixture and an unfiltered real-data window.
+    bars = synthetic() if data_window == "synthetic" else Bars.from_frame(load_bars("2026-10-01", "2026-11-03"))
+    old = OldPineTupa(t_min="1d")
+    broken = run(old, bars)
+    fixed = run(LiteralTupa(t_min="1d"), bars)
+    python = run(TupaTrade(t_min="1d"), bars)
+    assert len(broken.trades) == 1
+    assert old.cur_day is None and old.traded
+    assert trade_rows(broken) == trade_rows(fixed)[:1]
+    dates = [bars.ts[t.entry_bar].tz_convert(NY).strftime("%Y-%m-%d") for t in fixed.trades]
+    assert len(dates) == len(set(dates)) == 4
+    assert fixed.trades == python.trades  # all trade fields, including costs and profit
+    assert fixed.open_trade is None and python.open_trade is None
 
 
 def synthetic(days=24, seed=0, start="2026-03-01 18:00", drop=0.03):

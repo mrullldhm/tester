@@ -402,3 +402,8 @@ needed for a 5m swing low), and the 1m broke its swing low 100.76.
   100.52 at 22:33, +$245.98 net, difference $0.00, no intrabar-path ambiguity. Fixed: 22:30 high is dropped by
   alternation (not a swing). Codex: section 3b fits this example but is not yet codeable; needs order arming /
   cancel time, MSS swing choice, deterministic TP, NY window, trades per day, session-end exit (questions 18-24).
+- 2026-11-03, [R19](../../REVIEWS.md): old log 195 passed, SHA-256 `079711c5c3a91c469ca70046835c812e1988acfb8f384ad38a63633bc151b84a` verified; prior review found no engine fill, swing, candle-boundary or Python order defects.
+  High fixed: Pine line 300 now guards `curDay` with `na()`; no other affected Pine comparison. Literal na semantics, static guard and multi-session regressions: old one trade, fixed four, matching Python in synthetic and October 2026 CL windows.
+  New log `logs/pytest_tupa_r19.log`: 203 passed, SHA-256 `d0878544c2ac88fe8a3d74a4000d90fd3884b7930cff2f50a67a4cc7019dc87b` verified. Python strategy / engine unchanged.
+  Own code on all 5,672,666 bars: 26 Oct short 22:32 MYT @ 100.77, exit 22:33 @ 100.52, +245.98; top ny / 1d / TP 25 / max risk 25: 858 trades, net -14,149.16 / -20,179.16 / -26,209.16 at 0/1/2 ticks, all differences 0.
+  In-sample, best of 4, a loss; internal consistency, not TV parity (export still needed). Additional High: historical bars in the assumed halt produce eight literal vs two Python trades over 7 June-9 July 2010; separate candle-grouping fix needed (R19).

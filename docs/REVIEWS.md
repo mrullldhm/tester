@@ -238,3 +238,48 @@ supertrend_kalman London, BE touch 0.5T +1 tick + EMA(9) trail from 0.5T, no tar
 
 All four runs: 721 trades, every trade matched. This shows the code is internally consistent, not TradingView
 parity. Log: logs/codex/r18_exit_replication_st_london.md.
+
+## R19: tupa_trade review and independent replication, 2026-11-03 (pytest log hash checked by Codex)
+195 passed in `logs/pytest_tupa.log`, SHA-256
+`079711c5c3a91c469ca70046835c812e1988acfb8f384ad38a63633bc151b84a` verified.
+The prior review reported no findings in the engine stop-limit fills, swings, candle boundaries or Python order
+handling. The additional historical-data limitation found during this fix is recorded below. Fixed after review:
+
+- High: `strategies/tupa_trade.pine:300` compared `dayKey != curDay` with `curDay` initialized to `na`.
+  The condition stayed false, so the session reset never ran and trading stopped after the first fill.
+  Fixed to `if na(curDay) or dayKey != curDay`. No other affected comparison in this twin or
+  `indicators/structure_swings.pine`.
+- `tests/tupa_literal.py` now models Pine equality / inequality with `None` as `na`. Regression tests show the
+  old reset gives only one trade over each of the synthetic CL multi-session / DST fixture and the unfiltered
+  1 October-2 November 2026 CL window. The fixed literal gives four trades in each with `t_min=1d` and matches
+  `strategies/tupa_trade.py` trade-for-trade, including every trade field, costs and profit.
+  A static test rejects unguarded equality / inequality against
+  `var` scalars initialized to `na`, including the old reset. Python strategy and engine code are unchanged.
+
+Codex used its own code (no `tvtester` / `strategies` import) on all 5,672,666 bars. Top combination:
+`session=ny`, `t_min=1d`, `tp=25`, `max_risk=25`; in-sample, best of 4, a loss.
+
+| Quantity | Codex | Claude | Difference |
+|---|---|---|---|
+| 26 Oct 2026 short entry (MYT) | 22:32 @ 100.77 | 22:32 @ 100.77 | 0 |
+| 26 Oct 2026 exit (MYT) | 22:33 @ 100.52 | 22:33 @ 100.52 | 0 |
+| 26 Oct 2026 net profit | +245.98 USD | +245.98 USD | 0 |
+| Top combination trades, 0 / 1 / 2 ticks | 858 / 858 / 858 | 858 / 858 / 858 | 0 |
+| Top combination net, 0 ticks | -14,149.16 USD | -14,149.16 USD | 0 |
+| Top combination net, 1 tick | -20,179.16 USD | -20,179.16 USD | 0 |
+| Top combination net, 2 ticks | -26,209.16 USD | -26,209.16 USD | 0 |
+
+This shows internal consistency, not TradingView parity; a TradingView export comparison is still needed.
+
+Additional High finding during the fix (left unchanged under the owner's scope):
+`strategies/tupa_trade.pine:66-69,214-221` / `tvtester/swings.py:76-78`: actual CL data contains bars during
+the assumed 17:00-18:00 New York halt (328 bars over 7 June-9 July 2010). The Pine twin / literal closes a candle
+on each such bar, whereas Python groups them within the candle id. With `t_min=1d` over that window, the fixed
+literal makes eight trades versus Python's two; the first 4h swing-state divergence is 7 June 2010 at 20:59 UTC.
+A separate fix must reconcile candle grouping for those bars without silently filtering the data. The reset
+regression uses the existing synthetic CL session fixture and a recent unfiltered CL window (no bars in the
+assumed halt) to isolate the `na` defect; it does not establish full-history trade-for-trade parity.
+The replicated Python headline numbers remain unchanged.
+
+Fix verification: `logs/pytest_tupa_r19.log`, 203 passed in 128.40s (0:02:08).
+SHA-256 `d0878544c2ac88fe8a3d74a4000d90fd3884b7930cff2f50a67a4cc7019dc87b` verified.

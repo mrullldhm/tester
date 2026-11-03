@@ -12,6 +12,16 @@ SH, SL = 1, -1
 TFS = ("5m", "15m", "1h", "4h", "1d")
 
 
+def pine_eq(a, b):
+    """Pine equality is false when either operand is na (represented by None)."""
+    return a is not None and b is not None and a == b
+
+
+def pine_ne(a, b):
+    """Pine inequality is also false for na; it is not the negation of pine_eq."""
+    return a is not None and b is not None and a != b
+
+
 def open_rule(o, h, l):
     return (h - o) < (o - l)
 
@@ -98,7 +108,7 @@ class Tf:
         else:
             hf = self.same_hf
         if self.fd is not None and self.fu is not None:
-            up_last = (not self.tie_hf) if self.fd == self.fu else self.fu > self.fd
+            up_last = (not self.tie_hf) if pine_eq(self.fd, self.fu) else self.fu > self.fd
             self.trend, self.dn_used, self.up_used = (1 if up_last else -1), True, True
         elif self.fd is not None:
             self.trend, self.dn_used = -1, True
@@ -163,7 +173,7 @@ class LiteralTupa(Strategy):
             cn, mn = cid(tn, tf)
             if 17 * 60 <= mn < 18 * 60:
                 cn = -1
-            if f.id is not None and c != f.id:
+            if f.id is not None and pine_ne(c, f.id):
                 f.close()  # the previous candle missed its last minute: closed now
             if f.id is None:
                 f.start(c, i, o, h, l)
@@ -224,7 +234,7 @@ class LiteralTupa(Strategy):
         mod = lt.hour * 60 + lt.minute
         day = lt.year * 10000 + lt.month * 100 + lt.day
         win = self.open_minute - 1 <= mod < self.flat_minute - 1
-        if day != self.cur_day:
+        if self._new_session(day):
             self.cur_day, self.traded = day, False
         if ctx.position_size != 0 or ctx.closed_trades != self.n_closed:
             self.n_closed, self.traded = ctx.closed_trades, True
@@ -258,3 +268,7 @@ class LiteralTupa(Strategy):
         ctx.entry(eid, d, stop=bp, limit=lim)
         ctx.exit("Exit", eid, stop=sl, profit=self.params["tp"])
         self.pend, self.trig = (d, bp, sl, lim, cnt, i), False
+
+    def _new_session(self, day):
+        # Pine: if na(curDay) or dayKey != curDay
+        return self.cur_day is None or pine_ne(day, self.cur_day)
