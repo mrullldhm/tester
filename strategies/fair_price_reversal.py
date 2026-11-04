@@ -5,7 +5,7 @@ with the 9:29 / 9:30 ET anchor moved to each session's open (anchor = the candle
 Indicators run over every bar (ATR, pivot buffer, last swing high / low), as Pine does.
 
 Trade rules (ours: the indicator has none; the Pine twin is strategies/fair_price_reversal.pine):
-- Entry: market order at the next open after a signal bar, only when flat.
+- Entry: limit at the signal close, active from the next bar, only when flat.
 - Stop: the excursion extreme frozen at the signal bar (lowest low for longs / highest high for shorts from
   the bar that started the excursion to the signal bar).
 - Target: "near" / "far" body edge of the anchor candle (limit price), or "rr1" / "rr2": 1R / 2R in ticks
@@ -26,6 +26,7 @@ from tvtester import ta
 from tvtester.data import Bars
 from tvtester.engine import LONG, SHORT, Context
 from tvtester.exits import ExitRule, Manager
+from tvtester.entries import PendingEntry
 from tvtester.sessions import SESSIONS, local_clock
 from tvtester.strategy import Strategy
 
@@ -190,12 +191,14 @@ class FairPriceReversal(Strategy):
         self.s = SESSIONS[session]
         self.report_tz = self.s.tz
         self.exits = Manager(self.rule)
+        self.pending = PendingEntry()
         self.t_bar = -1
 
     def prepare(self, bars: Bars) -> np.ndarray:
         p = self.params
         self.bars = bars
         self.exits.prepare(bars)  # exit-management state starts fresh with every run
+        self.pending = PendingEntry()
         self.t_bar = -1
         self.sig = signals(bars, p["session"], p["window"], p["atr_mult"], p["swing"], p["atr_len"])
         self.mod, _ = _shared(bars, ("clock", self.s.tz), lambda: local_clock(bars.ts, self.s.tz))
@@ -211,6 +214,7 @@ class FairPriceReversal(Strategy):
         return self.s.open_minute <= self.mod[i] < self.s.flat_minute - 1
 
     def on_bar(self, ctx: Context, i: int) -> None:
+        waiting = self.pending.waiting(ctx, self.bars, i, self._in_session(i))
         if ctx.position_size != 0 and not self._in_session(i):
             ctx.close_all("Session end")
             return
@@ -218,13 +222,15 @@ class FairPriceReversal(Strategy):
             if self.rule.active:
                 self._manage(ctx, i)
             return
+        if waiting or self.bars.last_of_contract[i]:
+            return
         d = int(self.sig["sig"][i])
         if d == 0 or not self.allow[i] or not self._in_session(i):
             return  # a vetoed signal is dropped here too: on_bar also runs on bars where a position closes
         sg, target, c = self.sig, self.params["target"], int(self.bars.c[i])
         stop = int(sg["stop"][i])
         eid = "Long" if d == LONG else "Short"
-        ctx.entry(eid, d)
+        ctx.entry(eid, d, limit=c)
         self.eid, self.stop, self.limit, self.profit = eid, stop, None, None
         if target in ("near", "far"):
             near = sg["body_lo"][i] if d == LONG else sg["body_up"][i]
@@ -232,6 +238,8 @@ class FairPriceReversal(Strategy):
             self.limit = int(near if target == "near" else far)
         else:
             self.profit = abs(c - stop) * (1 if target == "rr1" else 2)
+        planned_tp = self.limit if self.limit is not None else c + d * self.profit
+        self.pending.place(eid, d, planned_tp)
         self._bracket(ctx, stop)
 
     def _bracket(self, ctx: Context, stop: int) -> None:
@@ -301,7 +309,7 @@ high while still below the body ("MSS LONG"); a short is the mirror ("MSS SHORT"
 short signal per session day. Swing highs / lows use `swing` bars on each side.
 
 **Trade rules (ours, the indicator has none):**
-- Entry: market order at the next bar open after the signal, only when flat.
+- Entry: limit at the signal close, active from the next bar, only when flat.
 - Stop: the excursion extreme, fixed at the signal bar (lowest low since the move down began for a long,
   highest high since the move up began for a short).
 - Target (`target`): `near` = nearest body edge, `far` = far body edge (limit orders), `rr1` / `rr2` = 1R / 2R
@@ -313,11 +321,10 @@ A runnable Pine v6 twin for checking trades in TradingView is in
 """
 
 CONCLUSION = """
-**No tradable edge on CL.** The best of 192 combinations in each session earns only a few dollars per trade
-before slippage, and every session loses money at 1 tick of slippage (a market entry plus a stop exit costs
-$20 more per trade at 1 tick). The baseline profits are in-sample: they come from picking the best of 192
-tries on the same 16 years. Codex independently replicated the New York top combination trade for trade
-(3,710 trades, +42,475.80 USD at 0 ticks, -20,100.08 USD at 1 tick).
+Execution rules changed to limit entries at the decision close, with unfilled entries cancelled after the
+planned target is reached at a one-minute close. Historical market-entry conclusions do not apply. Read
+the newly generated tables as in-sample research; independent replication and TradingView comparison are
+pending.
 """
 
 

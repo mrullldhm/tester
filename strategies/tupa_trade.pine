@@ -289,6 +289,7 @@ method cancelAll(Pend p) =>
     p
 
 var Pend pend = Pend.new()
+var Pend expired = Pend.new()
 var int curDay = na
 var bool traded = false
 var int nClosed = 0
@@ -313,9 +314,15 @@ else if not win or traded
 else
     bool keep = false
     if pend.dir != 0
-        if not pend.trig and bar_index > pend.bar and (pend.dir == -1 ? low <= pend.bp : high >= pend.bp)
+        float plannedTp = pend.lim + pend.dir * tpTicks * syminfo.mintick
+        bool tpReached = pend.dir == 1 ? high >= plannedTp : low <= plannedTp
+        if tpReached
+            expired := Pend.new(pend.dir, pend.bp, pend.sl, pend.lim, pend.cnt, pend.bar, pend.trig)
+            pend.cancelAll()
+            keep := true
+        if pend.dir != 0 and not pend.trig and bar_index > pend.bar and (pend.dir == -1 ? low <= pend.bp : high >= pend.bp)
             pend.trig := true  // the stop-limit is now a limit order
-        if pend.trig
+        if pend.dir != 0 and pend.trig
             int cnt = pend.dir == -1 ? z1.nH : z1.nL
             if cnt == pend.cnt
                 keep := true
@@ -341,7 +348,8 @@ else
         else
             int riskTicks = int(math.round(math.abs(wBp - wSl) / syminfo.mintick))
             float wLim = riskTicks > maxRisk ? math.round_to_mintick(wSl + wDir * maxRisk * syminfo.mintick) : wBp
-            if not (pend.dir == wDir and pend.bp == wBp and pend.sl == wSl and pend.lim == wLim)
+            bool isExpired = expired.dir == wDir and expired.bp == wBp and expired.sl == wSl and expired.lim == wLim and expired.cnt == wCnt
+            if not isExpired and not (pend.dir == wDir and pend.bp == wBp and pend.sl == wSl and pend.lim == wLim)
                 pend.cancelAll()
                 string eid = wDir == 1 ? "Long" : "Short"
                 strategy.entry(eid, wDir == 1 ? strategy.long : strategy.short, stop = wBp, limit = wLim)

@@ -10,7 +10,7 @@
   position left open cannot hide). Ties: profit factor (no losers ranks first), then rule order. No minimum-trade
   rule (the entries are fixed).
 - Winners: the best rule of each family (exits.ExitRule.family) and the best overall (one of them). Each winner is
-  rerun at 0 / 1 / 2 ticks; a winner is never re-picked from the stress runs.
+  rerun without added slippage; a winner is never re-picked from the final reports.
 - Ledger: `exit_study_declared` (planned runs) before the runs; one `exit_study_run` / `exit_study_stress` event per
   engine run as it finishes (an interrupted study still counts them); `exit_study` closes the run (0 runs).
 - Files: results/<name>/exits/<run_id>/<variant>/, never overwritten.
@@ -143,7 +143,8 @@ def cmd_exits(name: str, jobs: int = 6, variants: list[str] | None = None) -> st
     run_id = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}_{grid_hash[:6]}"
     for v in variants:
         experiment.log(name, "exit_study_declared", 0, run_id=run_id, variant=v, rules=len(rules),
-                       planned_runs=len(rules) + 3 * (len(FAMILIES) + 2),  # upper bound (winners dedup) objective=OBJECTIVE, grid_hash=grid_hash,
+                       planned_runs=len(rules) + (1 + len(SLIPPAGE_SCENARIOS)) * (len(FAMILIES) + 2),  # upper bound (winners dedup)
+                       objective=OBJECTIVE, grid_hash=grid_hash,
                        baseline=_config(mod, v, ExitRule()), provenance=prov,
                        artifacts=f"results/{name}/exits/{run_id}/{v}")
     t0 = time.time()
@@ -168,7 +169,7 @@ def cmd_exits(name: str, jobs: int = 6, variants: list[str] | None = None) -> st
     stressed = Parallel(n_jobs=jobs)(delayed(_stress)(name, v, o, run_id) for v, o in uniq)
     stress = dict(zip(uniq, stressed))
     for v in variants:  # engine runs were logged per chunk / stress: this event counts 0
-        runs = len(rules) + 3 * len({o for (vv, o) in uniq if vv == v})
+        runs = len(rules) + (1 + len(SLIPPAGE_SCENARIOS)) * len({o for (vv, o) in uniq if vv == v})
         experiment.log(name, "exit_study", 0, run_id=run_id, runs_done=runs, variant=v, rules=len(rules),
                        objective=OBJECTIVE, grid_hash=grid_hash,
                        winners={k: int(r["order"]) for k, r in picks[v].items()},
@@ -204,7 +205,7 @@ def _png(v: str, title: str, picks: dict, stress: dict, path) -> None:
     cap = DEFAULT.initial_capital
     for role, style in (("baseline", {"lw": 1.0, "color": "#888"}), ("overall", {"lw": 1.3, "color": "#1f77b4"})):
         o = int(picks[role]["order"])
-        for k, ls in ((0, "-"), (1, ":")):
+        for k, ls in ((0, "-"),):
             tf = stress[(v, o)][k]["trades"]
             if tf.empty:
                 continue
@@ -241,14 +242,12 @@ def write(mod, name, variants, grids, picks, stress, rules, bars, prov, grid_has
         f"frozen and only the exit rule changes. The best rule is the **best of {n}** tries per variant (each family "
         "below says its own N), conditional on baselines that were themselves the best of the feature-1 grid, and "
         "after an earlier 330-rule version of this study (ledger). The interval is the full feature-1 interval, "
-        "**including the reserved 2024+ bars**, so these exit winners cannot be validated on 2024+. The slippage "
-        "columns rerun the same frozen winner; they are not out-of-sample tests.", "",
+        "**including the reserved 2024+ bars**, so these exit winners cannot be validated on 2024+. Only the baseline is run, with commission and no added slippage.", "",
         "## Settings", "",
         "| Setting | Value |", "|---|---|",
         f"| Data | {bars.ts[0]} to {bars.ts[-1]} UTC, {len(bars):,} bars (data hash `{prov['data_hash']}`, code hash "
         f"`{prov['code_hash']}`, grid hash `{grid_hash}`) |",
-        "| Properties | as feature 1: $50,000, 1 contract, $2.01 per order ($4.02 round trip), slippage 0 with 1 and 2 "
-        "tick scenarios |",
+        "| Properties | as feature 1: $50,000, 1 contract, $2.01 per order ($4.02 round trip), no added slippage |",
         f"| Objective (declared first) | {OBJECTIVE}; ties: profit factor, then rule order |",
         "| Baseline | the variant's feature-1 top combination, unchanged (entries, initial stop and target) |",
         f"| Run | `{run_id}` (ledger `results/{name}/ledger.jsonl`; files never overwritten) |", "",
@@ -264,11 +263,10 @@ def write(mod, name, variants, grids, picks, stress, rules, bars, prov, grid_has
         f"Every rule that trails with {' or '.join(f'`{u}`' for u in UNVERIFIED)} (their own families and the matching "
         "`both` rules, marked **(unverified)** below) uses Python transcriptions of Pine `ta.pivotlow` / `ta.sar` that "
         "have **not been checked against a TradingView export** yet.", "",
-        "Breakeven is a stop price, not a guaranteed result: a stop fill pays slippage, a gap can fill worse, and "
+        "Breakeven is a stop price, not a guaranteed result: a gap can fill worse, and "
         "the round trip still costs $4.02 (1 tick offset = $10).", "",
         "## Summary: best rule per variant", "",
-        "| Variant | Baseline net (0 / 1 / 2 ticks) | Best rule (of " + str(n) + ") | Family | Best net (0 / 1 / 2 "
-        "ticks) | Rules beating the baseline |", "|---|---|---|---|---|---|",
+        "| Variant | Baseline net | Best rule (of " + str(n) + ") | Family | Best net | Rules beating the baseline |", "|---|---|---|---|---|---|",
     ]
     for v in variants:
         g, p = grids[v], picks[v]
@@ -295,7 +293,7 @@ def write(mod, name, variants, grids, picks, stress, rules, bars, prov, grid_has
             + ", ".join(f"[{k} ticks]({report.rel(res_dir / f'best_trades_slippage{k}.csv', doc_dir)})" for k in sl),
             "",
             "### Best rule of each family", "",
-            "| Family | Best rule | Best of | Net profit (0 / 1 / 2 ticks) | Open P&L at the end (0 / 1 / 2) | Trades "
+            "| Family | Best rule | Best of | Net profit | Open P&L at the end | Trades "
             "| % profitable | PF | Avg trade | Max DD | Trades with stop moved / closed by time exit | Family rules beating "
             "the baseline |",
             "|---|---|---|---|---|---|---|---|---|---|---|---|",

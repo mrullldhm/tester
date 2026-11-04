@@ -99,6 +99,7 @@ class TupaTrade(Strategy):
         self.cur_day, self.traded, self.n_closed = None, False, 0
         self.pend = None  # (direction, break point, stop loss, limit, swing count, placed bar)
         self.trig = False
+        self.expired = None
         return self.win
 
     def setup(self, i: int):
@@ -143,11 +144,17 @@ class TupaTrade(Strategy):
             if not self.win[i]:
                 ctx.close_all("Session end")
             return
-        if not self.win[i] or self.traded:
+        if not self.win[i] or self.traded or self.bars.last_of_contract[i]:
             self._cancel(ctx)
             return
         if self.pend is not None:
-            d, bp = self.pend[0], self.pend[1]
+            d, bp, _, lim = self.pend[:4]
+            planned_tp = lim + d * self.params["tp"]
+            reached = self.bars.h[i] >= planned_tp if d == LONG else self.bars.l[i] <= planned_tp
+            if reached:
+                self.expired = self.pend[:5]
+                self._cancel(ctx)
+                return
             if not self.trig and i > self.pend[5] and (self.bars.l[i] <= bp if d == SHORT else self.bars.h[i] >= bp):
                 self.trig = True  # the stop-limit is now a limit order
             if self.trig:
@@ -157,7 +164,7 @@ class TupaTrade(Strategy):
                     return
                 self._cancel(ctx)  # next 1m swing high (long: swing low) confirmed before a fill
         want = self.setup(i)
-        if want is None:
+        if want is None or want == self.expired:
             self._cancel(ctx)
             return
         if self.pend is not None and self.pend[:4] == want[:4]:

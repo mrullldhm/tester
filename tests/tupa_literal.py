@@ -159,6 +159,7 @@ class LiteralTupa(Strategy):
         self.z1 = Zig()
         self.min_since_l = self.max_since_h = None
         self.cur_day, self.traded, self.n_closed = None, False, 0
+        self.expired = None
         self.pend, self.trig = None, False
         self.next_t = bars.ts + pd.Timedelta(minutes=1)
         self.bias_log = np.zeros(len(bars), dtype=np.int8)
@@ -241,12 +242,17 @@ class LiteralTupa(Strategy):
             if not win:
                 ctx.close_all("Session end")
             return
-        if not win or self.traded:
+        if not win or self.traded or self.bars.last_of_contract[i]:
             self._cancel(ctx)
             return
         b = self.bars
         if self.pend is not None:
-            d, bp = self.pend[0], self.pend[1]
+            d, bp, _, lim = self.pend[:4]
+            target = lim + d * self.params["tp"]
+            if (b.h[i] >= target) if d == LONG else (b.l[i] <= target):
+                self.expired = self.pend[:5]
+                self._cancel(ctx)
+                return
             if not self.trig and i > self.pend[5] and (b.l[i] <= bp if d == SHORT else b.h[i] >= bp):
                 self.trig = True
             if self.trig:
@@ -255,7 +261,7 @@ class LiteralTupa(Strategy):
                     return
                 self._cancel(ctx)
         want = self._setup(bias)
-        if want is None:
+        if want is None or want == self.expired:
             self._cancel(ctx)
             return
         if self.pend is not None and self.pend[:4] == want[:4]:

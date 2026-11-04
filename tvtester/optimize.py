@@ -1,4 +1,4 @@
-"""Parameter grid: run every combination, rank by net profit (0-tick baseline), stress the winner."""
+"""Parameter grid: evaluate once, record thirteen objectives, retain net-profit order for compatibility."""
 
 import itertools
 import time
@@ -9,6 +9,7 @@ from . import metrics
 from .config import DEFAULT, SLIPPAGE_SCENARIOS, Properties
 from .data import Bars
 from .engine import Result, run
+from .objectives import DEFAULT_RUIN_LOSS, trade_metrics
 
 
 def combos(grid: dict) -> list[dict]:
@@ -17,7 +18,7 @@ def combos(grid: dict) -> list[dict]:
 
 
 def grid_rows(factory, grid: dict, bars: Bars, props: Properties = DEFAULT, label: str = "",
-              orders: list[int] | None = None) -> list[dict]:
+              orders: list[int] | None = None, ruin_loss: float = DEFAULT_RUIN_LOSS) -> list[dict]:
     """Headline numbers of the combinations numbered `orders` (1-based grid order; default all)."""
     cs = combos(grid)
     todo = orders if orders is not None else list(range(1, len(cs) + 1))
@@ -25,12 +26,14 @@ def grid_rows(factory, grid: dict, bars: Bars, props: Properties = DEFAULT, labe
     t0 = time.time()
     for done, n in enumerate(todo, 1):
         p = cs[n - 1]
-        s = metrics.summary(run(factory(**p), bars, props))
+        res = run(factory(**p), bars, props)
+        s = metrics.summary(res)
         a = s["all"]
         rows.append({**p, "order": n, "net_profit": a["net_profit"], "total_closed_trades": a["total_closed_trades"],
                      "percent_profitable": a["percent_profitable"], "profit_factor": a["profit_factor"],
                      "max_equity_drawdown": s["max_equity_drawdown"], "avg_trade": a["avg_trade"],
-                     "sharpe_ratio": s["sharpe_ratio"]})
+                     "sharpe_ratio": s["sharpe_ratio"], "sortino_ratio": s["sortino_ratio"],
+                     **trade_metrics(metrics.trade_frame(res), ruin_loss)})
         if done % 16 == 0 or done == len(todo):
             print(f"  {label} {done}/{len(todo)} combos, {time.time() - t0:.0f}s", flush=True)
     return rows

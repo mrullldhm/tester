@@ -1,12 +1,21 @@
 # TradingView Strategy Tester for CL1!
 
+> **Execution update — 3 November 2026.** New runs use limit entries and commission only, with no
+> added slippage and no 1- or 2-tick stress scenarios. Fair Price Reversal and Supertrend + Kalman place
+> the limit at the signal/decision close, active from the next bar. A waiting entry is cancelled when
+> the planned TP has been reached and it is still unfilled at the one-minute close. Existing session
+> boundaries still cancel waiting orders; Tupa Trade retains its stop-limit trigger and swing invalidation.
+> Limit fills can be at the limit or better. Stops and forced closes retain their existing order types.
+> Historical reports, configurations and ledger entries are retained; they are not results of these new rules.
+
+
 A Python backtester that behaves like the **TradingView Strategy Tester** for one market only: **CL1!**, the
 front-month NYMEX Light Sweet Crude Oil (WTI) future, on **1-minute bars**. For every strategy it tests,
 it writes a results document laid out like TradingView's report: Overview, Performance, Trades analysis,
-Risk/performance ratios and List of trades. It also gives the same numbers again under slippage.
+Risk/performance ratios and List of trades. New runs include commission and no added slippage.
 
 > **In one sentence:** you write a strategy once in Python (plus a Pine twin for TradingView), run one command,
-> and get a TradingView-style report for the best parameter combination at 0, 1 and 2 ticks of slippage.
+> and get a TradingView-style report for the best parameter combination with limit entries and commission included.
 
 ---
 
@@ -34,8 +43,7 @@ Risk/performance ratios and List of trades. It also gives the same numbers again
 |---|---|
 | TradingView broker emulator | Same fill rules as TradingView: orders placed at a bar's close fill from the next bar, the intrabar path (open, nearer extreme, other extreme, close), gaps, stop and limit orders, brackets, slippage on market and stop fills only |
 | TradingView report | Net profit, gross profit and loss, profit factor, max equity drawdown and run-up (intrabar), Sharpe, Sortino, percent profitable, average trade, largest win and loss, average bars in trade, list of trades, for all trades and for longs and shorts separately |
-| Parameter grid | Runs every combination, ranks them by net profit, documents the top combination |
-| Slippage scenarios | The top combination again at 1 tick and 2 ticks of slippage, in separate tables |
+| Parameter grid | Runs every combination, finds separate winners for 13 metrics, and documents each winner's settings and results |
 | Sessions | Asia, London and New York sessions for CL, verified against real CL volume, each in its own time zone (daylight saving handled) |
 | Data updater | Adds new 1-minute bars from Databento (primary) or Massive (fallback) with one command |
 | Pine twins | Every strategy has a Pine v6 version so you can check the trades on TradingView itself |
@@ -81,17 +89,16 @@ These match the **Properties** tab of a TradingView strategy and are the same fo
 | Initial capital | **50,000 USD** |
 | Order size | **1 contract** (CL = 1,000 barrels; 1 tick = $0.01 = **$10**) |
 | Commission | **$2.01 per contract per order**, so **$4.02 per round trip** (entry + exit) |
-| Slippage | **0 ticks** in the main result. **1 tick and 2 ticks** shown separately |
+| Added slippage | **0 ticks**; no stress scenarios |
 | Pyramiding | 0 (one position at a time) |
 | Margin | not checked |
 | Limit orders | fill when price touches them |
 | Bar Magnifier | off |
 | Roll rule | a position open on the last bar of a contract is closed at that bar's close |
 
-**What slippage means here.** As in TradingView, slippage makes every market order and stop order fill N ticks
-worse than its price. Limit orders (for example a profit target) never slip. One tick of slippage on CL costs
-$10 per affected fill, so a trade that enters at market and exits on its stop loses $20 more at 1 tick and
-$40 more at 2 ticks.
+**Limit fills.** A limit prevents a worse entry price, but can remain unfilled or receive a better gap price.
+The default broker settings add no slippage to any fills. Stops and forced closes are still modeled under
+TradingView's existing order rules; the fee remains $2.01 per fill.
 
 ---
 
@@ -115,7 +122,7 @@ fills.
  tvtester/metrics.py   ──► TradingView numbers (Performance Summary, List of trades)
                               │
                               ▼
- tvtester/optimize.py  ──► every grid combination → rank by net profit → re-run winner at 1 and 2 ticks
+ tvtester/optimize.py  ──► every grid combination → 13 metric winners → reports, commission included
                               │
                               ▼
  tvtester/report.py    ──► docs/strategies/<name>/README.md + charts, results/<name>/*.csv
@@ -209,9 +216,27 @@ What the command does, step by step:
 1. Loads the bars for the period.
 2. For each **variant** (for example each session), runs **every combination** in the strategy's grid with
    0 ticks of slippage.
-3. Picks the **top combination**: the highest net profit. Ties go to the higher profit factor, then grid order.
-4. Runs that same combination again at **1 tick** and **2 ticks** of slippage. It never re-optimizes for slippage.
+3. Selects **13 separate metric winners**: net profit, win rate, expectancy, profit factor, payoff ratio,
+   estimated risk of ruin, maximum drawdown, consecutive losses, Sharpe, Sortino, R-multiple, MAE and MFE.
+   Each needs at least 30 closed trades by default. Undefined values are excluded. Drawdown, loss streak,
+   estimated ruin and MAE are minimized; other objectives are maximized. Ties: net profit, profit factor, grid order.
+4. Writes the winning baseline run. No additional slippage scenarios are run.
 5. Writes the document, the equity chart, the CSV files and a JSON summary.
+
+To preserve the historical reports while generating the new multi-metric results for the web:
+
+```bash
+.venv/bin/python -m tvtester.cli test tupa_trade --output-tag metrics --jobs 1
+# Also supported: --min-trades 30 --ruin-loss 25000
+cd web
+npm run export
+```
+
+The new selections go to `results/<strategy>/metrics/<variant>/metric_winners.json`; distinct winners have
+their own saved trade lists and summaries. The web shows a metric selector and all-winners comparison.
+Risk of ruin is a labelled model estimate with a declared loss threshold, not a forecast. R-multiple uses
+initial stop risk at the actual fill; R spread and consistency are included. MAE/MFE rank the average of the
+per-trade maxima. Full definitions and limitations: [engine rules](docs/ENGINE.md#feature-1-thirteen-separate-metric-winners).
 
 ---
 
@@ -223,12 +248,12 @@ and feature definitions: [`docs/OPTIMIZE.md`](docs/OPTIMIZE.md).
 ```bash
 .venv/bin/python -m tvtester.cli features fair_price_reversal --variant ny       # which features go with good / bad trades
 .venv/bin/python -m tvtester.cli search fair_price_reversal --variant ny --space filters \
-    --sampler random --trials 200 --objective net1 --seed 1 --jobs 4              # search filters (and parameters: --space full)
-.venv/bin/python -m tvtester.cli replay strategies/configs/<file>.json            # re-run a frozen winner at 0 / 1 / 2 ticks
+    --sampler random --trials 200 --objective net0 --seed 1 --jobs 4              # search filters (and parameters: --space full)
+.venv/bin/python -m tvtester.cli replay strategies/configs/<file>.json            # replay a new limit-entry winner, baseline only
 ```
 
 - A **filter** vetoes an entry at the signal bar (`risk_ticks >= 34`, ...). It never changes the signal logic.
-- The **objective** is declared before the search (`net0` or `net1` = net profit at 0 or 1 tick) and a winner
+- The **objective** is declared before the search (`net0` = baseline net profit plus open P&L) and a winner
   needs at least 300 trades.
 - Every run is appended to `results/<name>/ledger.jsonl`, so later validation knows how many tries a result
   took. Every number is in-sample: feature 2 cannot show a tradable edge, only candidates for validation.
@@ -247,7 +272,7 @@ before 2024-01-01; nothing reserved is read). Protocol and verdict rules: [`docs
 
 | Check | Question | Pass |
 |---|---|---|
-| Walk-forward re-selection | Each year, pick the best of the same 200 E2 configurations on the years before, then trade it for that year. Would that have made money? | sum > 0 at 1 and 2 ticks, 7+ of 10 years positive |
+| Walk-forward re-selection | Each year, pick the best of the same 200 E2 configurations on the years before, then trade it for that year. Would that have made money? | baseline sum > 0, 7+ of 10 years positive |
 | CSCV / PBO | How often does the best configuration of one half of the data land in the bottom half of the other? | PBO <= 0.5 |
 | Deflated Sharpe | Is the candidate's Sharpe higher than the best of 200 tries would show by luck? | DSR >= 0.95 |
 
@@ -270,14 +295,13 @@ Each document follows the TradingView layout, top to bottom:
 |---|---|
 | Test settings | The exact properties and data range used |
 | How the top combination was chosen | The full grid and the ranking rule |
-| Summary | One line per variant: parameters and net profit at 0 / 1 / 2 ticks |
+| Summary | One line per variant: parameters and net profit after commission |
 | Overview | The headline numbers TradingView shows above its equity chart |
 | Performance | Net profit, gross profit and loss, commission paid, buy & hold, max run-up and drawdown, open P&L |
 | Trades analysis | Trade counts, win rate, average and largest trades, average bars in trades |
 | Risk/performance ratios | Sharpe, Sortino, profit factor, margin calls |
 | List of trades | The last 10 trades in TradingView's two-row format (full list in the CSV) |
 | By year, exit reasons | Extras that TradingView does not show |
-| Slippage scenarios | Side-by-side table, then a full report for each slippage level |
 | Top 10 combinations | How the best combination compares with the next ones |
 
 > **Important.** The top combination is the best of many tries on the same data. That makes it look better
@@ -334,7 +358,9 @@ Orders available inside `on_bar` (same meaning as in Pine):
 
 ---
 
-## Strategies tested so far
+## Historical strategy results
+
+The following results predate the limit-entry update. They have not been rerun under the new rules.
 
 ### Fair Price Reversal (LuxAlgo 9:29 ET), three CL sessions
 

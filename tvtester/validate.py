@@ -23,15 +23,15 @@ from .config import DEFAULT, ROOT, TICK_VALUE
 from .data import Bars, load_bars
 from .engine import run
 
-SCENARIOS = (0, 1, 2)
-SELECT_TICKS = 1  # selection scenario = the E2 objective net1
+SCENARIOS = (0,)
+SELECT_TICKS = 0  # selection uses baseline net0
 FOLD_YEARS = tuple(range(2014, 2024))
 ROLLING_YEARS = 4
 S_BLOCKS = 16
 BOOT_BLOCK, BOOT_N, BOOT_SEED = 20, 2000, 0
 RULES = {"min_positive_folds": 7, "pbo_max": 0.5, "dsr_min": 0.95}
 EULER = 0.5772156649015329
-E2_SEARCH = {"space_name": "filters", "sampler": "random", "seed": 1, "trials": 200, "objective": "net1"}
+E2_SEARCH = {"space_name": "filters", "sampler": "random", "seed": 1, "trials": 200, "objective": "net0"}
 _N = NormalDist()
 _W: dict = {}  # per worker process: the development frame and bars
 
@@ -350,6 +350,7 @@ def cmd_validate(cfg_file: str, jobs: int = 1) -> str:
     cfg = json.loads(path.read_text())
     if cfg["interval"] != [experiment.DEV_START, experiment.DEV_END]:
         raise SystemExit("feature 3 validates development-interval configurations only")
+    experiment.check_execution(cfg)
     name, variant = cfg["strategy"], cfg["variant"]
     mod = importlib.import_module(f"strategies.{name}")
     tag = path.stem.removeprefix(f"{name}_")
@@ -447,8 +448,7 @@ def cmd_validate(cfg_file: str, jobs: int = 1) -> str:
 
     gpd, gld = daily(gp), daily(gl)
     pbo = {"primary": cscv(pnl[s], cl_daily[s], gp_daily=gpd[s], gl_daily=gld[s]),
-           "eligible_only": cscv(pnl[s], cl_daily[s], eligible_only=True, gp_daily=gpd[s], gl_daily=gld[s]),
-           "ticks2": cscv(pnl[2], cl_daily[2], gp_daily=gpd[2], gl_daily=gld[2])}
+           "eligible_only": cscv(pnl[s], cl_daily[s], eligible_only=True, gp_daily=gpd[s], gl_daily=gld[s])}
     pbo["identical_paths"] = int(len(cfgs) - len(np.unique(pnl[s], axis=0)))
     (out / "pbo.json").write_text(json.dumps(pbo, indent=1))
 
@@ -456,7 +456,7 @@ def cmd_validate(cfg_file: str, jobs: int = 1) -> str:
     n_var = distinct_configs(mod, name, [variant])
     n_all = distinct_configs(mod, name, list(mod.VARIANTS))
     dsr_out = {}
-    for k in (1, 2):
+    for k in SCENARIOS:
         r_all = pnl[k] / cap
         v, zero = universe_variance(r_all)
         st = sharpe_stats(r_all[cand])
@@ -476,8 +476,8 @@ def cmd_validate(cfg_file: str, jobs: int = 1) -> str:
     tot = {k: sum(r[f"net{k}"] for r in an) for k in SCENARIOS}
     pos = sum(r[f"net{SELECT_TICKS}"] > 0 for r in an)
     pb = pbo["primary"]["pbo"]
-    dv = dsr_out["ticks1"]["primary"]["dsr"]
-    proc = {"wfo_net1": tot[1] > 0, "wfo_net2": tot[2] > 0, "folds": pos >= RULES["min_positive_folds"],
+    dv = dsr_out["ticks0"]["primary"]["dsr"]
+    proc = {"wfo_net0": tot[0] > 0, "folds": pos >= RULES["min_positive_folds"],
             "pbo": pb is not None and pb <= RULES["pbo_max"]}
     candv = {"dsr": dv is not None and dv >= RULES["dsr_min"]}
     verdict = {"procedure": all(proc.values()), "procedure_checks": proc, "candidate": all(candv.values()),
@@ -553,115 +553,63 @@ def _png(folds, pbo, path: Path, title: str) -> None:
 
 def _write_doc(name, mod, variant, tag, cfg, path, meta, folds, pbo, dsr_out, verdict, cfgs, cand, n_fold_runs,
                out) -> Path:
-    filt = ", ".join(f"`{f} {'>=' if o == 'min' else '<='} {t:g}`" for f, o, t in cfg["filters"]) or "none"
-    v = verdict
-    an = folds["anchored"]
-    ro = folds["rolling"]
-    L = [f"# {mod.TITLE}: feature 3 validation, `{variant}` ({tag})", "",
-         f"Generated {_now()} UTC by `python -m tvtester.cli validate {path.relative_to(ROOT)}`. Protocol: "
-         "[`docs/VALIDATE.md`](../../../VALIDATE.md).", "",
-         "> **Development interval only** (bars before 2024-01-01 UTC). This is retrospective robustness, "
-         "conditional on the frozen feature-2 search universe: the base parameters were picked on 2010-2026 and the "
-         "filters on the whole development interval, so a fold is not out-of-sample evidence. Passing does not show "
-         "a tradable edge.", "",
-         f"**Candidate:** trial {cand} of `{cfg['source']['search']}`. Parameters "
-         f"{', '.join(f'`{k}={x}`' for k, x in cfg['params'].items())}; filters {filt}.", "",
-         "## Verdict", "",
-         "| Verdict | Result | Checks |", "|---|---|---|",
-         f"| Procedure (would the E2 search, run blind each year, have worked?) | {_ok(v['procedure'])} | "
-         f"walk-forward 1 tick {_usd(v['wfo_total'][1])} ({_ok(v['procedure_checks']['wfo_net1'])}), 2 ticks "
-         f"{_usd(v['wfo_total'][2])} ({_ok(v['procedure_checks']['wfo_net2'])}); positive folds "
-         f"{v['positive_folds']} of {len(an)} (need {RULES['min_positive_folds']}, "
-         f"{_ok(v['procedure_checks']['folds'])}); PBO {_f(v['pbo'], 3)} (max {RULES['pbo_max']}, "
-         f"{_ok(v['procedure_checks']['pbo'])}) |",
-         f"| Candidate (is its Sharpe more than best-of-{len(cfgs)} luck?) | {_ok(v['candidate'])} | DSR "
-         f"{_f(v['dsr'], 3)} (need {RULES['dsr_min']}) |",
-         f"| **Advance to feature 4** | **{'yes' if v['advance'] else 'no'}** | both verdicts must pass |", "",
-         f"Engine runs: {len(SCENARIOS) * len(cfgs)} (matrix: {len(cfgs)} configurations x 0 / 1 / 2 ticks) + "
-         f"{n_fold_runs} fold runs. Every matrix row matched its `trials.csv` totals.", "",
-         f"![Walk-forward and CSCV]({tag}.png)", "",
-         "## Walk-forward re-selection (anchored, primary)", "",
-         "Each year Y: pick the best of the 200 E2 configurations on all development data before Y (1 tick, "
-         "net profit + open P&L, scaled trade minimum), then run **that** configuration through year Y, starting "
-         "flat. The last column is the frozen candidate in the same year (in-sample reference only).", "",
-         "| Test year | Picked trial | Configuration | Training result | Year result 0 / 1 / 2 ticks | Trades (1) | "
-         "Frozen candidate (1 tick, in-sample) |", "|---|---|---|---|---|---|---|"]
-    for r in an:
-        pick = r["trial"] if r["trial"] is not None else "cash"
-        L.append(f"| {r['year']} | {pick} | {r['config'] or 'no eligible configuration'} | "
-                 f"{_usd(r['train_obj'])} | {_usd(r['net0'])} / {_usd(r['net1'])} / {_usd(r['net2'])} | "
-                 f"{r['trades1']} | {_usd(r['cand1'])} |")
-    tot = v["wfo_total"]
-    cand_tot = sum(r["cand1"] for r in an)
-    best = max(an, key=lambda r: r["net1"])
-    picks = [r["trial"] for r in an]
-    L += [f"| **Total** | | | | **{_usd(tot[0])} / {_usd(tot[1])} / {_usd(tot[2])}** | "
-          f"{sum(r['trades1'] for r in an)} | {_usd(cand_tot)} |", "",
-          f"- Distinct configurations picked: {len(set(p for p in picks if p is not None))} of {len(an)} folds; "
-          f"the frozen candidate (trial {cand}) was picked in {picks.count(cand)}.",
-          f"- Without its best year ({best['year']}, {_usd(best['net1'])}): {_usd(tot[1] - best['net1'])} at 1 tick.",
-          f"- Walk-forward efficiency (mean year result / mean training result per training year, 1 tick): "
-          f"{_wfe(an)}.",
-          f"- Boundary check: a position left open at a fold end in {sum(r['open_end1'] for r in an)} folds; "
-          f"fold run vs the same configuration's full-run slice differ by "
-          f"{_usd(sum(abs(r['net1'] - r['slice1']) for r in an))} in total at 1 tick.", "",
-          "### Sensitivity: rolling 4-year training window (cannot rescue a failure)", "",
-          "| Test year | Picked trial | Configuration | Year result 0 / 1 / 2 ticks |", "|---|---|---|---|"]
-    for r in ro:
-        L.append(f"| {r['year']} | {r['trial'] if r['trial'] is not None else 'cash'} | {r['config'] or '—'} | "
-                 f"{_usd(r['net0'])} / {_usd(r['net1'])} / {_usd(r['net2'])} |")
-    rt = {k: fold_totals(ro)[f"net{k}"] for k in SCENARIOS}
-    L += [f"| **Total** | | | **{_usd(rt[0])} / {_usd(rt[1])} / {_usd(rt[2])}** |", "",
-          "## CSCV: probability of backtest overfitting", "",
-          f"Daily P&L at 1 tick in {S_BLOCKS} blocks, all {pbo['primary']['splits']:,} ways to split them into two "
-          "halves. In each split the best configuration of one half is ranked in the other half. PBO = share of "
-          "splits where it lands at or below the median. A diagnostic of the search, not a time-ordered test.", "",
-          "| Version | PBO | P(OOS loss) | Median logit | Median IS / OOS net of the pick | Slope (OOS on IS) | "
-          "Skipped splits |", "|---|---|---|---|---|---|---|"]
-    for lab, key_ in (("primary (1 tick, all 200)", "primary"), ("eligible configurations only", "eligible_only"),
-                      ("2 ticks", "ticks2")):
-        p = pbo[key_]
-        L.append(f"| {lab} | {_f(p['pbo'])} | {_f(p['p_oos_loss'])} | {_f(p['median_logit'], 2)} | "
-                 f"{_usd(p['median_is'])} / {_usd(p['median_oos'])} | {_f(p['slope'], 3)} | {p['skipped']} |")
-    d1, d2 = dsr_out["ticks1"], dsr_out["ticks2"]
-    n = dsr_out["n"]
-    L += ["", f"Identical trade paths among the 200 (inert filters): {pbo['identical_paths']}.", "",
-          "## Deflated Sharpe ratio of the frozen candidate", "",
-          "Daily marked-to-market P&L / 50,000 (fixed capital, idle days included as zeros), Sharpe per day, not "
-          "annualized. The trial population that sets the luck bar is the 200 E2 configurations (their own Sharpe "
-          "spread). The broader N rows reuse that spread for configurations whose spread was not measured here: "
-          "an assumption, shown for scale.", "",
-          "| Version | SR (daily) | Skew | Kurtosis | N | SR luck bar (SR0) | DSR |", "|---|---|---|---|---|---|---|"]
-    for lab, dd, st, key_ in (("primary: 1 tick, N = 200", d1, d1["stats"], "primary"),
-                              ("1 tick, N = variant distinct", d1, d1["stats"], "variant_n"),
-                              ("1 tick, N = strategy distinct", d1, d1["stats"], "strategy_n"),
-                              ("2 ticks, N = 200", d2, d2["stats"], "primary"),
-                              ("1 tick, monthly returns, N = 200", d1, d1["monthly_stats"], "monthly")):
-        x = dd[key_]
-        L.append(f"| {lab} | {_f(st['sr'], 4)} | {_f(st['skew'], 2)} | {_f(st['kurt'], 1)} | {x['n']:,} | "
-                 f"{_f(x['sr0'], 4)} | {_f(x['dsr'], 3)} |")
-    b = d1["boot90"]
-    L += ["", f"- Distinct configurations: variant {n['variant_distinct']:,}, strategy {n['strategy_distinct']:,} "
-              f"(feature-1 grid + every search trial and neighbour). Configurations with zero variance left out of "
-              f"the spread: {d1['zero_variance_configs']}.",
-          f"- Probabilistic Sharpe (SR > 0, no deflation), 1 tick: {_f(d1['psr0']['dsr'], 3)}. 90% block "
-          f"bootstrap interval of the daily SR (mean block {BOOT_BLOCK} days): "
-          f"{_f(b[0], 4) if b else '—'} .. {_f(b[1], 4) if b else '—'}.",
-          "- The formula assumes independent, identically distributed returns; the bootstrap interval is the "
-          "dependence check.", "",
-          f"Raw files in `{out.relative_to(ROOT)}/`: `matrix.npz`, `folds.csv`, `folds_rolling.csv`, `pbo.json`, "
-          "`dsr.json`, `verdict.json`, `run.json` (hashes)."]
+    v, an, ro = verdict, folds["anchored"], folds["rolling"]
+    L = [f"# {mod.TITLE}: limit-entry validation, {variant} ({tag})", "",
+         f"Generated {_now()} UTC. Execution: {experiment.EXECUTION_VERSION}. Commission included; no added slippage.", "",
+         "> **Development interval only, in-sample research.** The starting settings were selected using the full "
+         "history. Walk-forward re-selection does not remove that exposure. Passing is not proof of a tradable edge.", "",
+         f"Candidate: trial {cand} of `{cfg['source']['search']}`; {len(cfgs)} configurations in the search universe.", "",
+         "## Verdict", "", "| Check | Result | Need |", "|---|---|---|",
+         f"| Walk-forward net profit | {_usd(v['wfo_total'][0])} | > 0 |",
+         f"| Positive years | {v['positive_folds']} of {len(an)} | >= {RULES['min_positive_folds']} |",
+         f"| PBO | {_f(v['pbo'])} | <= {RULES['pbo_max']} |",
+         f"| DSR | {_f(v['dsr'])} | >= {RULES['dsr_min']} |", "",
+         f"Procedure: {_ok(v['procedure'])}. Candidate: {_ok(v['candidate'])}. Advance to F4: {v['advance']}.", "",
+         f"Engine runs: {len(cfgs)} matrix configurations + {n_fold_runs} fold runs, baseline only.", "",
+         f"![Walk-forward and CSCV]({tag}.png)", ""]
+    for title, rows in (("Walk-forward, anchored", an), ("Sensitivity: rolling four-year training", ro)):
+        L += [f"## {title}", "", "Each test year starts flat. Selection uses prior development data only, "
+              "net profit plus open P&L, and the scaled minimum trade count. Sensitivities cannot rescue a failure.", "",
+              "| Year | Picked trial | Configuration | Training result | Net profit | Trades | Frozen candidate (in-sample) |",
+              "|---|---|---|---|---|---|---|"]
+        for r in rows:
+            L.append(f"| {r['year']} | {r['trial'] if r['trial'] is not None else 'cash'} | {r['config'] or 'cash'} | "
+                     f"{_usd(r['train_obj'])} | {_usd(r['net0'])} | {r['trades0']} | {_usd(r['cand0'])} |")
+        totals = fold_totals(rows)
+        L += [f"| Total | | | | {_usd(totals['net0'])} | {totals['trades0']} | |", "",
+              f"Walk-forward efficiency: {_wfe(rows)}. Fold-end open positions: {sum(r['open_end0'] for r in rows)}.",
+              f"Fold/full-history boundary difference: {_usd(sum(abs(r['net0'] - r['slice0']) for r in rows))}.", ""]
+    L += ["## Probability of backtest overfitting", "",
+          "Daily marked-to-market P&L, split into complementary halves. PBO is the fraction where the in-sample "
+          "winner ranks at or below the out-of-sample median. This diagnostic is not time ordered.", "",
+          "| Version | PBO | P(OOS loss) | Median logit | Skipped |", "|---|---|---|---|---|"]
+    for key in ("primary", "eligible_only"):
+        p = pbo[key]
+        L.append(f"| {key} | {_f(p['pbo'])} | {_f(p['p_oos_loss'])} | {_f(p['median_logit'])} | {p['skipped']} |")
+    d = dsr_out["ticks0"]
+    L += ["", "## Deflated Sharpe", "",
+          "Daily returns use fixed starting capital, idle days included, and are not annualized. The luck bar uses "
+          "the search universe's Sharpe spread. Broader-N sensitivities reuse that spread as an assumption.", "",
+          "| Version | N | Luck bar | DSR |", "|---|---|---|---|"]
+    for key in ("primary", "variant_n", "strategy_n", "monthly"):
+        x = d[key]
+        L.append(f"| {key} | {x['n']} | {_f(x['sr0'], 4)} | {_f(x['dsr'])} |")
+    L += ["", f"Daily Sharpe: {_f(d['stats']['sr'], 4)}. PSR above zero: {_f(d['psr0']['dsr'])}. "
+          f"90% block-bootstrap Sharpe interval: {d['boot90']}. Identical paths: {pbo['identical_paths']}.", "",
+          f"Raw files: `{out.relative_to(ROOT)}`. The statistical formula assumes independent returns; "
+          "the block bootstrap checks sensitivity to dependence."]
     doc = doc_dir(name) / f"{tag}.md"
     doc.parent.mkdir(parents=True, exist_ok=True)
     doc.write_text("\n".join(L) + "\n")
     return doc
 
 
-def fold_totals(folds) -> dict:
-    """Sums of a fold table (rows with net0..2 and trades1): the walk-forward totals the report and the site show."""
+def fold_totals(folds, select_ticks=SELECT_TICKS, scenarios=SCENARIOS) -> dict:
+    """Sums of a fold table (rows with net0..2 and trades0): the walk-forward totals the report and the site show."""
     rows = folds.to_dict("records") if hasattr(folds, "to_dict") else list(folds)
-    return {**{f"net{k}": float(sum(r[f"net{k}"] for r in rows)) for k in SCENARIOS},
-            "trades1": int(sum(r["trades1"] for r in rows)), "positive1": int(sum(r["net1"] > 0 for r in rows))}
+    return {**{f"net{k}": float(sum(r[f"net{k}"] for r in rows)) for k in scenarios},
+            f"trades{select_ticks}": int(sum(r[f"trades{select_ticks}"] for r in rows)),
+            f"positive{select_ticks}": int(sum(r[f"net{select_ticks}"] > 0 for r in rows))}
 
 
 def _wfe(folds) -> str:
@@ -671,4 +619,4 @@ def _wfe(folds) -> str:
     den = np.mean([r["train_obj"] / r["train_years"] for r in rs])
     if den <= 0:
         return "n/a (training result not positive)"
-    return f"{np.mean([r['net1'] for r in folds]) / den:.2f}"
+    return f"{np.mean([r['net0'] for r in folds]) / den:.2f}"

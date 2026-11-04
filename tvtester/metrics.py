@@ -60,10 +60,13 @@ def trade_frame(res: Result) -> pd.DataFrame:
             "raw_symbol": b.raw_symbol[t.entry_bar],
             "signal_bar": t.signal_bar,
             "signal_time": b.ts[t.signal_bar] if t.signal_bar >= 0 else pd.NaT,
+            "initial_risk": t.initial_risk_ticks * TICK_VALUE * t.qty if t.initial_risk_ticks else None,
+            "r_multiple": t.profit / (t.initial_risk_ticks * TICK_VALUE * t.qty) if t.initial_risk_ticks else None,
         })
     cols = ["trade", "type", "entry_signal", "entry_time", "entry_price", "exit_signal", "exit_time", "exit_price",
             "contracts", "profit", "profit_pct", "cum_profit", "cum_profit_pct", "run_up", "run_up_pct", "drawdown",
-            "drawdown_pct", "bars", "commission", "exit_reason", "raw_symbol", "signal_bar", "signal_time"]
+            "drawdown_pct", "bars", "commission", "exit_reason", "raw_symbol", "signal_bar", "signal_time",
+            "initial_risk", "r_multiple"]
     return pd.DataFrame(rows, columns=cols)
 
 

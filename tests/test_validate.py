@@ -254,15 +254,15 @@ def test_cmd_validate_rejects_a_search_that_is_not_the_declared_e2():
     p = validate.ROOT / "strategies" / "configs" / "fair_price_reversal_ny_full_tpe_net1_s1_n300.json"
     if not p.exists():
         pytest.skip("frozen TPE configuration not on file")
-    with pytest.raises(SystemExit, match="not the declared E2 search"):
+    with pytest.raises(SystemExit, match="previous execution rules"):
         validate.cmd_validate(str(p))
 
 
 def test_fold_totals_sum_every_scenario_and_count_positive_years():
     rows = [{"net0": 10.0, "net1": 5.0, "net2": -1.0, "trades1": 3},
             {"net0": -4.0, "net1": -6.0, "net2": -8.0, "trades1": 2}]
-    assert validate.fold_totals(rows) == {"net0": 6.0, "net1": -1.0, "net2": -9.0, "trades1": 5, "positive1": 1}
-    assert validate.fold_totals(pd.DataFrame(rows)) == validate.fold_totals(rows)
+    assert validate.fold_totals(rows, select_ticks=1, scenarios=(0, 1, 2)) == {"net0": 6.0, "net1": -1.0, "net2": -9.0, "trades1": 5, "positive1": 1}
+    assert validate.fold_totals(pd.DataFrame(rows), select_ticks=1, scenarios=(0, 1, 2)) == validate.fold_totals(rows, select_ticks=1, scenarios=(0, 1, 2))
 
 
 def test_wfo_and_cscv_use_the_profit_factor_tie_break():

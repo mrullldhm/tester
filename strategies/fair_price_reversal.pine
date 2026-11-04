@@ -272,6 +272,19 @@ var int tTicks = na
 var float bestPx = na
 var float bestClose = na
 var string eid = ""
+var int pendingDir = 0
+var float pendingTp = na
+var int pendingClosed = 0
+if strategy.position_size != 0 or strategy.closedtrades != pendingClosed
+    pendingDir := 0
+pendingClosed := strategy.closedtrades
+if strategy.position_size == 0 and pendingDir != 0
+    bool tpReached = pendingDir == 1 ? high >= pendingTp : low <= pendingTp
+    if tpReached or not inSession
+        strategy.cancel(eid)
+        strategy.cancel("Exit")
+        pendingDir := 0
+
 if strategy.position_size != 0 and not inSession
     strategy.close_all(comment = "Session end")
 else if strategy.position_size != 0 and exitRuleOn
@@ -294,13 +307,15 @@ else if strategy.position_size != 0 and exitRuleOn
         if not na(ns)
             stopLvl := ns
             strategy.exit("Exit", eid, stop = stopLvl, limit = keepTarget ? limitLvl : na, profit = keepTarget ? profitTicks : na)
-else if strategy.position_size == 0 and inSession and allowed and (longSignal or shortSignal)
+else if strategy.position_size == 0 and pendingDir == 0 and inSession and allowed and (longSignal or shortSignal)
     eid := longSignal ? "Long" : "Short"
     stopLvl := longSignal ? lowSinceLowerExcursion : highSinceUpperExcursion
     bool nearFar = targetInput == "near" or targetInput == "far"
     limitLvl := not nearFar ? na : longSignal ? (targetInput == "near" ? bodyLower : bodyUpper) : (targetInput == "near" ? bodyUpper : bodyLower)
     profitTicks := nearFar ? na : int(math.round(math.abs(close - stopLvl) / syminfo.mintick) * rMult)
-    strategy.entry(eid, longSignal ? strategy.long : strategy.short)
+    pendingDir := longSignal ? 1 : -1
+    pendingTp := nearFar ? limitLvl : close + pendingDir * profitTicks * syminfo.mintick
+    strategy.entry(eid, longSignal ? strategy.long : strategy.short, limit = close)
     strategy.exit("Exit", eid, stop = stopLvl, limit = keepTarget ? limitLvl : na, profit = keepTarget ? profitTicks : na)
 
 plotshape(shortSignal, title = "MSS SHORT", style = shape.labeldown, location = location.abovebar, color = #f23645, text = "MSS SHORT", textcolor = color.white, size = size.tiny)

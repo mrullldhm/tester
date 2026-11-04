@@ -16,7 +16,7 @@ from . import experiment, metrics
 from .config import DEFAULT
 from .engine import run
 
-SCENARIOS = (0, 1, 2)
+SCENARIOS = (0,)
 MODES = ("off", "min", "max")
 P_OFF = 0.6  # random sampler: chance a filter is off (min / max share the rest)
 
@@ -51,7 +51,7 @@ def label(cfg: dict, base: dict) -> str:
 
 # --- evaluation ------------------------------------------------------------------------------------------
 def evaluate(mod, cfg: dict) -> dict:
-    """Engine runs at 0 / 1 / 2 ticks (separate runs: slippage changes fills, exits and later entries)."""
+    """One baseline engine run, with commission and no added slippage."""
     bars = _bars()
     out = {}
     for k in SCENARIOS:

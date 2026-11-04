@@ -1,5 +1,14 @@
 # Engine rules (TradingView broker emulator)
 
+> **Execution update — 3 November 2026.** New runs use limit entries and commission only, with no
+> added slippage and no 1- or 2-tick stress scenarios. Fair Price Reversal and Supertrend + Kalman place
+> the limit at the signal/decision close, active from the next bar. A waiting entry is cancelled when
+> the planned TP has been reached and it is still unfilled at the one-minute close. Existing session
+> boundaries still cancel waiting orders; Tupa Trade retains its stop-limit trigger and swing invalidation.
+> Limit fills can be at the limit or better. Stops and forced closes retain their existing order types.
+> Historical reports, configurations and ledger entries are retained; they are not results of these new rules.
+
+
 This page lists every rule the tester uses to turn orders into fills and fills into the Strategy Tester
 numbers. Each rule follows TradingView's documented behaviour for a strategy with the properties below.
 Where TradingView does not document a case, the rule is marked **convention**.
@@ -10,7 +19,7 @@ Where TradingView does not document a case, the rule is marked **convention**.
 | `initial_capital` | 50000 |
 | `default_qty_type`, `default_qty_value` | `strategy.fixed`, 1 (CL: 1,000 barrels, $0.01 tick = $10) |
 | `commission_type`, `commission_value` | `strategy.commission.cash_per_contract`, 2.01 (charged on every fill: $4.02 round trip) |
-| `slippage` | 0 baseline; scenarios 1 and 2 ticks |
+| `slippage` | 0; no stress scenarios |
 | `pyramiding` | 0 |
 | `calc_on_every_tick`, `calc_on_order_fills`, `process_orders_on_close` | false |
 | `margin_long`, `margin_short` | 0 (no margin check; Pine v6 defaults to 100%, which would reject 1 CL on $50,000) |
@@ -51,6 +60,23 @@ Where TradingView does not document a case, the rule is marked **convention**.
 10. **Slippage.** Market and stop fills move N ticks against the trader. Limit fills never slip.
 11. **Commission.** $2.01 x contracts on every fill. Cancelled orders cost nothing.
 
+## Limit-entry lifecycle (owner rule, revised 3 November 2026)
+
+- Fair Price Reversal: limit at the signal candle close. Supertrend + Kalman: limit at the
+  decision 1-minute candle close, after the completed M15 signal becomes available.
+- The limit starts working on the next bar, with its bracket already attached. No re-pricing while waiting.
+- Planned TP is fixed at placement: the anchor target for near/far, otherwise the planned limit plus/minus
+  the declared profit distance. Actual relative-profit exits still measure that distance from the fill.
+- Cancellation runs at each one-minute close, after the engine has processed that candle. If the entry is
+  still waiting and that candle touched the planned TP, cancel the entry and its bracket. This is a
+  bar-close rule, **not intrabar cancellation**: a fill earlier in the same candle remains a trade.
+- Waiting orders are also cancelled at the existing session boundary and on the old contract's last bar.
+  The Pine twins do not emulate the owner's contract-roll rule.
+- Tupa Trade keeps its MSS stop-limit, swing invalidation and one-filled-trade-per-session rule, adding TP
+  expiry. A TP-expired Tupa setup cannot re-arm unchanged.
+- Default runs, searches, replay and validation add no slippage. The generic broker can still emulate
+  nonzero slippage for old research and regression checks; no scheduled scenario jobs use it.
+
 ## Filters (feature 2)
 - An entry filter vetoes an order at the signal bar's close; the signal logic and its state are unchanged (a vetoed
   signal still uses up that day's signal). The veto is checked where the entry is decided (`on_bar`), because the
@@ -67,8 +93,9 @@ Custom stops moved at the bar close, plus an optional time exit. Not Pine's nati
   the bracket and closes at market (next open), like the ST flip.
 - **Units.** T = the trade's target distance in ticks, frozen at entry (`profit=` ticks, or |limit - fill|).
   Entry = the actual fill, slippage included (`strategy.position_avg_price`). best = most favourable high / low
-  since the entry bar, entry bar included (entries are market orders at an open, so the whole entry bar follows
-  the fill). rnd = round half up (Pine `math.round`); indicator levels round toward the trade's side.
+  since the entry bar, with the full entry candle included to match the Pine exit-management scripts.
+  For an intrabar limit fill this convention can include movement before the fill; it is not a measure of
+  post-fill excursion. Engine drawdown and run-up still use only the exposed part of the path. rnd = round half up (Pine `math.round`); indicator levels round toward the trade's side.
 - **Breakeven** (stop to entry + `be_offset` ticks): `touch` (best reaches `be_x` x T), `close` (a close reaches
   it), `time` (after `be_x` bars if the close is more than `be_offset` ticks in profit).
 - **Trailing** (active once best reaches `trail_at` x T): `frac` (best - x T), `atr` (best - k x ATR(14) of the 1m
@@ -121,3 +148,70 @@ a Sunday 18:00 New York open is still the previous UTC week.
   still showed May (CLK0), which settled at -$37.63.
 - The only real proof of parity is a TradingView export of the same strategy. Use the Pine twin of each strategy
   (`strategies/*.pine`) on `NYMEX:CL1!` 1-minute with Deep Backtesting and compare trades.
+
+## Feature 1: thirteen separate metric winners
+
+The `test` command evaluates the same grid once and selects a separate winner for each of these objectives:
+
+| Objective | Direction | Definition |
+|---|---|---|
+| Net profit | Highest | Sum of closed-trade net P&L, after commission; excludes final open P&L |
+| Win rate | Highest | Winning closed trades / all closed trades, including breakevens |
+| Expectancy | Highest | Mean net P&L per closed trade, in USD; the existing average-trade metric |
+| Profit factor | Highest | Sum of winning net P&L / absolute sum of losing net P&L; undefined without losses |
+| Payoff ratio | Highest | Average winning net P&L / absolute average losing net P&L; requires both |
+| Risk of ruin estimate | Lowest | Infinite-horizon diffusion approximation of reaching a fixed loss floor below initial capital |
+| Maximum drawdown | Lowest | Existing intrabar account drawdown convention above; includes the final open position |
+| Maximum consecutive losses | Lowest | Longest sequence of negative closed-trade results in execution order; zero or positive P&L resets it |
+| Sharpe ratio | Highest | Existing monthly, marked-to-market, nonannualized definition above |
+| Sortino ratio | Highest | Existing monthly, marked-to-market, nonannualized definition above |
+| R-multiple | Highest | Mean of net trade P&L / initial dollar stop risk, with one R fixed at the actual entry fill |
+| MAE | Lowest | Average of each closed trade's maximum adverse excursion in USD, before fees |
+| MFE | Highest | Average of each closed trade's maximum favorable excursion in USD, before fees |
+
+**Selection contract.** Default eligibility is at least 30 closed trades (`--min-trades` changes it). Each
+metric excludes undefined and nonfinite values; a configuration with no trades cannot win a risk metric.
+Ties use higher net profit, then higher profit factor (undefined last), then original grid order. Risk of ruin
+uses its unrounded log probability for ranking so floating-point underflow does not turn different tiny risks
+into false ties. If no configuration is eligible, that objective has no winner. Negative-profit configurations
+remain eligible: winning a risk ranking does not imply making money. The unconstrained net-profit reference
+and old CSV layout remain available for compatibility; eligible net-profit selection is explicitly separate.
+
+**Initial risk and R consistency.** The engine freezes the initial attached bracket's stop distance at the
+actual entry fill, before stop amendments. With both an absolute and relative stop, it uses the same resolved
+stop as the engine. One R = positive signed distance from fill to stop × $10/tick × contracts, before fees;
+trade R = net realized P&L / one R. A favorable gap changes actual risk. A missing stop, or a gap through the
+stop resulting in zero/negative risk, leaves R undefined. The whole configuration's R objective is undefined
+unless every closed trade has valid initial risk. Later stop moves never change R. Standard deviation of R
+(population) and mean R / standard deviation are also saved to describe consistency; zero standard deviation
+makes the consistency ratio undefined. This ratio is supplementary, not a fourteenth ranking.
+
+**Excursions.** MAE/MFE reuse the engine's `worst`/`best` while exposed, via trade-frame `drawdown`/`run_up`.
+Pre-entry and post-exit portions of a candle are excluded. Each trade has a maximum excursion; the grid
+objective averages those maxima. These are gross price excursions, not equity drawdown or realized returns.
+MFE can select wide-risk trades or trades that gave profits back, so its winner's MAE and realized net P&L
+are shown beside it. Open trades do not enter trade-average objectives.
+
+**Risk-of-ruin model.** The default loss budget is $25,000 from the $50,000 starting capital
+(`--ruin-loss`, a positive dollar amount no larger than starting capital). Let μ and σ² be the population
+mean and variance of closed-trade net dollar P&L. For at least two trades, the Brownian approximation is
+`P(ever hitting -loss_budget) = exp(-2 * μ * loss_budget / σ²)` for μ > 0 and σ² > 0; it is 1 for μ ≤ 0
+with positive variance. Zero-variance deterministic increments have probability 1 when negative and 0
+otherwise. Published probabilities are percentages. This model assumes independent, stationary trade P&L
+and unchanged fixed contract size forever. It ignores within-trade equity losses, serial dependence,
+parameter uncertainty, margin, withdrawals and changes in market conditions. It is neither a validated
+future probability nor a Topstep failure probability. Historical drawdown is a different quantity.
+
+**Artifacts.** `grid.csv` gains all selection metrics, plus R spread/consistency and log ruin probability.
+`metric_winners.json` records all definitions, eligibility, threshold, execution version, interval, winning
+orders/parameters and all thirteen values for each winner. Each distinct selected order is rerun once into
+`metric_winners/order_N/`, with summary and trades; several objectives can share that report.
+`--output-tag metrics` writes separate `results/<strategy>/metrics/<variant>/` artifacts and
+`docs/strategies/<strategy>/metrics.md`, keeping historical reports intact. The web exporter verifies winners
+against the tester's selection rules, grid, rerun summaries and trade totals; it publishes only aggregate
+values. The browser never computes trading metrics. Historical grids missing the new fields are marked
+pending until rerun rather than populated with inferred results.
+
+Definitions: [TradingView payoff ratio](https://my.tradingview.com/support/solutions/43000681719/),
+[TradingView trade excursions](https://www.tradingview.com/blog/en/changes-in-the-backtesting-report-16416/),
+[Van Tharp's initial-risk/R-multiple explanation](https://vantharp.com/wp-content/uploads/2018/06/A_Short_Lesson_on_R_and_R-multiple.pdf).

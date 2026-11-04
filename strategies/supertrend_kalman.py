@@ -4,8 +4,7 @@ Plan and Codex review: docs/research/supertrend_kalman_plan.md. Pine twin: strat
 
 M15 mapping (non-repainting, Pine `request.security(.., "15", expr[1], lookahead = barmerge.lookahead_on)`):
 M15 buckets are 1m bars grouped by UTC bar-open time floored to 15 minutes. A bucket's values are used from the
-first 1m bar of the next bucket that exists; the strategy decides at that bar's close, so a market entry fills
-at the following 1m open.
+first 1m bar of the next bucket that exists; the strategy decides at that bar's close, then places a limit at that decision close, active from the following bar.
 
 Signals on the completed bucket k (all need the Kalman slope on the trade side):
 - trigger `st`: Supertrend direction flips to the trade side.
@@ -35,6 +34,7 @@ from tvtester.config import TICK
 from tvtester.data import Bars
 from tvtester.engine import LONG, SHORT, Context
 from tvtester.exits import ExitRule, Manager
+from tvtester.entries import PendingEntry
 from tvtester.sessions import SESSIONS, local_clock
 from tvtester.strategy import Strategy
 
@@ -159,11 +159,13 @@ class SupertrendKalman(Strategy):
                          st_factor=st_factor, trail_mult=trail_mult, atr_len=atr_len, kalman_q=kalman_q,
                          **self.rule.params())
         self.exits = Manager(self.rule)
+        self.pending = PendingEntry()
 
     def prepare(self, bars: Bars) -> np.ndarray:
         p = self.params
         self.bars = bars
         self.exits.prepare(bars)  # exit-management state starts fresh with every run
+        self.pending = PendingEntry()
         m = m15(bars)
         self.ind = indicators(bars, p["st_factor"], p["trail_mult"], p["swing"], p["atr_len"], p["kalman_q"])
         self.bsig = bucket_signals(self.ind, p["trigger"])
@@ -239,6 +241,7 @@ class SupertrendKalman(Strategy):
         p, ind = self.params, self.ind
         k = int(self.prev[i])
         c = int(self.bars.c[i])
+        waiting = self.pending.waiting(ctx, self.bars, i, bool(self.in_hours[i]))
         if ctx.position_size != 0:
             if not self.in_hours[i] and p["hours"] != "all":
                 ctx.cancel("Exit")  # as the ST flip: only the market close works at the next open
@@ -272,6 +275,8 @@ class SupertrendKalman(Strategy):
                 self.stop = stop
                 self._bracket(ctx, stop)
             return
+        if waiting or self.bars.last_of_contract[i]:
+            return
         d = int(self.sig[i])
         if d == 0 or not self.in_hours[i] or not self.allow[i]:
             return  # a vetoed event expires here too: on_bar also runs on the bar a position closes
@@ -281,7 +286,8 @@ class SupertrendKalman(Strategy):
         stop = c - risk if d == LONG else c + risk
         self.eid = "Long" if d == LONG else "Short"
         self.stop, self.profit = stop, int(round(p["rr"] * risk))
-        ctx.entry(self.eid, d)
+        ctx.entry(self.eid, d, limit=c)
+        self.pending.place(self.eid, d, c + d * self.profit)
         self._bracket(ctx, stop)
 
     def _bracket(self, ctx: Context, stop: int) -> None:
@@ -338,8 +344,7 @@ review: [`docs/research/supertrend_kalman_plan.md`](../../research/supertrend_ka
 
 **M15 on a 1-minute chart.** M15 bars are the 1m bars grouped by UTC time floored to 15 minutes (CL's 18:00 New
 York session open is a 15-minute boundary). A bucket's values are used only after it is complete: from the first
-1m bar of the next bucket, which decides at its close, so a market entry fills at the next 1m open (normally
-hh:16 for the hh:00-hh:15 bucket). Pine twin: `request.security(.., "15", expr[1], lookahead = barmerge.lookahead_on)`.
+1m bar of the next bucket, which decides at its close, then places a limit at that decision close, active from the next 1m bar. Pine twin: `request.security(.., "15", expr[1], lookahead = barmerge.lookahead_on)`.
 
 **Indicators (M15):** Supertrend(`st_factor`, ATR 10, Pine `ta.supertrend`); UT Bot ATR trailing stop
 (ATR 10 x `trail_mult`, close source); 2-state constant-velocity Kalman filter on close (`kalman_q` = 0.01 or
@@ -354,8 +359,7 @@ lows with `swing` bars each side (strictly above / below), last confirmed value.
 - `both`: Supertrend and the close-vs-UT-stop side agree on this bucket and did not on the previous one.
 
 **Stop and target:** stop = last confirmed M15 swing low (long) / high (short); no trade when it is not beyond the
-decision close. Target = `rr` x signal risk (risk = decision close to stop) in ticks from the actual fill. The
-fill is one minute after the decision, so the realised initial RR differs slightly from `rr`.
+decision close. Target = `rr` x signal risk (risk = decision close to stop) in ticks from the actual fill. A fill may occur later at the limit or a better price; the target distance from the fill remains unchanged.
 
 **Volatility filter (`vol`):** `none`; `stop_atr:X` skips when the risk is wider than X x ATR14 (M15), the direct
 "no wide stop" rule; `atr_ratio:X` skips when ATR14 / ATR100 > X (volatile regime); `rvi` takes longs only when
@@ -377,23 +381,10 @@ but a contract's last bar can fall inside a session too (NY: 10 roll exits 2010-
 """
 
 CONCLUSION = """
-**No tradable edge on CL.** The top combination of every variant loses money at 2 ticks of slippage; `all`,
-London and New York stay above zero at 1 tick, Asia does not. These are the best of 1,728 combinations per variant (6,912 in
-all) on the same 16 years they are reported on (in-sample), so even the 0-tick numbers are an upper bound.
-
-- **`all` (24 h):** +128,887 / +42,087 / -37,225 USD at 0 / 1 / 2 ticks over 4,471 trades (+28.83 USD per
-  trade before slippage, while 1 tick costs 20 USD per trade). Max drawdown 51,169 USD = 102% of the 50,000 USD
-  account: it would have been wiped out on the way. 1,264 of 1,728 combinations lose money at 0 ticks (grid
-  median -20,476 USD). The ten best trades earn 101,700 USD, 79% of the total.
-- **`ny`:** +84,714 / +22,574 / -39,556 USD, 3,188 trades; 2022 alone is 37,586 USD. The only variant where the
-  grid median is above zero at 0 ticks (+959 USD), still far below the cost of 1 tick.
-- **`asia`, `london`:** small at 0 ticks (+18,112, +16,242 USD) and gone by 1 to 2 ticks.
-- **The owner's filters:** the "no wide stop" rule (`stop_atr`) only tops London; the Kalman filter helps mainly
-  in its slow setting (q = 0.0001, in 3 of 4 tops); `trail` exits top only Asia and London.
-
-**Independent check:** Codex rebuilt the `all` top combination with its own code from the raw parquet files:
-4,471 trades, +128,886.58 USD at 0 ticks; 4,461 trades, +42,086.78 USD at 1 tick. Every trade matched
-(docs/REVIEWS.md, R8). Not checked on TradingView itself yet: run the Pine twin on NYMEX:CL1! 1m to confirm.
+Execution rules changed to limit entries at the decision close, with unfilled entries cancelled after the
+planned target is reached at a one-minute close. Historical market-entry conclusions do not apply. Read
+the newly generated tables as in-sample research; independent replication and TradingView comparison are
+pending.
 """
 
 

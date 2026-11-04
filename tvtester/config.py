@@ -25,4 +25,4 @@ class Properties:
 
 
 DEFAULT = Properties()
-SLIPPAGE_SCENARIOS = (1, 2)  # ticks per market/stop fill, reported separately from the 0-tick baseline
+SLIPPAGE_SCENARIOS: tuple[int, ...] = ()  # owner: baseline only; no slippage stress runs

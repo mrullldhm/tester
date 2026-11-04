@@ -2,7 +2,7 @@
 // filter, signals on completed M15 bars, traded on the 1-minute chart. Use on NYMEX:CL1!, 1-minute, standard
 // candles, full electronic session, no back-adjustment, Deep Backtesting for long ranges.
 // M15 values come from request.security(.., "15", values[1], lookahead_on): the last COMPLETED 15-minute bar,
-// read on the first 1m bar of the next one (decision at its close, market fill at the next 1m open).
+// read on the first 1m bar of the next one (decision at its close, limit at that close active from the next 1m bar).
 // Not in the twin: the tester's roll exit (a position open on a contract's last bar closes at its close). A
 // contract's last bar can fall inside a session (NY has 10 such exits 2010-2023, Codex R10), so trades open at a
 // roll differ in every variant, most in "All".
@@ -202,6 +202,19 @@ var int profitTicks = na
 var float bestPx = na
 var float bestClose = na
 var string eid = ""
+var int pendingDir = 0
+var float pendingTp = na
+var int pendingClosed = 0
+if strategy.position_size != 0 or strategy.closedtrades != pendingClosed
+    pendingDir := 0
+pendingClosed := strategy.closedtrades
+if strategy.position_size == 0 and pendingDir != 0
+    bool tpReached = pendingDir == 1 ? high >= pendingTp : low <= pendingTp
+    if tpReached or not inHours
+        strategy.cancel(eid)
+        strategy.cancel("Exit")
+        pendingDir := 0
+
 
 if strategy.position_size != 0
     bool isLong = strategy.position_size > 0
@@ -236,7 +249,7 @@ if strategy.position_size != 0
             if not na(ns)
                 stopLvl := ns
                 strategy.exit("Exit", eid, stop = stopLvl, profit = keepTarget ? profitTicks : na)
-else if newBucket and sigB != 0 and inHours
+else if pendingDir == 0 and newBucket and sigB != 0 and inHours
     float lvl = sigB == 1 ? swLoB : swHiB
     if not na(lvl) and (sigB == 1 ? lvl < close : lvl > close)
         int riskTicks = math.round(math.abs(close - lvl) / syminfo.mintick)
@@ -251,7 +264,9 @@ else if newBucket and sigB != 0 and inHours
             eid := sigB == 1 ? "Long" : "Short"
             stopLvl := lvl
             profitTicks := riskTicks * rrInput
-            strategy.entry(eid, sigB == 1 ? strategy.long : strategy.short)
+            pendingDir := sigB
+            pendingTp := close + sigB * profitTicks * syminfo.mintick
+            strategy.entry(eid, sigB == 1 ? strategy.long : strategy.short, limit = close)
             strategy.exit("Exit", eid, stop = lvl, profit = keepTarget ? profitTicks : na)
 
 plot(strategy.position_size != 0 ? stopLvl : na, "Stop", color.red, style = plot.style_linebr)

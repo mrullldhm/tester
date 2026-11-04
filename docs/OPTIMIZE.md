@@ -1,5 +1,14 @@
 # Optimize (feature 2): feature engineering and parameter search
 
+> **Execution update — 3 November 2026.** New runs use limit entries and commission only, with no
+> added slippage and no 1- or 2-tick stress scenarios. Fair Price Reversal and Supertrend + Kalman place
+> the limit at the signal/decision close, active from the next bar. A waiting entry is cancelled when
+> the planned TP has been reached and it is still unfilled at the one-minute close. Existing session
+> boundaries still cancel waiting orders; Tupa Trade retains its stop-limit trigger and swing invalidation.
+> Limit fills can be at the limit or better. Stops and forced closes retain their existing order types.
+> Historical reports, configurations and ledger entries are retained; they are not results of these new rules.
+
+
 Feature 1 (`cli test`) answers "does this idea work?". Feature 2 answers "do filters or other parameters make it
 better, and how many tries did it take to find that?". Every look at results costs credibility, so this feature
 records each try in a ledger that the later validation feature (walk-forward / out-of-sample) will need.
@@ -11,10 +20,10 @@ Reviewed with Codex before and after it was built (`docs/REVIEWS.md`, R4 and R5)
 |---|---|
 | Development interval | bars with ts < **2024-01-01 00:00 UTC** (exclusive). `tvtester/experiment.py` holds it; `features`, `search` and `replay` all use it and cannot read later bars. `cli test` (feature 1) still reads every bar: it is never used to judge a feature-2 change |
 | 2024-01-01 onward | **Previously exposed** (feature 1 picked its top combinations on data to October 2026), so it is not clean out-of-sample data. It is reserved from further development. Bars after the protocol freeze (2026-10-31) are the only data never looked at |
-| Costs | Same Properties as feature 1: $2.01 per order, 1 contract; slippage scenarios 0 / 1 / 2 ticks, each its own engine run |
-| Objective | Declared before a search starts, never changed after looking. `net0` / `net1` = net profit **plus open P&L of a position still open at the end** (so a losing open trade cannot hide) at 0 / 1 tick. `net0` is the owner's feature-1 rule. Ties: profit factor (no losing trade ranks above any number), then trial number |
+| Costs | Same Properties as feature 1: $2.01 per order, 1 contract; no added slippage; one baseline engine run |
+| Objective | Declared before a search starts, never changed after looking. `net0` = net profit **plus open P&L of a position still open at the end** (so a losing open trade cannot hide) without added slippage. `net0` is the owner's feature-1 rule. Ties: profit factor (no losing trade ranks above any number), then trial number |
 | Minimum trades | A trial with fewer than 300 closed trades in the objective scenario is not eligible and cannot win. If no trial is eligible the report says "no eligible trial" and nothing is frozen |
-| Budget accounting | Trials = configurations tried, the baseline (trial 0) and TPE duplicates included. Engine runs = 3 per unique configuration (0 / 1 / 2 ticks) plus 3 per neighbour; the ledger counts engine runs. A failed trial stops the search (a bug, never a result) |
+| Budget accounting | Trials = configurations tried, the baseline (trial 0) and TPE duplicates included. Engine runs = 1 per unique configuration plus 1 per neighbour; the ledger counts engine runs. A failed trial stops the search (a bug, never a result) |
 | Wording | Every optimized number is "in-sample, best of N evaluations, development interval". Nothing here shows a tradable edge |
 | Ledger | `results/<strategy>/ledger.jsonl`, append only: every association report, search, neighbour check and replay with its number of engine evaluations |
 
@@ -121,7 +130,7 @@ can let in another trade the baseline never took).
   engine runs, never under-counts. `evaluations.jsonl` keeps the results as batches finish; the final `search`
   event carries the summary (`engine_runs`) and adds no count of its own.
 - The no-filter baseline is always trial 0.
-- Every trial runs 0, 1 and 2 ticks; all headline numbers are kept in `results/<strategy>/search/<run_id>/trials.csv`
+- Every trial runs the baseline only; all headline numbers are kept in `results/<strategy>/search/<run_id>/trials.csv`
   (one writer) with `run.json` (space, sampler, seed, objective, interval, code / data hashes, versions).
 - Neighbours of the winner: each searched base parameter one step either way in its declared list (categorical:
   every other value), each enabled filter switched off and its threshold one step either way. They are diagnostics,
@@ -131,7 +140,7 @@ can let in another trade the baseline never took).
 
 ### Replay (`replay`)
 A frozen configuration (`strategies/configs/*.json`: strategy, variant, every parameter, filters, interval, source
-run and trial) runs at 0 / 1 / 2 ticks without any grid, and writes raw files to `results/<strategy>/replay/<name>/`
+run and trial) runs the baseline without any grid, and writes raw files to `results/<strategy>/replay/<name>/`
 and its report to `docs/strategies/<strategy>/optimize/winner_<name>.md`. It never touches the feature-1 document.
 
 ## Agent loop
@@ -139,3 +148,10 @@ and its report to `docs/strategies/<strategy>/optimize/winner_<name>.md`. It nev
 2. Association report. 3. Feature code + tests (if a new feature is needed). 4. Search with a declared budget and
 objective. 5. Winner, neighbours, slippage scenarios. 6. Verdict in the lab notebook. 7. Freeze the winner; Codex
 reviews and replicates it before it is called real.
+
+## Execution revision and historical configurations
+
+New frozen configurations carry `execution_version: limit-close-tp-expiry-v1` and objective `net0`.
+Replay and validation refuse older configurations before loading data or writing results. Historical `net1`
+searches stay in the ledger and count as previous research; do not relabel them as new limit-entry searches.
+A fresh search is required for selection under the new rules.

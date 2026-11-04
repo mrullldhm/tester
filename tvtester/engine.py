@@ -61,6 +61,7 @@ class Trade:
     commission: float = 0.0
     profit: float = 0.0  # net of commission, $
     qty: int = 1
+    initial_risk_ticks: int | None = None  # actual fill to attached initial stop; frozen before any stop move
 
 
 @dataclass
@@ -163,6 +164,12 @@ class Engine:
         px = self._slip(price, order.side) if slip else price
         self.pos = Trade(order.side, order.id, self.i, px, order.placed_bar, best=price, worst=price,
                          commission=self._commission(), qty=self.props.qty)
+        for bracket in self.orders.values():
+            if bracket.kind == "exit" and bracket.from_entry == order.id:
+                self._resolve_one(bracket)
+                if bracket.stop is not None:
+                    risk = order.side * (px - bracket.stop)
+                    self.pos.initial_risk_ticks = risk if risk > 0 else None
         self.orders.pop(order.id, None)
         if order.oca:
             for k in [k for k, o in self.orders.items() if o.kind == "entry" and o.oca == order.oca]:

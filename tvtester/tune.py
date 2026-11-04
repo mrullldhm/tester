@@ -51,12 +51,12 @@ def cmd_features(name: str, variant: str) -> str:
              f"Baseline (feature-1 top combination): {', '.join(f'`{k}={v}`' for k, v in params.items())}. "
              f"Bars: {bars.ts[0]} to {bars.ts[-1]} ({len(bars):,}).", ""]
     feats = list(getattr(mod, "FEATURES", ()))
-    experiment.log(name, "association", 2, variant=variant, params=params, doc=str(doc.relative_to(ROOT)),
+    experiment.log(name, "association", len(search.SCENARIOS), variant=variant, params=params, doc=str(doc.relative_to(ROOT)),
                    features=feats, code_hash=experiment.provenance(name, bars)["code_hash"])  # logged before running
-    for k in (0, 1):
+    for k in search.SCENARIOS:
         tf = associate.trade_features(mod, params, bars, k)
         tf.to_csv(out / f"trades_features_slippage{k}.csv", index=False)
-        lines += [f"## {k} tick{'s' if k != 1 else ''} slippage: {len(tf):,} trades, net {_usd(tf['profit'].sum())}",
+        lines += [f"## Baseline, commission included: {len(tf):,} trades, net {_usd(tf['profit'].sum())}",
                   ""]
         for ft, cat in [(f, False) for f in feats] + [("direction", True), ("weekday", True)]:
             b = associate.buckets(tf, ft, cat, seed=k)
@@ -142,7 +142,7 @@ def cmd_search(name: str, variant: str, space_name: str, sampler: str, trials: i
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         cfg_path = CONFIG_DIR / f"{name}_{run_id}.json"
         cfg_path.write_text(json.dumps({
-            "strategy": name, "variant": variant, **winner, "interval": [experiment.DEV_START, experiment.DEV_END],
+            "strategy": name, "variant": variant, "execution_version": experiment.EXECUTION_VERSION, **winner, "interval": [experiment.DEV_START, experiment.DEV_END],
             "source": {"search": str(out.relative_to(ROOT)), "trial": int(best["trial"]), "objective": objective},
             "expected": {f"{m}{k}": (int(best[f"{m}{k}"]) if m == "trades" else float(best[f"{m}{k}"]))
                          for m in ("net", "open", "trades") for k in search.SCENARIOS} | {"objective": float(best["objective"])},
@@ -156,12 +156,11 @@ def cmd_search(name: str, variant: str, space_name: str, sampler: str, trials: i
 
 
 def _trial_rows(df: pd.DataFrame, n: int) -> list[str]:
-    out = ["| # | Trial | Configuration | Net 0 / 1 / 2 ticks | Trades (0) | % prof. (0) | PF (0 / 1) | Max DD (0) | "
-           "Eligible |", "|---|---|---|---|---|---|---|---|---|"]
+    out = ["| # | Trial | Configuration | Net profit | Trades | % profitable | PF | Max DD | Eligible |",
+           "|---|---|---|---|---|---|---|---|---|"]
     for i, (_, r) in enumerate(df.head(n).iterrows(), 1):
-        out.append(f"| {i} | {r['trial']} | {r['label']} | {_usd(r['net0'])} / {_usd(r['net1'])} / "
-                   f"{_usd(r['net2'])} | {int(r['trades0']):,} | {report.pct(r['win0'])} | "
-                   f"{search.fmt_pf(r['pf0'])} / {search.fmt_pf(r['pf1'])} | {_usd(r['dd0'])} | "
+        out.append(f"| {i} | {r['trial']} | {r['label']} | {_usd(r['net0'])} | {int(r['trades0']):,} | "
+                   f"{report.pct(r['win0'])} | {search.fmt_pf(r['pf0'])} | {_usd(r['dd0'])} | "
                    f"{'yes' if r['eligible'] else 'no'} |")
     return out
 
@@ -172,7 +171,7 @@ def write_search_report(out, meta, df, nb_df, winner, cfg_path, n_eval) -> None:
     lines = [f"# Search {out.name}", "",
              f"Generated {_now()} UTC. Strategy `{meta['strategy']}`, variant `{meta['variant']}`, space "
              f"`{meta['space_name']}`, sampler `{meta['sampler']}`, seed {meta['seed']}, objective "
-             f"`{meta['objective']}` (net profit + open P&L at {k} tick{'s' if k != 1 else ''}), at least "
+             f"`{meta['objective']}` (net profit + open P&L without added slippage), at least "
              f"{meta['min_trades']} closed trades.", "",
              IN_SAMPLE.format(end=experiment.DEV_END,
                               extra=f"The winner is the best of {len(df)} trials ({int(df['duplicate'].sum())} "
@@ -195,7 +194,7 @@ def write_search_report(out, meta, df, nb_df, winner, cfg_path, n_eval) -> None:
     lines += ["", "## Top 20 trials", ""] + _trial_rows(df, 20)
     lines += ["", f"Eligible trials: {int(df['eligible'].sum())} of {len(df)}. Trials with objective above zero: "
                   f"{int(((df['objective'] > 0) & df['eligible']).sum())}.", "",
-              f"Raw files in `{out.relative_to(ROOT)}/`: `trials.csv` (every trial, all scenarios), "
+              f"Raw files in `{out.relative_to(ROOT)}/`: `trials.csv` (every trial, baseline metrics), "
               "`neighbours.csv`, `run.json` (space, hashes, versions)."]
     doc = doc_dir(meta["strategy"]) / f"search_{out.name}.md"
     doc.parent.mkdir(parents=True, exist_ok=True)
@@ -210,6 +209,7 @@ def cmd_replay(cfg_file: str) -> str:
     if cfg["interval"] != [experiment.DEV_START, experiment.DEV_END]:
         raise SystemExit(f"configuration interval {cfg['interval']} is not the development interval "
                          f"{[experiment.DEV_START, experiment.DEV_END]}: feature 2 replays only that interval")
+    experiment.check_execution(cfg)
     name, variant = cfg["strategy"], cfg["variant"]
     mod = importlib.import_module(f"strategies.{name}")
     bars = experiment.dev_bars()
@@ -256,9 +256,9 @@ def cmd_replay(cfg_file: str) -> str:
                      f"{o['all']['total_closed_trades']:,} | {search.fmt_pf(b['all']['profit_factor'])} | "
                      f"{search.fmt_pf(o['all']['profit_factor'])} | {_usd(b['max_equity_drawdown'])} | "
                      f"{_usd(o['max_equity_drawdown'])} |")
-    lines += ["", "## 0 ticks slippage", "", report.full_report(sums[0], tf0, level=3),
+    lines += ["", "## Results after commission", "", report.full_report(sums[0], tf0, level=3),
               "### By year (extra)", "", report.by_year(tf0), ""]
-    for k in (1, 2):
+    for k in search.SCENARIOS[1:]:
         lines += [f"## {k} tick{'s' if k > 1 else ''} slippage", "",
                   report.full_report(sums[k], metrics.trade_frame(results[k]), level=3)]
     doc = doc_dir(name) / f"winner_{tag}.md"

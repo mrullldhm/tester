@@ -19,7 +19,7 @@ DEV_START = None  # first bar on file (2010-06-06)
 DEV_END = "2024-01-01"  # exclusive, UTC. 2024-01-01 onward was exposed by feature 1 and is reserved
 PROTOCOL_FROZEN = "2026-10-31"  # bars after this date were never looked at
 MIN_TRADES = 300  # a trial needs this many closed trades in the objective scenario to be eligible
-OBJECTIVES = {"net0": 0, "net1": 1}  # objective -> slippage ticks; value = net profit + open P&L at the end
+OBJECTIVES = {"net0": 0}  # objective -> slippage ticks; value = net profit + open P&L at the end
 
 
 def dev_bars() -> Bars:
@@ -54,6 +54,7 @@ def provenance(strategy: str, bars: Bars) -> dict:
         "data_hash": data_hash(bars),
         "manifest_hash": _sha([MANIFEST]) if MANIFEST.exists() else None,
         "code_hash": _sha(code),
+        "execution_version": EXECUTION_VERSION,
         "properties": {"initial_capital": DEFAULT.initial_capital, "qty": DEFAULT.qty,
                        "commission_per_order": DEFAULT.commission_per_order},
         "versions": {"python": platform.python_version(), "numpy": np.__version__, "pandas": pd.__version__,
@@ -92,3 +93,13 @@ def total_evaluations(strategy: str) -> int:
     if not path.exists():
         return 0
     return sum(json.loads(line)["evaluations"] for line in path.read_text().splitlines() if line.strip())
+
+
+EXECUTION_VERSION = "limit-close-tp-expiry-v1"
+
+
+def check_execution(cfg: dict) -> None:
+    """A saved market-entry winner is not a winner of the new limit-entry search."""
+    if cfg.get("execution_version") != EXECUTION_VERSION or cfg.get("source", {}).get("objective") != "net0":
+        raise SystemExit("This configuration uses the previous execution rules. Run a new net0 search for limit entries; "
+                         "historical configurations and results are preserved.")

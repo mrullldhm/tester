@@ -182,6 +182,9 @@ def save_variant(results: dict[int, Result], grid: pd.DataFrame, out_dir: Path) 
         s = metrics.summary(res)
         sums[k] = s
         metrics.trade_frame(res).to_csv(out_dir / f"trades_slippage{k}.csv", index=False)
-    (out_dir / "summary.json").write_text(json.dumps({f"slippage_{k}": v for k, v in sums.items()}, indent=2,
+    from .experiment import EXECUTION_VERSION
+
+    (out_dir / "summary.json").write_text(json.dumps({"execution_version": EXECUTION_VERSION,
+                                                      **{f"slippage_{k}": v for k, v in sums.items()}}, indent=2,
                                                      default=str))
     return sums
