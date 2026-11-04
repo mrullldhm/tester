@@ -1,0 +1,24 @@
+{
+  "recorded_utc": "2026-11-04T06:55:24.277000+00:00",
+  "confirmed": {
+    "wsl_out_of_memory_malaysia": "2026-11-04 12:53:50+08:00",
+    "free_swap_kb": 0,
+    "total_swap_kb": 4194304,
+    "process_killed": "chrome",
+    "wsl_init_scope_failure_malaysia": "2026-11-04 12:55:28+08:00",
+    "wsl_init_scope_failure": "oom-kill",
+    "windows_restart": "Owner reports restarting manually because WSL was unreachable. No matching automatic Windows crash/restart events were returned by the targeted System-log query."
+  },
+  "assessment": "The four-worker backtest likely contributed to shared memory exhaustion. The available logs do not establish it as the sole cause.",
+  "recovery": {
+    "reused_complete_checkpoint_settings": 6592,
+    "remaining_settings_at_resume": 320,
+    "workers": 1,
+    "minimum_available_memory_mb_before_next_setting": 3072,
+    "priority": "nice +10",
+    "checkpoint_frequency": "each newly completed setting; existing 16-setting checkpoints preserved",
+    "runtime_directory": "logs/supertrend_metrics_runtime",
+    "snapshot_recovered_from_hash_matching_main_data": true
+  },
+  "evidence_file": "logs/supertrend_metrics_runtime/crash-evidence.log"
+}
