@@ -11,6 +11,12 @@ Databento is the primary vendor: a Databento update first replaces any Massive b
 API keys come from .env (DATABENTO_API_KEY, MASSIVE_API_KEY). CL only: any other root is refused.
 """
 
+import sys
+
+if __name__ == "__main__":
+    from .resource_guard import entrypoint
+    entrypoint(["-m", "tvtester.update", *sys.argv[1:]])
+
 import argparse
 import hashlib
 import json

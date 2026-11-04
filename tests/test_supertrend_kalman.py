@@ -6,6 +6,8 @@ import math
 import numpy as np
 import pytest
 
+pytest.skip("Supertrend Kalman is retired", allow_module_level=True)
+
 from strategies import supertrend_kalman as sk
 from tvtester import optimize, ta
 from tvtester.data import DATA_DIR, Bars, load_bars

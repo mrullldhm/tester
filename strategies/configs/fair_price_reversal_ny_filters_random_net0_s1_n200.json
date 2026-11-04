@@ -1,0 +1,34 @@
+{
+  "strategy": "fair_price_reversal",
+  "variant": "ny",
+  "execution_version": "limit-close-tp-expiry-owner-swings-v2",
+  "filters": [
+    [
+      "risk_ticks",
+      "min",
+      22.0
+    ]
+  ],
+  "params": {
+    "atr_mult": 0.5,
+    "session": "ny",
+    "swing": 1,
+    "target": "rr2",
+    "window": 120
+  },
+  "interval": [
+    null,
+    "2024-01-01"
+  ],
+  "source": {
+    "search": "results/fair_price_reversal/search/ny_filters_random_net0_s1_n200",
+    "trial": 4,
+    "objective": "net0"
+  },
+  "expected": {
+    "net0": 84729.21999999997,
+    "open0": 0.0,
+    "trades0": 1739,
+    "objective": 84729.21999999997
+  }
+}

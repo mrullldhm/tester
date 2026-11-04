@@ -1,3 +1,7 @@
+> **Superseded — 4 November 2026.** This is a historical record under previous rules.
+> Current runs must use only `indicators/structure_swings.pine`; see the regenerated strategy results
+> and current `net0` search/validation reports. These numbers do not establish current-rule performance.
+
 # Tupa Trade (owner price action, MSS stop-limit), CL1! New York session: results
 
 Generated 2026-11-03 16:16 UTC by `python -m tvtester.cli test tupa_trade`.

@@ -33,6 +33,13 @@ SH, SL = 1, -1
 TIMEFRAMES = ("5m", "15m", "1h", "4h", "1d")  # bias timeframes, low to high
 _MS = {"5m": 300_000, "15m": 900_000, "1h": 3_600_000}
 NONE = -(2 ** 62)  # "no swing yet" in tick arrays (CL traded below zero, so -1 is a price)
+SWING_RULE = "structure-swings-v1"
+
+
+def require_owner_swing(strength=1):
+    """Compatibility guard: swing detection is fixed, never a research parameter."""
+    if strength != 1:
+        raise ValueError("Swing rules are fixed by indicators/structure_swings.pine; swing must be 1")
 
 
 def open_rule_high_first(o, h, l):
@@ -239,3 +246,32 @@ def minute_swings(bars: Bars) -> MinuteSwings:
     ev = a[:, 0]
     return MinuteSwings(ev, a[:, 1], a[:, 2], a[:, 3], a[:, 4], a[:, 5], a[:, 6], a[:, 7], a[:, 8], a[:, 9],
                         np.searchsorted(ev, np.arange(n), side="right") - 1)
+
+
+def minute_swing_series(bars: Bars) -> dict[str, np.ndarray]:
+    """Fixed owner swings: accepted events and carried levels, visible only at confirmation.
+
+    Previous levels are the preceding alternating swings of the same type, so moving
+    the newest swing never turns a replacement into a new structural comparison.
+    """
+    key = (SWING_RULE, "minute-series")
+    if key in bars.cache:
+        return bars.cache[key]
+    m = minute_swings(bars)
+    out = {}
+    for name, current, previous, counts in (
+        ("high", m.cur_h, m.prev_h, m.n_h), ("low", m.cur_l, m.prev_l, m.n_l)
+    ):
+        event = np.full(len(bars), np.nan)
+        prev = np.full(len(bars), np.nan)
+        added = np.diff(np.r_[0, counts]) > 0
+        event[m.bar[added]] = current[added]
+        valid_prev = added & (previous != NONE)
+        prev[m.bar[valid_prev]] = previous[valid_prev]
+        level = np.full(len(bars), np.nan)
+        valid = m.at >= 0
+        level[valid] = current[m.at[valid]]
+        level[level == NONE] = np.nan
+        out[name], out[f"prev_{name}"], out[f"last_{name}"] = event, prev, level
+    bars.cache[key] = out
+    return out

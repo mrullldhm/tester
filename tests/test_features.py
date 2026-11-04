@@ -22,7 +22,7 @@ from tvtester.engine import run
 from tvtester.sessions import SESSIONS, local_clock
 
 has_data = pytest.mark.skipif(not any(DATA_DIR.glob("*.parquet")), reason="no data")
-COMBOS = [(120, 0.5, 3), (60, 1.0, 2), (30, 2.0, 1)]
+COMBOS = [(120, 0.5, 1), (60, 1.0, 1), (30, 2.0, 1)]
 
 
 def literal_features(bars, session, window, mult, swing, atr_len=14):
@@ -145,7 +145,7 @@ def test_point_in_time_helpers():
     assert np.array_equal(fx.ratio_to_trailing_mean(x, 2), [np.nan, np.nan, np.nan, 2.0, 0.0], equal_nan=True)
 
 
-SPACE = {"base": {"session": "ny", "window": 60, "atr_mult": 1.0, "swing": 2, "target": "near"},
+SPACE = {"base": {"session": "ny", "window": 60, "atr_mult": 1.0, "swing": 1, "target": "near"},
          "params": {"window": [30, 60, 90], "target": ["near", "far"]},
          "filters": {"risk_ticks": (6, 20, 2), "range_ratio": (0.5, 1.0, 0.1)}}
 

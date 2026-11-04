@@ -5,7 +5,7 @@
     "max_risk": 25,
     "session": "ny"
   },
-  "execution_version": "limit-close-tp-expiry-v1",
+  "execution_version": "limit-close-tp-expiry-owner-swings-v2",
   "pine_inputs": [
     {
       "label": "Lowest tested timeframe T",

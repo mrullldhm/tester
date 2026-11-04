@@ -1,8 +1,8 @@
 """Fair Price Reversal (LuxAlgo "9:29 ET Fair Price Reversal", MPL-2.0) as a CL1! strategy, one per session.
 
-Signals: line-for-line port of the 1-minute path of strategies/reference/fair_price_reversal_luxalgo.pine,
+Signals: LuxAlgo setup logic with mandatory owner swings from indicators/structure_swings.pine,
 with the 9:29 / 9:30 ET anchor moved to each session's open (anchor = the candle before the open).
-Indicators run over every bar (ATR, pivot buffer, last swing high / low), as Pine does.
+Indicators run over every bar (ATR and owner swing high / low), as Pine does.
 
 Trade rules (ours: the indicator has none; the Pine twin is strategies/fair_price_reversal.pine):
 - Entry: limit at the signal close, active from the next bar, only when flat.
@@ -23,6 +23,7 @@ import numpy as np
 
 from tvtester import features as fx
 from tvtester import ta
+from tvtester.swings import minute_swing_series, require_owner_swing
 from tvtester.data import Bars
 from tvtester.engine import LONG, SHORT, Context
 from tvtester.exits import ExitRule, Manager
@@ -30,7 +31,6 @@ from tvtester.entries import PendingEntry
 from tvtester.sessions import SESSIONS, local_clock
 from tvtester.strategy import Strategy
 
-MAX_PIVOT_BUFFER = 21
 TARGETS = ("near", "far", "rr1", "rr2")
 RANGE_BARS = 1380  # about one 23-hour CL trading day of 1-minute bars
 RANGE_DAYS = 20
@@ -44,26 +44,15 @@ def _shared(bars: Bars, key, fn):
     return bars.cache[k]
 
 
-def _last_before(values: np.ndarray) -> np.ndarray:
-    """Most recent non-NaN value strictly before each bar (Pine `var` updated after use)."""
-    idx = np.where(~np.isnan(values), np.arange(len(values)), -1)
-    idx = np.maximum.accumulate(idx)
-    prev = np.concatenate([[-1], idx[:-1]])
-    out = np.full(len(values), np.nan)
-    ok = prev >= 0
-    out[ok] = values[prev[ok]]
-    return out
-
-
 def signals(bars: Bars, session: str, window: int, atr_mult: float, swing: int, atr_len: int = 14) -> dict:
     """Port of the indicator's 1-minute path. Returns per-bar arrays: sig (+1 / -1 / 0), stop, body edges."""
+    require_owner_swing(swing)
     s = SESSIONS[session]
     mod, day = _shared(bars, ("clock", s.tz), lambda: local_clock(bars.ts, s.tz))
     move_atr = _shared(bars, ("atr1", atr_len), lambda: ta.shift(ta.atr(bars.h, bars.l, bars.c, atr_len), 1))
-    ph = _shared(bars, ("ph", swing), lambda: ta.buffer_pivots(bars.h, swing, True))
-    pl = _shared(bars, ("pl", swing), lambda: ta.buffer_pivots(bars.l, swing, False))
-    sh_before = _shared(bars, ("shb", swing), lambda: _last_before(ph))
-    sl_before = _shared(bars, ("slb", swing), lambda: _last_before(pl))
+    owner = minute_swing_series(bars)
+    ph, pl = owner["high"], owner["low"]
+    sh_before, sl_before = owner["prev_high"], owner["prev_low"]
 
     start, end = s.open_minute, s.open_minute + window
     in_win = (mod >= start) & (mod < end)
@@ -86,7 +75,7 @@ def signals(bars: Bars, session: str, window: int, atr_mult: float, swing: int, 
     long_trig = short_trig = None
     direction = 0
     for i in todo.tolist():
-        pivot_t = i - swing  # buffer center; the buffer is always full after the first 21 bars
+        pivot_t = i - 1  # owner swing: confirmed at the right neighbour close
         piv_h, piv_l = ph[i], pl[i]
         if mod[i] == s.anchor_minute and (last_day is None or day[i] != last_day):
             bu, bl = max(o[i], c[i]), min(o[i], c[i])
@@ -120,16 +109,16 @@ def signals(bars: Bars, session: str, window: int, atr_mult: float, swing: int, 
                 lo_seen, lo_t, direction = True, i, 1
                 long_ready = short_ready = False
                 long_trig = short_trig = None
-        if piv_h == piv_h:
+        if piv_h == piv_h and direction == 1:
             last_sh = sh_before[i]
-            if (win and direction == 1 and lo_seen and not long_sent and last_sh == last_sh
-                    and lo_t is not None and pivot_t > lo_t and piv_h < last_sh):
-                long_ready, long_trig = True, piv_h
-        if piv_l == piv_l:
+            long_ready = bool(win and lo_seen and not long_sent and last_sh == last_sh
+                              and lo_t is not None and pivot_t > lo_t and piv_h < last_sh)
+            long_trig = piv_h if long_ready else None
+        if piv_l == piv_l and direction == -1:
             last_sl = sl_before[i]
-            if (win and direction == -1 and up_seen and not short_sent and last_sl == last_sl
-                    and up_t is not None and pivot_t > up_t and piv_l > last_sl):
-                short_ready, short_trig = True, piv_l
+            short_ready = bool(win and up_seen and not short_sent and last_sl == last_sl
+                               and up_t is not None and pivot_t > up_t and piv_l > last_sl)
+            short_trig = piv_l if short_ready else None
         if win and direction == 1 and long_ready and not long_sent and c[i] > long_trig and c[i] < bl:
             long_sent, long_ready, direction = True, False, 0
             sig[i], stop[i] = LONG, l[lo_t: i + 1].min()
@@ -181,8 +170,9 @@ def feature_values(bars: Bars, session: str, sg: dict, atr_len: int = 14) -> dic
 class FairPriceReversal(Strategy):
     name = "fair_price_reversal"
 
-    def __init__(self, session: str = "ny", window: int = 60, atr_mult: float = 1.0, swing: int = 2,
+    def __init__(self, session: str = "ny", window: int = 60, atr_mult: float = 1.0, swing: int = 1,
                  target: str = "near", atr_len: int = 14, filters=(), **exit_rule):
+        require_owner_swing(swing)
         if target not in TARGETS:
             raise ValueError(f"target must be one of {TARGETS}")
         self.rule = ExitRule(**exit_rule)  # exit management (tvtester/exits.py), default off
@@ -200,7 +190,14 @@ class FairPriceReversal(Strategy):
         self.exits.prepare(bars)  # exit-management state starts fresh with every run
         self.pending = PendingEntry()
         self.t_bar = -1
-        self.sig = signals(bars, p["session"], p["window"], p["atr_mult"], p["swing"], p["atr_len"])
+        # One signal configuration cached at a time: filters and targets never change its swings.
+        # Bounded storage avoids retaining full-history arrays for every search trial.
+        key = (p["session"], p["window"], p["atr_mult"], p["atr_len"])
+        cached = bars.cache.get(("fair_price_reversal", "signals"))
+        if cached is None or cached[0] != key:
+            cached = (key, signals(bars, *key[:3], 1, key[3]))
+            bars.cache[("fair_price_reversal", "signals")] = cached
+        self.sig = cached[1]
         self.mod, _ = _shared(bars, ("clock", self.s.tz), lambda: local_clock(bars.ts, self.s.tz))
         self.allow = np.ones(len(bars), dtype=bool)
         if self.filters:
@@ -268,15 +265,15 @@ class FairPriceReversal(Strategy):
 # --- test definition (python -m tvtester.cli test fair_price_reversal) -----------------------------------
 STRATEGY = FairPriceReversal
 TITLE = "Fair Price Reversal (LuxAlgo 9:29 ET), CL1! sessions"
-GRID = {"window": [30, 60, 90, 120], "atr_mult": [0.5, 1.0, 1.5, 2.0], "swing": [1, 2, 3], "target": list(TARGETS)}
+GRID = {"window": [30, 60, 90, 120], "atr_mult": [0.5, 1.0, 1.5, 2.0], "swing": [1], "target": list(TARGETS)}
 VARIANTS = {"asia": {"session": "asia"}, "london": {"session": "london"}, "ny": {"session": "ny"}}
 
 # --- optimize definition (feature 2: python -m tvtester.cli features / search / replay) -------------------
-# Baselines: the feature-1 top combination of each variant (picked on 2010-06 .. 2026-10, see the ledger).
+# Baselines: current owner-swing F1 winners, rerun 2026-11-04 on all available CL bars.
 BASELINES = {
-    "asia": {"window": 30, "atr_mult": 2.0, "swing": 3, "target": "rr1"},
-    "london": {"window": 120, "atr_mult": 2.0, "swing": 3, "target": "rr2"},
-    "ny": {"window": 120, "atr_mult": 0.5, "swing": 3, "target": "rr2"},
+    "asia": {"window": 30, "atr_mult": 2.0, "swing": 1, "target": "rr2"},
+    "london": {"window": 30, "atr_mult": 1.5, "swing": 1, "target": "rr2"},
+    "ny": {"window": 120, "atr_mult": 0.5, "swing": 1, "target": "rr2"},
 }
 FILTER_SPACE = {  # feature: (lowest threshold, highest threshold, step)
     "minutes_from_open": (5, 115, 5),
@@ -289,8 +286,8 @@ SPACES = {
     "filters": {"params": {}, "filters": FILTER_SPACE},  # baseline parameters frozen, filters searched
     "full": {"params": GRID, "filters": FILTER_SPACE},  # base parameters and filters together
 }
-LINEAGE = ("baselines are the feature-1 top combinations, picked from 192 grid combinations per variant on "
-           "2010-06-06 .. 2026-10-27 (includes the reserved interval)")
+LINEAGE = ("Baselines are the owner-swing feature-1 winners rerun 2026-11-04: 64 settings per session on "
+           "all available CL bars, including the reserved interval. Swing detection is fixed and never searched.")
 ABOUT = """
 Source: LuxAlgo, [9:29 ET Fair Price Reversal](https://www.luxalgo.com/library/indicator/9-29-et-fair-price-reversal/)
 (Pine v6, MPL-2.0). The original reads NQ around the 9:30 ET stock open. Here it runs on CL1! with the anchor
@@ -302,11 +299,11 @@ moved to the candle before each CL session open:
 | london | 08:00 Europe/London | 07:59 | 15:00 (UK summer) / 16:00 (UK winter) | 13:00 London |
 | ny | 09:00 America/New_York (NYMEX crude open) | 08:59 | 21:00 (US summer) / 22:00 (US winter) | 14:30 New York |
 
-**Signal (unchanged from the indicator):** the anchor candle's body (open/close) is the fair price. Inside the
+**Signal (owner swing adaptation):** the anchor candle's body (open/close) is the fair price. Inside the
 setup window that starts at the session open, price must move at least `atr_mult` x ATR(14) of the previous
 bar beyond the body. A long needs a lower swing high to form after a move down, then a close above that swing
 high while still below the body ("MSS LONG"); a short is the mirror ("MSS SHORT"). At most one long and one
-short signal per session day. Swing highs / lows use `swing` bars on each side.
+short signal per session day. Swing highs / lows follow only `indicators/structure_swings.pine`: one neighbour per side, left equality, right strictness, alternation and ordered outside candles. No swing setting is searched.
 
 **Trade rules (ours, the indicator has none):**
 - Entry: limit at the signal close, active from the next bar, only when flat.

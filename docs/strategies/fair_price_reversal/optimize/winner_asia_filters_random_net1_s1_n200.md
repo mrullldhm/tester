@@ -1,3 +1,7 @@
+> **Superseded — 4 November 2026.** This is a historical record under previous rules.
+> Current runs must use only `indicators/structure_swings.pine`; see the regenerated strategy results
+> and current `net0` search/validation reports. These numbers do not establish current-rule performance.
+
 # Fair Price Reversal (LuxAlgo 9:29 ET), CL1! sessions: optimized `asia` (asia_filters_random_net1_s1_n200)
 
 Generated 2026-10-31 05:44 UTC by `python -m tvtester.cli replay strategies/configs/fair_price_reversal_asia_filters_random_net1_s1_n200.json`.

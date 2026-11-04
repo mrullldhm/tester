@@ -1,5 +1,5 @@
 {
-  "execution_version": "limit-close-tp-expiry-v1",
+  "execution_version": "limit-close-tp-expiry-owner-swings-v2",
   "slippage_0": {
     "initial_capital": 50000.0,
     "period_start": "2010-06-07 00:00:00+00:00",

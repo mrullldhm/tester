@@ -1,7 +1,7 @@
 """Test a strategy and write its result document.
 
     .venv/bin/python -m tvtester.cli test fair_price_reversal [--start 2010-06-07] [--end 2026-10-28]
-        [--jobs 3] [--chunks 1]
+        [--jobs 1] [--chunks 1]
 
 A strategy module in strategies/ exposes:
     STRATEGY  Strategy subclass          TITLE, ABOUT  Markdown header text (CONCLUSION optional, shown after the summary)
@@ -14,15 +14,21 @@ results/<name>/<variant>/. --output-tag metrics keeps the old outputs and writes
 
 Feature 2 (docs/OPTIMIZE.md; development interval only, every run logged to results/<name>/ledger.jsonl):
     features <name> --variant ny                      association report of the baseline trades
-    search <name> --variant ny --space filters --sampler random --trials 200 --objective net0 --seed 1 --jobs 3
+    search <name> --variant ny --space filters --sampler random --trials 200 --objective net0 --seed 1 --jobs 1
     replay strategies/configs/<file>.json             frozen configuration, baseline only
 
 Exit study (docs/ENGINE.md "Exit management"; full feature-1 interval, logged to the ledger):
-    exits <name> --jobs 6                             breakeven / trailing stop sweep on the frozen baselines
+    exits <name> --jobs 1                             breakeven / trailing stop sweep on the frozen baselines
 
 Feature 3 (docs/VALIDATE.md; development interval only, logged to the ledger):
-    validate strategies/configs/<file>.json --jobs 4  walk-forward re-selection, CSCV / PBO, deflated Sharpe
+    validate strategies/configs/<file>.json --jobs 1  walk-forward re-selection, CSCV / PBO, deflated Sharpe
 """
+
+import sys
+
+if __name__ == "__main__":
+    from .resource_guard import entrypoint
+    entrypoint(["-m", "tvtester.cli", *sys.argv[1:]])
 
 import argparse
 import importlib
@@ -210,7 +216,7 @@ def main() -> None:
     t.add_argument("strategy")
     t.add_argument("--start")
     t.add_argument("--end")
-    t.add_argument("--jobs", type=int, default=3)
+    t.add_argument("--jobs", type=int, default=1)
     t.add_argument("--variants", nargs="*")
     t.add_argument("--chunks", type=int, default=1, help="split each variant's grid over this many processes")
     t.add_argument("--min-trades", type=int, default=DEFAULT_MIN_TRADES,
@@ -230,16 +236,20 @@ def main() -> None:
     se.add_argument("--objective", choices=["net0"], required=True)
     se.add_argument("--seed", type=int, default=1)
     se.add_argument("--jobs", type=int, default=1)
+    se.add_argument("--run-tag", default="", help="unique suffix for a new attempt; preserves interrupted runs")
     r = sub.add_parser("replay", help="run a frozen configuration (development interval)")
     r.add_argument("config")
     v = sub.add_parser("validate", help="feature 3: validate a frozen feature-2 candidate (development interval)")
     v.add_argument("config")
     v.add_argument("--jobs", type=int, default=1)
+    v.add_argument("--run-tag", default="", help="unique suffix for a new validation attempt")
     x = sub.add_parser("exits", help="exit study: breakeven / trailing stop on the frozen feature-1 baselines")
     x.add_argument("strategy")
-    x.add_argument("--jobs", type=int, default=6)
+    x.add_argument("--jobs", type=int, default=1)
     x.add_argument("--variants", nargs="*")
     a = ap.parse_args()
+    if getattr(a, "jobs", 1) != 1:
+        ap.error("Research safety requires --jobs 1; parallel workloads are disabled")
     if a.cmd == "exits":
         from . import exitstudy
 
@@ -250,7 +260,7 @@ def main() -> None:
         from . import validate
 
         t0 = time.time()
-        print(f"wrote {validate.cmd_validate(a.config, a.jobs)} in {time.time() - t0:.0f}s")
+        print(f"wrote {validate.cmd_validate(a.config, a.jobs, a.run_tag)} in {time.time() - t0:.0f}s")
         return
     if a.cmd != "test":
         from . import tune
@@ -259,7 +269,7 @@ def main() -> None:
         if a.cmd == "features":
             path = tune.cmd_features(a.strategy, a.variant)
         elif a.cmd == "search":
-            path = tune.cmd_search(a.strategy, a.variant, a.space, a.sampler, a.trials, a.objective, a.seed, a.jobs)
+            path = tune.cmd_search(a.strategy, a.variant, a.space, a.sampler, a.trials, a.objective, a.seed, a.jobs, a.run_tag)
         else:
             path = tune.cmd_replay(a.config)
         print(f"wrote {path} in {time.time() - t0:.0f}s")

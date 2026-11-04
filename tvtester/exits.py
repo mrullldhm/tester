@@ -16,8 +16,8 @@ Breakeven `be` (stop to entry + direction x `be_offset` ticks):
 Trailing `trail` (active once fav >= rnd(trail_at x T); best only grows, so activation latches):
 - "frac":  best - direction x max(1, rnd(trail_x x T))
 - "atr":   best - direction x trail_x x ATR(14) of the 1m chart at bar i (chandelier)
-- "swing": the last pivot low (long) / high (short) confirmed at or before bar i, strength trail_x
-           (Pine ta.pivotlow(low, n, n); value known n bars after the pivot bar)
+- "swing": last owner swing low (long) / high (short), confirmed at the next candle close.
+           Only indicators/structure_swings.pine rules; trail_x must be 0 (no setting).
 - "step":  s = max(1, rnd(trail_x x T)), m = floor(fav / s); m >= 1: entry + direction x (m - 1) x s
 - "close": best close since the entry bar (its close included) - direction x max(1, rnd(trail_x x T))
 - "ema":   EMA(trail_x) of the 1m close, only while on the trade's side of the close
@@ -36,13 +36,14 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import ta
+from .swings import minute_swing_series
 
 LONG = 1
 BE_STYLES = ("none", "touch", "close", "time")
 TRAIL_STYLES = ("none", "frac", "atr", "swing", "step", "close", "ema", "sar")
 SAR_SETS = ((0.02, 0.02, 0.2), (0.01, 0.01, 0.1))  # (start, increment, maximum)
 ATR_LEN = 14
-UNVERIFIED = ("swing", "sar")  # Python transcriptions of ta.pivotlow / ta.sar, not yet checked against a TV export
+UNVERIFIED = ("swing", "sar")  # owner swing and SAR twins await TradingView export verification
 
 
 def rnd(x: float) -> int:
@@ -73,12 +74,14 @@ class ExitRule:
             raise ValueError("exit rule values must be >= 0")
         if (self.be != "none") != (self.be_x > 0):
             raise ValueError("breakeven needs be_x > 0, and be_x needs a breakeven style")
-        if self.trail not in ("none", "sar") and self.trail_x <= 0:
+        if self.trail not in ("none", "sar", "swing") and self.trail_x <= 0:
             raise ValueError("this trailing style needs trail_x > 0")
         if self.trail == "sar" and int(self.trail_x) not in range(len(SAR_SETS)):
             raise ValueError("sar: trail_x is an index into SAR_SETS")
-        if self.trail in ("swing", "ema") and self.trail_x != int(self.trail_x):
-            raise ValueError("swing / ema: trail_x is a whole number of bars")
+        if self.trail == "swing" and self.trail_x != 0:
+            raise ValueError("Owner swings are fixed by indicators/structure_swings.pine; trail_x must be 0")
+        if self.trail == "ema" and self.trail_x != int(self.trail_x):
+            raise ValueError("ema: trail_x is a whole number of bars")
         if self.trail == "step" and self.trail_at != 0:
             raise ValueError("step trailing has no start setting")
         if not self.keep_target and self.trail == "none" and self.time_exit == 0:
@@ -114,7 +117,7 @@ class ExitRule:
         if self.trail != "none":
             v = self.trail_x
             x = ("SAR " + "/".join(map(str, SAR_SETS[int(v)])) if self.trail == "sar" else
-                 {"frac": f"{v:g}T", "atr": f"{v:g} ATR", "swing": f"pivot {v:g}", "step": f"step {v:g}T",
+                 {"frac": f"{v:g}T", "atr": f"{v:g} ATR", "swing": "owner swings (fixed)", "step": f"step {v:g}T",
                   "close": f"close {v:g}T", "ema": f"EMA {v:g}"}[self.trail])
             parts.append(f"trail {x}" + (f" from {self.trail_at:g}T" if self.trail_at else ""))
         if self.time_exit:
@@ -126,21 +129,8 @@ class ExitRule:
 
 # --- indicators (whole bar arrays, cached on the Bars object) ---------------------------------------------
 def pivots(x: np.ndarray, n: int, high: bool) -> np.ndarray:
-    """Pine ta.pivothigh / ta.pivotlow(x, n, n) as a series: the pivot value at the confirmation bar j + n,
-    NaN elsewhere. Tie rule (UNVERIFIED vs TradingView): a low pivot is <= each of the n older bars and < each of
-    the n newer bars; a high pivot mirrors (>= older, > newer)."""
-    out = np.full(len(x), np.nan)
-    if len(x) < 2 * n + 1:
-        return out
-    xf = x.astype(float)
-    m = len(x) - 2 * n
-    center = xf[n: n + m]
-    ok = np.ones(m, dtype=bool)
-    for k in range(1, n + 1):
-        older, newer = xf[n - k: n - k + m], xf[n + k: n + k + m]
-        ok &= ((center >= older) & (center > newer)) if high else ((center <= older) & (center < newer))
-    out[2 * n:] = np.where(ok, center, np.nan)
-    return out
+    """Removed: a single price array cannot implement ordered, alternating owner swings."""
+    raise ValueError("Use tvtester.swings.minute_swing_series(bars); generic pivots are forbidden")
 
 
 def carry(x: np.ndarray) -> np.ndarray:
@@ -217,9 +207,8 @@ def levels(bars, rule: ExitRule) -> dict:
         n = int(rule.trail_x)
         return {"ema": _cached(bars, ("ema", n), lambda: ta.ema(c.astype(float), n))}
     if t == "swing":
-        n = int(rule.trail_x)
-        return {"pl": _cached(bars, ("pl", n), lambda: carry(pivots(l, n, False))),
-                "ph": _cached(bars, ("ph", n), lambda: carry(pivots(h, n, True)))}
+        owner = minute_swing_series(bars)
+        return {"pl": owner["last_low"], "ph": owner["last_high"]}
     if t == "sar":
         s = SAR_SETS[int(rule.trail_x)]
         return {"sar": _cached(bars, ("sar", s), lambda: sar(h, l, c, *s))}
@@ -322,7 +311,7 @@ def _trail_specs() -> list[dict]:
            for a in (0.0, 0.25, 0.5, 0.75) for x in (0.25, 0.5, 0.75, 1.0) for k in keep]
     out += [dict(trail="atr", trail_at=a, trail_x=x, keep_target=k) for x in (1, 2, 3, 4) for a in (0.0, 0.5)
             for k in keep]
-    out += [dict(trail="swing", trail_at=a, trail_x=x, keep_target=k) for x in (2, 3, 5) for a in (0.0, 0.5)
+    out += [dict(trail="swing", trail_at=a, trail_x=x, keep_target=k) for x in (0,) for a in (0.0, 0.5)
             for k in keep]
     out += [dict(trail="step", trail_x=x, keep_target=k) for x in (0.25, 0.5) for k in keep]
     out += [dict(trail="close", trail_at=a, trail_x=x, keep_target=k) for x in (0.25, 0.5, 0.75, 1.0)
@@ -335,8 +324,8 @@ def _trail_specs() -> list[dict]:
 
 
 def study_rules() -> list[ExitRule]:
-    """Fixed order: baseline, breakeven (21), trailing (100), both (300 = 100 trails x 3 declared breakevens),
-    time exit (6) = 428 rules."""
+    """Fixed order: baseline, breakeven (21), trailing (92), both (276 = 92 trails x 3 declared breakevens),
+    time exit (6) = 396 rules. Swing detection is never searched."""
     trails = _trail_specs()
     out = [ExitRule()]
     out += _be_rules()

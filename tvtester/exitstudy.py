@@ -5,7 +5,7 @@
 - Interval: the feature-1 interval, frozen (START .. END exclusive), every bar incl. the reserved 2024+ bars
   (owner decision 2026-11-01). Not feature 2: exit winners picked here cannot be validated on 2024+.
 - Baseline: mod.BASELINES[variant] (the feature-1 top combination) + mod.VARIANTS[variant], unchanged.
-- Rules: tvtester.exits.study_rules() (428, fixed order, declared before the v2 runs). One engine run each, 0 ticks.
+- Rules: tvtester.exits.study_rules() (396, fixed order, declared before the v2 runs). One engine run each, 0 ticks.
 - Objective (declared first): net profit + open P&L at the end, 0 ticks ("net0", as feature 2, so a losing
   position left open cannot hide). Ties: profit factor (no losers ranks first), then rule order. No minimum-trade
   rule (the entries are fixed).
@@ -35,7 +35,7 @@ from .engine import run
 from .exits import COMBINED_BE, UNVERIFIED, ExitRule, study_rules
 from .report import plt  # Agg backend set there
 
-START, END = None, "2026-10-28"  # feature-1 interval: first bar on file .. 2026-10-27 20:59 UTC
+START, END = None, None  # same full available CL history as the current feature-1 run
 OBJECTIVE = "net0 (net profit + open P&L at the end, 0 ticks)"
 FAMILIES = ("be_touch", "be_close", "be_time", "trail_frac", "trail_atr", "trail_swing", "trail_step",
             "trail_close", "trail_ema", "trail_sar", "both", "time_exit")
@@ -45,7 +45,7 @@ FAMILY_TEXT = {
     "be_time": "Breakeven after N bars if the close is in profit",
     "trail_frac": "Trail a fixed fraction of T behind the best price",
     "trail_atr": "Trail k x ATR(14) behind the best price (chandelier)",
-    "trail_swing": "Trail at the last confirmed 1m swing low / high (UNVERIFIED pivots)",
+    "trail_swing": "Trail at the last confirmed owner 1m swing low / high (fixed detection; TradingView export pending)",
     "trail_step": "Ratchet: lock one step behind every step of T reached",
     "trail_close": "Trail a fraction of T behind the best close",
     "trail_ema": "Trail at the 1m EMA while it is on the trade's side",
@@ -132,7 +132,7 @@ def _hash(obj) -> str:
     return hashlib.sha256(json.dumps(obj, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
-def cmd_exits(name: str, jobs: int = 6, variants: list[str] | None = None) -> str:
+def cmd_exits(name: str, jobs: int = 1, variants: list[str] | None = None) -> str:
     mod = importlib.import_module(f"strategies.{name}")
     variants = variants or list(mod.VARIANTS)
     rules = study_rules()
@@ -261,7 +261,7 @@ def write(mod, name, variants, grids, picks, stress, rules, bars, prov, grid_has
         *[f"| `{f}` | {FAMILY_TEXT[f]} | {nf[f]} |" for f in FAMILIES],
         f"| | **Total (with the baseline)** | **{n}** |", "",
         f"Every rule that trails with {' or '.join(f'`{u}`' for u in UNVERIFIED)} (their own families and the matching "
-        "`both` rules, marked **(unverified)** below) uses Python transcriptions of Pine `ta.pivotlow` / `ta.sar` that "
+        "`both` rules, marked **(unverified)** below) uses the owner swing twin / Pine `ta.sar` that "
         "have **not been checked against a TradingView export** yet.", "",
         "Breakeven is a stop price, not a guaranteed result: a gap can fill worse, and "
         "the round trip still costs $4.02 (1 tick offset = $10).", "",

@@ -1,0 +1,19 @@
+{
+ "procedure": true,
+ "procedure_checks": {
+  "wfo_net0": true,
+  "folds": true,
+  "pbo": true
+ },
+ "candidate": false,
+ "candidate_checks": {
+  "dsr": false
+ },
+ "advance": false,
+ "wfo_total": {
+  "0": 39463.239999999925
+ },
+ "positive_folds": 7,
+ "pbo": 0.010722610722610723,
+ "dsr": 0.7590525849900922
+}

@@ -6,6 +6,7 @@ strategies, so tests can check them on synthetic numbers. `cmd_validate` runs th
 """
 
 import hashlib
+import gc
 import importlib
 import itertools
 import json
@@ -280,7 +281,11 @@ def _fold_chunk(module_name: str, jobs: list[tuple]) -> list[dict]:
     for n in sorted(range(len(jobs)), key=lambda n: jobs[n][1]):  # by year: one prefix build per year
         c, y, k = jobs[n]
         if y not in cache:
+            # Result retains its Bars. Release every previous-prefix reference before
+            # allocating the next prefix, including the old result during run().
+            res = bars = b = None
             cache.clear()  # one prefix at a time keeps a worker's memory bounded
+            gc.collect()
             b = Bars.from_frame(df[df["ts"] < pd.Timestamp(f"{y + 1}-01-01", tz="UTC")].reset_index(drop=True))
             b.last_of_contract = _W["roll"][:len(b)].copy()
             cache[y] = b
@@ -345,7 +350,7 @@ def doc_dir(name: str) -> Path:
     return ROOT / "docs" / "strategies" / name / "validate"
 
 
-def cmd_validate(cfg_file: str, jobs: int = 1) -> str:
+def cmd_validate(cfg_file: str, jobs: int = 1, run_tag: str = "") -> str:
     path = (ROOT / cfg_file) if not cfg_file.startswith("/") else Path(cfg_file)
     cfg = json.loads(path.read_text())
     if cfg["interval"] != [experiment.DEV_START, experiment.DEV_END]:
@@ -353,7 +358,7 @@ def cmd_validate(cfg_file: str, jobs: int = 1) -> str:
     experiment.check_execution(cfg)
     name, variant = cfg["strategy"], cfg["variant"]
     mod = importlib.import_module(f"strategies.{name}")
-    tag = path.stem.removeprefix(f"{name}_")
+    tag = experiment.tagged_run_id(path.stem.removeprefix(f"{name}_"), run_tag)
     out = ROOT / "results" / name / "validate" / tag
     if out.exists():
         raise SystemExit(f"{out} already exists: a validation tag is run once. A rerun (a bug, never a result) "
@@ -402,6 +407,12 @@ def cmd_validate(cfg_file: str, jobs: int = 1) -> str:
     if bad:
         raise SystemExit(f"matrix does not match trials.csv for (trial, ticks) {bad[:10]}")
     print(f"  {tag}: matrix {eq.shape} matches trials.csv, {time.time() - t0:.0f}s", flush=True)
+
+    # Only daily matrices are needed below. In serial mode the local reference
+    # otherwise keeps all full-history indicator caches alive during every fold.
+    del bars, rows
+    search._WORKER.clear()
+    gc.collect()
 
     # step 2: walk-forward
     s = SCENARIOS.index(SELECT_TICKS)

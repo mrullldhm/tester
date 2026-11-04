@@ -3,11 +3,11 @@
     "session": "ny",
     "window": 60,
     "atr_mult": 1.0,
-    "swing": 2,
+    "swing": 1,
     "target": "near",
     "atr_len": 14
   },
-  "execution_version": "limit-close-tp-expiry-v1",
+  "execution_version": "limit-close-tp-expiry-owner-swings-v2",
   "pine_inputs": [
     {
       "label": "Session",
@@ -24,10 +24,6 @@
     {
       "label": "Significant move: ATR multiple",
       "value": 1.0
-    },
-    {
-      "label": "Structure pivot strength (bars each side)",
-      "value": 2
     },
     {
       "label": "Target",
@@ -94,7 +90,7 @@
       "value": 0
     },
     {
-      "label": "Trailing setting (x T / ATR k / pivot or EMA bars / SAR set 0-1)",
+      "label": "Trailing setting (x T / ATR k / EMA bars / SAR set 0-1; swing fixed)",
       "value": 0
     },
     {

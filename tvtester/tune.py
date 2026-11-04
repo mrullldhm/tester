@@ -75,12 +75,12 @@ def cmd_features(name: str, variant: str) -> str:
 
 # --- search ----------------------------------------------------------------------------------------------
 def cmd_search(name: str, variant: str, space_name: str, sampler: str, trials: int, objective: str, seed: int,
-               jobs: int) -> str:
+               jobs: int, run_tag: str = "") -> str:
     if objective not in experiment.OBJECTIVES:
         raise SystemExit(f"objective must be one of {list(experiment.OBJECTIVES)}")
     mod = importlib.import_module(f"strategies.{name}")
     space = search.space_of(mod, variant, space_name)
-    run_id = f"{variant}_{space_name}_{sampler}_{objective}_s{seed}_n{trials}"
+    run_id = experiment.tagged_run_id(f"{variant}_{space_name}_{sampler}_{objective}_s{seed}_n{trials}", run_tag)
     out = ROOT / "results" / name / "search" / run_id
     if out.exists():
         raise SystemExit(f"{out} already exists: a search id is used once (an interrupted run is not resumed; "

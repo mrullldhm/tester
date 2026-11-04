@@ -51,15 +51,15 @@ def test_rnd_is_half_up():
 
 def test_study_rules_count_and_order():
     r = exits.study_rules()
-    assert len(r) == 428 and len(set(r)) == 428
+    assert len(r) == 396 and len(set(r)) == 396
     fam = [x.family() for x in r]
     assert fam[0] == "baseline" and r[0] == exits.ExitRule()
     assert fam[1:22] == ["be_touch"] * 9 + ["be_close"] * 6 + ["be_time"] * 6
-    assert {f for f in fam[22:122]} == {f"trail_{t}" for t in exits.TRAIL_STYLES[1:]}
-    assert fam[122:422] == ["both"] * 300 and fam[422:] == ["time_exit"] * 6
+    assert {f for f in fam[22:114]} == {f"trail_{t}" for t in exits.TRAIL_STYLES[1:]}
+    assert fam[114:390] == ["both"] * 276 and fam[390:] == ["time_exit"] * 6
     counts = {f: fam.count(f) for f in set(fam)}
     assert (counts["trail_frac"], counts["trail_atr"], counts["trail_swing"], counts["trail_step"],
-            counts["trail_close"], counts["trail_ema"], counts["trail_sar"]) == (32, 16, 12, 4, 16, 12, 8)
+            counts["trail_close"], counts["trail_ema"], counts["trail_sar"]) == (32, 16, 4, 4, 16, 12, 8)
 
 
 @pytest.mark.parametrize("kw", [dict(be="touch", be_x=0.5, keep_target=False), dict(be="touch"),
@@ -78,7 +78,8 @@ def test_unknown_exit_kwarg_refused():
 
 def test_defaults_add_no_params():
     assert fpr.FairPriceReversal().params == fpr.FairPriceReversal(be="none", trail="none", time_exit=0).params
-    assert "be" not in sk.SupertrendKalman().params
+    with pytest.raises(ValueError, match="retired"):
+        sk.SupertrendKalman()
 
 
 # --- breakeven (T = 2R = 20 ticks; be_at 0.5 -> trigger at +10) -------------------------------------------
@@ -237,13 +238,14 @@ def test_trail_ema_only_on_trade_side():
     assert (t.exit_bar, t.exit_price) == (3, 101)  # bar2: EMA 101.4 below the close 104 -> stop floor = 101
 
 
-def test_trail_swing_uses_confirmed_pivot():
-    s = FPR(trail="swing", trail_x=2)
-    bars = bars_after([(100, 104, 100, 103), (103, 106, 102, 105), (105, 106, 101, 101)])
-    bars.cache[("exits", "pl", 2)] = np.array([np.nan, 95.0, 102.0, 102.0])
-    bars.cache[("exits", "ph", 2)] = np.full(4, np.nan)
-    t = run(s, bars).trades[0]
-    assert (t.exit_bar, t.exit_price) == (3, 102)  # stop 90 -> 95 (bar1 pivot) -> 102 (bar2 pivot)
+def test_trail_swing_uses_fixed_owner_levels():
+    s = FPR(trail="swing")
+    bars = bars_after([(100, 105, 95, 100), (100, 104, 98, 102), (102, 106, 99, 104)])
+    levels = exits.levels(bars, s.rule)
+    assert np.isnan(levels["pl"][:2]).all()
+    assert list(levels["pl"][2:]) == [95, 95]
+    with pytest.raises(ValueError, match="fixed"):
+        exits.ExitRule(trail="swing", trail_x=2)
 
 
 def test_time_exit_closes_at_next_open():
@@ -257,13 +259,9 @@ def test_time_exit_without_target():
 
 
 # --- indicator transcriptions ------------------------------------------------------------------------------
-def test_pivots_tie_rule_and_confirmation_lag():
-    low = np.array([5, 4, 3, 3, 4, 5, 6], dtype=float)
-    pl = exits.pivots(low, 2, high=False)
-    # bar 2 (3) is not < bar 3 (3): no pivot; bar 3 (3) <= older 3, 4 and < newer 4, 5: pivot, known at bar 5
-    assert np.isnan(pl[:5]).all() and pl[5] == 3 and np.isnan(pl[6])
-    cp = exits.carry(pl)
-    assert np.isnan(cp[4]) and cp[5] == 3 and cp[6] == 3
+def test_generic_pivots_are_forbidden():
+    with pytest.raises(ValueError, match="forbidden"):
+        exits.pivots(np.array([5, 4, 3, 3, 4, 5, 6]), 2, high=False)
 
 
 def test_sar_transcription_start():
@@ -278,57 +276,12 @@ def test_sar_transcription_start():
     assert s[5] > h[5] or s[5] >= l[5]  # reversal on the drop puts it above
 
 
-# --- supertrend_kalman: every 1m close, stacked with the ATR trail -----------------------------------------
-class ST(sk.SupertrendKalman):
-    """Long decision at bar 0 (close 100, swing stop 90, R = 10, rr 2 -> T = 20). Bucket bars every 3 bars."""
-
-    def __init__(self, tr_stop=np.nan, **kw):
-        super().__init__(**{"rr": 2, **kw})
-        self.tr = tr_stop
-
-    def prepare(self, bars):
-        n = len(bars)
-        self.bars = bars
-        self.exits.prepare(bars)
-        self.sig = np.zeros(n, dtype=np.int8)
-        self.sig[0] = LONG
-        self.first = np.arange(n) % 3 == 0
-        self.prev = np.arange(n) // 3
-        self.in_hours = np.ones(n, dtype=bool)
-        self.allow = np.ones(n, dtype=bool)
-        self.ind = {"sw_lo": np.full(n, 90.0), "sw_hi": np.full(n, 110.0), "st_dir": np.full(n, -1),
-                    "tr_stop": np.full(n, self.tr, dtype=float)}
-        return self.sig != 0
-
-
-def test_st_breakeven_between_buckets():
-    # bar1 is not a bucket bar; BE still moves at its close
-    t = trade(ST(be="touch", be_x=0.5), [(100, 111, 100, 110), (110, 110, 95, 96)])
-    assert (t.exit_bar, t.exit_price) == (2, 100)
-
-
-def test_st_atr_trail_and_new_trail_tightest():
-    # ATR trail level 102 at bucket bar 3; new trail (0.5 T = 10) from best 115 -> 105: 105 wins
-    rows = [(100, 115, 100, 114), (114, 114, 110, 111), (111, 111, 108, 109), (109, 109, 103, 104)]
-    t = trade(ST(tr_stop=102.0, exit="trail", trail="frac", trail_x=0.5), rows)
-    assert (t.exit_bar, t.exit_price) == (4, 105)
-    # ATR level tighter (108 at bucket bar 3, close 109): ATR wins
-    t = trade(ST(tr_stop=108.0, exit="trail", trail="frac", trail_x=0.75),
-              [(100, 115, 100, 114), (114, 114, 110, 111), (111, 111, 109, 109), (109, 109, 103, 104)])
-    assert (t.exit_bar, t.exit_price) == (4, 108)
-
-
-def test_st_keep_target_off():
-    t = trade(ST(trail="frac", trail_x=0.25, keep_target=False), [(100, 125, 100, 124), (124, 124, 115, 116)])
-    assert (t.exit_bar, t.exit_price) == (2, 120)
-
-
 # --- defaults equal current feature 1, baseline only (needs data) ---------------------------
 needs_data = pytest.mark.skipif(not (ROOT / "data" / "cl1").exists(), reason="no bar data")
 
 
 @needs_data
-@pytest.mark.parametrize("mod,variant", [(fpr, "ny"), (fpr, "asia"), (sk, "asia"), (sk, "london"), (sk, "ny")])
+@pytest.mark.parametrize("mod,variant", [(fpr, "ny"), (fpr, "asia"), (fpr, "london")])
 def test_defaults_equal_feature1(mod, variant):
     """Trade for trade against the feature-1 trades CSV (FPR rr targets; ST fixed via ny's flip, asia/london
     trail). `all` (fixed exit) is left out for run time; Codex checked all seven baselines on 2023 bars."""
@@ -338,7 +291,7 @@ def test_defaults_equal_feature1(mod, variant):
     from tvtester.experiment import EXECUTION_VERSION
     if json.loads((ROOT / "results" / mod.STRATEGY.name / variant / "summary.json").read_text()).get("execution_version") != EXECUTION_VERSION:
         pytest.skip("Saved feature-1 trades predate the limit-entry revision; regenerate the golden results first.")
-    bars = Bars.from_frame(load_bars(None, "2026-10-28"))
+    bars = Bars.from_frame(load_bars())
     cols = ["entry_time", "exit_time", "entry_price", "exit_price", "profit", "exit_signal"]
     for k in (0,):
         p = {**mod.VARIANTS[variant], **mod.BASELINES[variant]}

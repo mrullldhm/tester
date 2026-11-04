@@ -1,7 +1,7 @@
 # Engine rules (TradingView broker emulator)
 
 > **Execution update — 3 November 2026.** New runs use limit entries and commission only, with no
-> added slippage and no 1- or 2-tick stress scenarios. Fair Price Reversal and Supertrend + Kalman place
+> added slippage and no 1- or 2-tick stress scenarios. Fair Price Reversal places
 > the limit at the signal/decision close, active from the next bar. A waiting entry is cancelled when
 > the planned TP has been reached and it is still unfilled at the one-minute close. Existing session
 > boundaries still cancel waiting orders; Tupa Trade retains its stop-limit trigger and swing invalidation.
@@ -25,6 +25,18 @@ Where TradingView does not document a case, the rule is marked **convention**.
 | `margin_long`, `margin_short` | 0 (no margin check; Pine v6 defaults to 100%, which would reject 1 CL on $50,000) |
 | `backtest_fill_limits_assumption` | 0 (a limit fills when price touches it) |
 | `use_bar_magnifier` | false |
+
+## Mandatory swing definition (owner, 4 November 2026)
+
+All current and future strategies, features, tests, searches, charts and swing trailing exits use
+`indicators/structure_swings.pine`, implemented by `tvtester/swings.py`. No adjustable swing settings or
+alternative pivot algorithms are allowed. A high uses left <= centre and right < centre (low mirror),
+confirmed only when the right candle closes. Swings alternate; a same-type candidate replaces the newest
+only when at least as extreme (equal: later). Outside candles process extremes in first-touch 1-minute
+order, using the indicator open-distance fallback when needed (ties: low first). Equal highs label HH,
+equal lows LL. Continue through contract rolls. The newest swing may move until the opposite type is added.
+
+Historical pivot-based results do not establish results under these rules; rerun them before publication.
 
 ## Script cycle
 1. The strategy runs at the **close** of each bar. It sees that bar and every earlier bar, never a later one.
@@ -62,8 +74,7 @@ Where TradingView does not document a case, the rule is marked **convention**.
 
 ## Limit-entry lifecycle (owner rule, revised 3 November 2026)
 
-- Fair Price Reversal: limit at the signal candle close. Supertrend + Kalman: limit at the
-  decision 1-minute candle close, after the completed M15 signal becomes available.
+- Fair Price Reversal: limit at the signal candle close.
 - The limit starts working on the next bar, with its bracket already attached. No re-pricing while waiting.
 - Planned TP is fixed at placement: the anchor target for near/far, otherwise the planned limit plus/minus
   the declared profit distance. Actual relative-profit exits still measure that distance from the fill.
@@ -99,19 +110,18 @@ Custom stops moved at the bar close, plus an optional time exit. Not Pine's nati
 - **Breakeven** (stop to entry + `be_offset` ticks): `touch` (best reaches `be_x` x T), `close` (a close reaches
   it), `time` (after `be_x` bars if the close is more than `be_offset` ticks in profit).
 - **Trailing** (active once best reaches `trail_at` x T): `frac` (best - x T), `atr` (best - k x ATR(14) of the 1m
-  chart), `swing` (last confirmed 1m pivot low / high, `ta.pivotlow(n, n)`), `step` (lock one step behind each step
+  chart), `swing` (last confirmed owner 1m swing low / high, fixed detection), `step` (lock one step behind each step
   of T reached), `close` (best close - x T), `ema` (EMA(n) of the 1m close), `sar` (`ta.sar` of the 1m chart).
   EMA and SAR count only while on the trade's side of the close. Indicators are computed on every bar, flat or not.
 - The stop becomes the tightest of the current stop and the active levels. Never looser: a strategy policy, not an
-  engine rule. supertrend_kalman `exit=trail`: its ATR level competes the same way.
+  engine rule.
 - A level already through the close is a triggered stop: it fills at the next open, with stop slippage. Breakeven
   is a stop price, not a guaranteed result. If that next open is also past the kept target, the stop leg fills
   (stop checked first at the open, **convention**: not checked against a TradingView export).
 - `keep_target=False` (with a trailing stop or a time exit): no profit leg from the entry on (`profit = na`).
-- **Unverified:** `swing` and `sar` use Python transcriptions of `ta.pivotlow` (tie rule: a low pivot is <= the
-  older bars and < the newer bars) and of the Pine reference `pine_sar`. Not yet checked against a TradingView export.
+- **Unverified:** `swing` and `sar` use the owner swing twin and the Pine reference `pine_sar`. Not yet checked against a TradingView export.
 - Defaults (`be="none"`, `trail="none"`, `time_exit=0`) are the plain strategy, trade for trade (test).
-- `python -m tvtester.cli exits <name>` sweeps 428 rules on each variant's frozen feature-1 baseline over the full
+- `python -m tvtester.cli exits <name>` sweeps 396 rules on each variant's frozen feature-1 baseline over the full
   feature-1 interval (`tvtester/exitstudy.py`). In-sample, best of N, uses the reserved 2024+ bars.
 
 ## Owner rules (not TradingView behaviour)

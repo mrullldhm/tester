@@ -1,5 +1,8 @@
 """Base class for strategies.
 
+All strategies must use only tvtester.swings / indicators/structure_swings.pine for swing detection.
+No swing settings or alternative algorithms may be introduced, including by research features.
+
 A strategy is the Python twin of a Pine `strategy()` script:
 - `prepare(bars)` runs once. Compute every indicator over the full bar sequence here (Pine runs the script on
   every bar, so state must never depend on which bars `on_bar` sees). Return a bool mask of the bars where
@@ -22,6 +25,9 @@ class Strategy:
     report_tz = "UTC"  # clock of descriptive calendar buckets (association-report weekday); never trading logic
 
     def __init__(self, filters=(), **params):
+        from .swings import require_owner_swing
+        if "swing" in params:
+            require_owner_swing(params["swing"])
         self.params = params
         self.filters: tuple[Filter, ...] = tuple(as_filter(f) for f in filters)
 

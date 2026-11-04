@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 
 from strategies.fair_price_reversal import FairPriceReversal
-from strategies.supertrend_kalman import SupertrendKalman
 from strategies.tupa_trade import TupaTrade
 from tvtester import engine, optimize, search, validate, experiment, metrics
 from tvtester.config import DEFAULT, SLIPPAGE_SCENARIOS
@@ -51,7 +50,7 @@ def prepared(base, direction=1, signals=(0,), outside=()):
 
 class LimitEntries(unittest.TestCase):
     def each(self):
-        for cls in (FairPriceReversal, SupertrendKalman):
+        for cls in (FairPriceReversal,):
             for d in (1, -1):
                 yield cls, d
 

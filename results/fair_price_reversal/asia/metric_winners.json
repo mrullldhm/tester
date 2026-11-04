@@ -1,0 +1,453 @@
+{
+  "metric_version": 1,
+  "min_trades": 30,
+  "ruin_loss": 25000.0,
+  "grid_size": 64,
+  "objectives": [
+    {
+      "key": "net_profit",
+      "label": "Net profit",
+      "direction": "max",
+      "unit": "usd",
+      "definition": "Sum of closed-trade profit after commission; excludes open P&L."
+    },
+    {
+      "key": "percent_profitable",
+      "label": "Win rate",
+      "direction": "max",
+      "unit": "percent",
+      "definition": "Winning closed trades divided by all closed trades, including breakevens."
+    },
+    {
+      "key": "expectancy",
+      "label": "Expectancy",
+      "direction": "max",
+      "unit": "usd",
+      "definition": "Mean net profit per closed trade, including losses and breakevens."
+    },
+    {
+      "key": "profit_factor",
+      "label": "Profit factor",
+      "direction": "max",
+      "unit": "ratio",
+      "definition": "Gross winning profit divided by gross losing profit, both after commission. Undefined without losses."
+    },
+    {
+      "key": "payoff_ratio",
+      "label": "Payoff ratio",
+      "direction": "max",
+      "unit": "ratio",
+      "definition": "Average net winning trade divided by the absolute average net losing trade. Requires wins and losses."
+    },
+    {
+      "key": "risk_of_ruin",
+      "label": "Risk of ruin (estimate)",
+      "direction": "min",
+      "unit": "percent",
+      "definition": "Infinite-horizon diffusion estimate of losing the declared amount from starting capital. Assumes independent, stationary, fixed-size net trade P&L; ignores intratrade losses and margin."
+    },
+    {
+      "key": "max_equity_drawdown",
+      "label": "Maximum drawdown",
+      "direction": "min",
+      "unit": "usd",
+      "definition": "Largest equity drawdown under the tester's intrabar TradingView convention, including an open trade at the end."
+    },
+    {
+      "key": "max_consecutive_losses",
+      "label": "Consecutive losses",
+      "direction": "min",
+      "unit": "count",
+      "definition": "Longest streak of losing closed trades in execution order. A win or breakeven resets the streak."
+    },
+    {
+      "key": "sharpe_ratio",
+      "label": "Sharpe ratio",
+      "direction": "max",
+      "unit": "ratio",
+      "definition": "Monthly marked-to-market excess return divided by population standard deviation, using 2% annual risk-free rate; not annualized."
+    },
+    {
+      "key": "sortino_ratio",
+      "label": "Sortino ratio",
+      "direction": "max",
+      "unit": "ratio",
+      "definition": "Monthly marked-to-market excess return divided by downside deviation about the risk-free rate; not annualized."
+    },
+    {
+      "key": "r_multiple",
+      "label": "R-multiple",
+      "direction": "max",
+      "unit": "r",
+      "definition": "Mean net trade profit / initial stop risk in dollars. Risk is actual fill to initial stop, before costs. Requires positive initial risk for every closed trade; R standard deviation and mean / standard deviation describe consistency."
+    },
+    {
+      "key": "mae",
+      "label": "Maximum adverse excursion (MAE)",
+      "direction": "min",
+      "unit": "usd",
+      "definition": "Mean of each closed trade's maximum adverse price excursion in dollars, before commission; only the exposed intrabar path counts."
+    },
+    {
+      "key": "mfe",
+      "label": "Maximum favorable excursion (MFE)",
+      "direction": "max",
+      "unit": "usd",
+      "definition": "Mean of each closed trade's maximum favorable price excursion in dollars, before commission; only the exposed intrabar path counts. Unrealized opportunity, not realized profit."
+    }
+  ],
+  "winners": {
+    "net_profit": {
+      "order": 16,
+      "value": -6418.6799999999785,
+      "eligible": 64,
+      "params": {
+        "window": 30,
+        "atr_mult": 2.0,
+        "swing": 1,
+        "target": "rr2"
+      },
+      "metrics": {
+        "net_profit": -6418.6799999999785,
+        "percent_profitable": 32.496940024479805,
+        "expectancy": -3.9282007343941157,
+        "profit_factor": 0.9483464486835536,
+        "payoff_ratio": 1.9699173877551028,
+        "risk_of_ruin": 100.0,
+        "max_equity_drawdown": 11406.779999998274,
+        "max_consecutive_losses": 25.0,
+        "sharpe_ratio": -0.20418653935282893,
+        "sortino_ratio": -0.26529368161548644,
+        "r_multiple": null,
+        "mae": 89.15544675642595,
+        "mfe": 119.70012239902081
+      },
+      "total_closed_trades": 1634,
+      "r_stddev": null,
+      "r_consistency": null
+    },
+    "percent_profitable": {
+      "order": 1,
+      "value": 54.448669201520914,
+      "eligible": 64,
+      "params": {
+        "window": 30,
+        "atr_mult": 0.5,
+        "swing": 1,
+        "target": "near"
+      },
+      "metrics": {
+        "net_profit": -10746.299999999988,
+        "percent_profitable": 54.448669201520914,
+        "expectancy": -8.172091254752846,
+        "profit_factor": 0.8390500955697628,
+        "payoff_ratio": 0.7019427475506814,
+        "risk_of_ruin": 100.0,
+        "max_equity_drawdown": 11258.119999996139,
+        "max_consecutive_losses": 7.0,
+        "sharpe_ratio": -0.4754809374245803,
+        "sortino_ratio": -0.4739188717569481,
+        "r_multiple": null,
+        "mae": 67.25475285171103,
+        "mfe": 64.00760456273764
+      },
+      "total_closed_trades": 1315,
+      "r_stddev": null,
+      "r_consistency": null
+    },
+    "expectancy": {
+      "order": 16,
+      "value": -3.9282007343941157,
+      "eligible": 64,
+      "params": {
+        "window": 30,
+        "atr_mult": 2.0,
+        "swing": 1,
+        "target": "rr2"
+      },
+      "metrics": {
+        "net_profit": -6418.6799999999785,
+        "percent_profitable": 32.496940024479805,
+        "expectancy": -3.9282007343941157,
+        "profit_factor": 0.9483464486835536,
+        "payoff_ratio": 1.9699173877551028,
+        "risk_of_ruin": 100.0,
+        "max_equity_drawdown": 11406.779999998274,
+        "max_consecutive_losses": 25.0,
+        "sharpe_ratio": -0.20418653935282893,
+        "sortino_ratio": -0.26529368161548644,
+        "r_multiple": null,
+        "mae": 89.15544675642595,
+        "mfe": 119.70012239902081
+      },
+      "total_closed_trades": 1634,
+      "r_stddev": null,
+      "r_consistency": null
+    },
+    "profit_factor": {
+      "order": 16,
+      "value": 0.9483464486835536,
+      "eligible": 64,
+      "params": {
+        "window": 30,
+        "atr_mult": 2.0,
+        "swing": 1,
+        "target": "rr2"
+      },
+      "metrics": {
+        "net_profit": -6418.6799999999785,
+        "percent_profitable": 32.496940024479805,
+        "expectancy": -3.9282007343941157,
+        "profit_factor": 0.9483464486835536,
+        "payoff_ratio": 1.9699173877551028,
+        "risk_of_ruin": 100.0,
+        "max_equity_drawdown": 11406.779999998274,
+        "max_consecutive_losses": 25.0,
+        "sharpe_ratio": -0.20418653935282893,
+        "sortino_ratio": -0.26529368161548644,
+        "r_multiple": null,
+        "mae": 89.15544675642595,
+        "mfe": 119.70012239902081
+      },
+      "total_closed_trades": 1634,
+      "r_stddev": null,
+      "r_consistency": null
+    },
+    "payoff_ratio": {
+      "order": 16,
+      "value": 1.9699173877551028,
+      "eligible": 64,
+      "params": {
+        "window": 30,
+        "atr_mult": 2.0,
+        "swing": 1,
+        "target": "rr2"
+      },
+      "metrics": {
+        "net_profit": -6418.6799999999785,
+        "percent_profitable": 32.496940024479805,
+        "expectancy": -3.9282007343941157,
+        "profit_factor": 0.9483464486835536,
+        "payoff_ratio": 1.9699173877551028,
+        "risk_of_ruin": 100.0,
+        "max_equity_drawdown": 11406.779999998274,
+        "max_consecutive_losses": 25.0,
+        "sharpe_ratio": -0.20418653935282893,
+        "sortino_ratio": -0.26529368161548644,
+        "r_multiple": null,
+        "mae": 89.15544675642595,
+        "mfe": 119.70012239902081
+      },
+      "total_closed_trades": 1634,
+      "r_stddev": null,
+      "r_consistency": null
+    },
+    "risk_of_ruin": {
+      "order": 16,
+      "value": 100.0,
+      "eligible": 64,
+      "params": {
+        "window": 30,
+        "atr_mult": 2.0,
+        "swing": 1,
+        "target": "rr2"
+      },
+      "metrics": {
+        "net_profit": -6418.6799999999785,
+        "percent_profitable": 32.496940024479805,
+        "expectancy": -3.9282007343941157,
+        "profit_factor": 0.9483464486835536,
+        "payoff_ratio": 1.9699173877551028,
+        "risk_of_ruin": 100.0,
+        "max_equity_drawdown": 11406.779999998274,
+        "max_consecutive_losses": 25.0,
+        "sharpe_ratio": -0.20418653935282893,
+        "sortino_ratio": -0.26529368161548644,
+        "r_multiple": null,
+        "mae": 89.15544675642595,
+        "mfe": 119.70012239902081
+      },
+      "total_closed_trades": 1634,
+      "r_stddev": null,
+      "r_consistency": null
+    },
+    "max_equity_drawdown": {
+      "order": 14,
+      "value": 9012.35999999514,
+      "eligible": 64,
+      "params": {
+        "window": 30,
+        "atr_mult": 2.0,
+        "swing": 1,
+        "target": "far"
+      },
+      "metrics": {
+        "net_profit": -8139.939999999973,
+        "percent_profitable": 49.592986850344396,
+        "expectancy": -5.097019411396362,
+        "profit_factor": 0.9081437797420562,
+        "payoff_ratio": 0.9230501801671153,
+        "risk_of_ruin": 100.0,
+        "max_equity_drawdown": 9012.35999999514,
+        "max_consecutive_losses": 12.0,
+        "sharpe_ratio": -0.298187854772371,
+        "sortino_ratio": -0.3840838265382774,
+        "r_multiple": null,
+        "mae": 71.87226048841578,
+        "mfe": 76.0363180964308
+      },
+      "total_closed_trades": 1597,
+      "r_stddev": null,
+      "r_consistency": null
+    },
+    "max_consecutive_losses": {
+      "order": 1,
+      "value": 7.0,
+      "eligible": 64,
+      "params": {
+        "window": 30,
+        "atr_mult": 0.5,
+        "swing": 1,
+        "target": "near"
+      },
+      "metrics": {
+        "net_profit": -10746.299999999988,
+        "percent_profitable": 54.448669201520914,
+        "expectancy": -8.172091254752846,
+        "profit_factor": 0.8390500955697628,
+        "payoff_ratio": 0.7019427475506814,
+        "risk_of_ruin": 100.0,
+        "max_equity_drawdown": 11258.119999996139,
+        "max_consecutive_losses": 7.0,
+        "sharpe_ratio": -0.4754809374245803,
+        "sortino_ratio": -0.4739188717569481,
+        "r_multiple": null,
+        "mae": 67.25475285171103,
+        "mfe": 64.00760456273764
+      },
+      "total_closed_trades": 1315,
+      "r_stddev": null,
+      "r_consistency": null
+    },
+    "sharpe_ratio": {
+      "order": 56,
+      "value": -0.1496409911175402,
+      "eligible": 64,
+      "params": {
+        "window": 120,
+        "atr_mult": 1.0,
+        "swing": 1,
+        "target": "rr2"
+      },
+      "metrics": {
+        "net_profit": -24837.11999999988,
+        "percent_profitable": 32.09817131857555,
+        "expectancy": -5.976207892204034,
+        "profit_factor": 0.9151982263038627,
+        "payoff_ratio": 1.9360490214613948,
+        "risk_of_ruin": 100.0,
+        "max_equity_drawdown": 31312.919999995658,
+        "max_consecutive_losses": 21.0,
+        "sharpe_ratio": -0.1496409911175402,
+        "sortino_ratio": -0.21269850301903534,
+        "r_multiple": null,
+        "mae": 82.71174205967276,
+        "mfe": 108.98460057747835
+      },
+      "total_closed_trades": 4156,
+      "r_stddev": null,
+      "r_consistency": null
+    },
+    "sortino_ratio": {
+      "order": 52,
+      "value": -0.203338938225636,
+      "eligible": 64,
+      "params": {
+        "window": 120,
+        "atr_mult": 0.5,
+        "swing": 1,
+        "target": "rr2"
+      },
+      "metrics": {
+        "net_profit": -25199.419999999925,
+        "percent_profitable": 32.2726067356139,
+        "expectancy": -6.682423760275781,
+        "profit_factor": 0.9055094082547983,
+        "payoff_ratio": 1.900304871555263,
+        "risk_of_ruin": 100.0,
+        "max_equity_drawdown": 31743.859999993827,
+        "max_consecutive_losses": 21.0,
+        "sharpe_ratio": -0.1514129680560617,
+        "sortino_ratio": -0.203338938225636,
+        "r_multiple": null,
+        "mae": 83.12914346327234,
+        "mfe": 109.04269424555821
+      },
+      "total_closed_trades": 3771,
+      "r_stddev": null,
+      "r_consistency": null
+    },
+    "r_multiple": null,
+    "mae": {
+      "order": 53,
+      "value": 64.48611440778542,
+      "eligible": 64,
+      "params": {
+        "window": 120,
+        "atr_mult": 1.0,
+        "swing": 1,
+        "target": "near"
+      },
+      "metrics": {
+        "net_profit": -24606.25999999995,
+        "percent_profitable": 50.24922857821031,
+        "expectancy": -5.840555423688577,
+        "profit_factor": 0.8831921742336984,
+        "payoff_ratio": 0.8744311748671856,
+        "risk_of_ruin": 100.0,
+        "max_equity_drawdown": 29685.479999989395,
+        "max_consecutive_losses": 11.0,
+        "sharpe_ratio": -0.21976952860654103,
+        "sortino_ratio": -0.25818924483884015,
+        "r_multiple": null,
+        "mae": 64.48611440778542,
+        "mfe": 69.73652978874911
+      },
+      "total_closed_trades": 4213,
+      "r_stddev": null,
+      "r_consistency": null
+    },
+    "mfe": {
+      "order": 16,
+      "value": 119.70012239902081,
+      "eligible": 64,
+      "params": {
+        "window": 30,
+        "atr_mult": 2.0,
+        "swing": 1,
+        "target": "rr2"
+      },
+      "metrics": {
+        "net_profit": -6418.6799999999785,
+        "percent_profitable": 32.496940024479805,
+        "expectancy": -3.9282007343941157,
+        "profit_factor": 0.9483464486835536,
+        "payoff_ratio": 1.9699173877551028,
+        "risk_of_ruin": 100.0,
+        "max_equity_drawdown": 11406.779999998274,
+        "max_consecutive_losses": 25.0,
+        "sharpe_ratio": -0.20418653935282893,
+        "sortino_ratio": -0.26529368161548644,
+        "r_multiple": null,
+        "mae": 89.15544675642595,
+        "mfe": 119.70012239902081
+      },
+      "total_closed_trades": 1634,
+      "r_stddev": null,
+      "r_consistency": null
+    }
+  },
+  "execution_version": "limit-close-tp-expiry-owner-swings-v2",
+  "period_start": "2010-06-07 00:00:00+00:00",
+  "period_end": "2026-11-03 18:29:00+00:00"
+}

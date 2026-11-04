@@ -7,6 +7,7 @@ none can see bars at or after DEV_END. docs/OPTIMIZE.md has the rules.
 import hashlib
 import json
 import platform
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -55,6 +56,8 @@ def provenance(strategy: str, bars: Bars) -> dict:
         "manifest_hash": _sha([MANIFEST]) if MANIFEST.exists() else None,
         "code_hash": _sha(code),
         "execution_version": EXECUTION_VERSION,
+        "swing_rule": "indicators/structure_swings.pine",
+        "swing_source_sha256": hashlib.sha256((ROOT / "indicators/structure_swings.pine").read_bytes()).hexdigest(),
         "properties": {"initial_capital": DEFAULT.initial_capital, "qty": DEFAULT.qty,
                        "commission_per_order": DEFAULT.commission_per_order},
         "versions": {"python": platform.python_version(), "numpy": np.__version__, "pandas": pd.__version__,
@@ -95,7 +98,14 @@ def total_evaluations(strategy: str) -> int:
     return sum(json.loads(line)["evaluations"] for line in path.read_text().splitlines() if line.strip())
 
 
-EXECUTION_VERSION = "limit-close-tp-expiry-v1"
+EXECUTION_VERSION = "limit-close-tp-expiry-owner-swings-v2"
+
+
+def tagged_run_id(base: str, tag: str = "") -> str:
+    """Keep interrupted attempts immutable; recovery work gets a distinct declared ID."""
+    if tag and not re.fullmatch(r"[a-z][a-z0-9_]*", tag):
+        raise ValueError("run-tag must start with a lowercase letter and contain only letters, digits or underscores")
+    return f"{base}_{tag}" if tag else base
 
 
 def check_execution(cfg: dict) -> None:

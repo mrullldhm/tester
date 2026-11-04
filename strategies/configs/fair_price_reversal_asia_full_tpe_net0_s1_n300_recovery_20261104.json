@@ -1,0 +1,44 @@
+{
+  "strategy": "fair_price_reversal",
+  "variant": "asia",
+  "execution_version": "limit-close-tp-expiry-owner-swings-v2",
+  "filters": [
+    [
+      "anchor_body_atr",
+      "max",
+      0.3
+    ],
+    [
+      "minutes_from_open",
+      "max",
+      45.0
+    ],
+    [
+      "range_ratio",
+      "min",
+      0.8
+    ]
+  ],
+  "params": {
+    "atr_mult": 2.0,
+    "session": "asia",
+    "swing": 1,
+    "target": "rr2",
+    "window": 60
+  },
+  "interval": [
+    null,
+    "2024-01-01"
+  ],
+  "source": {
+    "search": "results/fair_price_reversal/search/asia_full_tpe_net0_s1_n300_recovery_20261104",
+    "trial": 273,
+    "objective": "net0"
+  },
+  "expected": {
+    "net0": 7838.139999999999,
+    "open0": 0.0,
+    "trades0": 493,
+    "objective": 7838.139999999999
+  }
+}

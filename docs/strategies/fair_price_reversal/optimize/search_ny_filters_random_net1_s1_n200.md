@@ -1,3 +1,7 @@
+> **Superseded — 4 November 2026.** This is a historical record under previous rules.
+> Current runs must use only `indicators/structure_swings.pine`; see the regenerated strategy results
+> and current `net0` search/validation reports. These numbers do not establish current-rule performance.
+
 # Search ny_filters_random_net1_s1_n200
 
 Generated 2026-10-31 12:37 UTC. Strategy `fair_price_reversal`, variant `ny`, space `filters`, sampler `random`, seed 1, objective `net1` (net profit + open P&L at 1 tick), at least 300 closed trades.

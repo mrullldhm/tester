@@ -1,7 +1,15 @@
+> **Mandatory owner swings — 4 November 2026.** Every current and future strategy, feature, test,
+> search and trailing exit must use only `indicators/structure_swings.pine` (`tvtester/swings.py`).
+> Swing detection has no tunable settings: one neighbour per side, left equality/right strictness,
+> next-candle-close confirmation, alternating swings, same-type extreme replacement (equal: later),
+> and outside-candle ordering from 1-minute extremes with the indicator fallback. Equal highs are HH;
+> equal lows are LL. No reset at contract rolls. Old pivot-based results are superseded.
+> Active strategies: Fair Price Reversal and Tupa Trade. Supertrend Kalman is retired.
+
 # TradingView Strategy Tester for CL1!
 
 > **Execution update — 3 November 2026.** New runs use limit entries and commission only, with no
-> added slippage and no 1- or 2-tick stress scenarios. Fair Price Reversal and Supertrend + Kalman place
+> added slippage and no 1- or 2-tick stress scenarios. Fair Price Reversal places
 > the limit at the signal/decision close, active from the next bar. A waiting entry is cancelled when
 > the planned TP has been reached and it is still unfilled at the one-minute close. Existing session
 > boundaries still cancel waiting orders; Tupa Trade retains its stop-limit trigger and swing invalidation.
@@ -52,6 +60,19 @@ Risk/performance ratios and List of trades. New runs include commission and no a
 
 ## Quick start
 
+Research commands now start the memory supervisor automatically, including direct CLI commands, default
+runs, data updates and local trade replays. Only one heavy workload may run at a time.
+
+- Hard address-space limit: **6 GiB per workload process**, one BLAS thread, `--jobs 1`.
+- The supervisor stops the process group above **5 GiB observed resident memory**, below the system RAM
+  reserve (20% of WSL RAM, at least 2 GiB), below 20% free swap, or during sustained memory pressure.
+- An idle chart worker exits after 30 seconds to release its cached data and the research lock.
+- Structured start/sample/stop records are written to `logs/resource_guard/`.
+
+For custom Python scripts, use `.venv/bin/python tools/run_limited.py <script.py>`.
+See [WSL prevention and activation](docs/WSL_PREVENTION.md) for the Windows-side settings and restart step.
+These protections leave swing detection and trading rules unchanged.
+
 ```bash
 cd tradingview-tester
 python3 -m venv .venv
@@ -73,8 +94,8 @@ Useful options:
 # test one variant only, using 1 CPU process
 .venv/bin/python -m tvtester.cli test fair_price_reversal --variants ny --jobs 1
 
-# big grids: split each variant's grid over 8 processes (same ranked grid as serial; about 1 GB RAM per process)
-.venv/bin/python -m tvtester.cli test supertrend_kalman --jobs 8 --chunks 8
+# heavy grids: one process, through tools/run_limited.py
+.venv/bin/python -m tvtester.cli test fair_price_reversal --jobs 1
 ```
 
 ---
@@ -248,7 +269,7 @@ and feature definitions: [`docs/OPTIMIZE.md`](docs/OPTIMIZE.md).
 ```bash
 .venv/bin/python -m tvtester.cli features fair_price_reversal --variant ny       # which features go with good / bad trades
 .venv/bin/python -m tvtester.cli search fair_price_reversal --variant ny --space filters \
-    --sampler random --trials 200 --objective net0 --seed 1 --jobs 4              # search filters (and parameters: --space full)
+    --sampler random --trials 200 --objective net0 --seed 1 --jobs 1              # search filters (and parameters: --space full)
 .venv/bin/python -m tvtester.cli replay strategies/configs/<file>.json            # replay a new limit-entry winner, baseline only
 ```
 
@@ -267,7 +288,7 @@ Feature 3 asks whether a feature-2 result survives its own selection, on the dev
 before 2024-01-01; nothing reserved is read). Protocol and verdict rules: [`docs/VALIDATE.md`](docs/VALIDATE.md).
 
 ```bash
-.venv/bin/python -m tvtester.cli validate strategies/configs/<candidate>.json --jobs 4
+.venv/bin/python -m tvtester.cli validate strategies/configs/<candidate>.json --jobs 1
 ```
 
 | Check | Question | Pass |
@@ -279,13 +300,14 @@ before 2024-01-01; nothing reserved is read). Protocol and verdict rules: [`docs
 A candidate goes on to feature 4 (Topstep 50K prop layer) only if both the procedure and the candidate pass. Feature
 5 is the one check on the reserved 2024+ data. Roadmap renumbered by the owner on 2026-11-01.
 
-**Result (2026-11-01): none of the three feature-2 candidates advances.** Codex replicated every number (R13).
+**Current result (4 November 2026): none of the three random-filter candidates advances.**
+All use fixed owner swings, limit entries, commission and no added slippage.
 
-| Candidate | Walk-forward 1 / 2 ticks | Positive years | PBO | DSR | Advance |
+| Candidate | Walk-forward net | Positive years | PBO | DSR | Advance |
 |---|---|---|---|---|---|
-| fair_price_reversal NY | +22,840 / +9,740 USD | 6 of 10 | 0.18 | 0.43 | no |
-| fair_price_reversal London | −4,335 / −11,691 USD | 4 of 10 | 0.19 | 0.09 | no |
-| supertrend_kalman NY | +32,245 / +6,035 USD | 7 of 10 | 0.18 | 0.18 | no (procedure passes, DSR fails) |
+| Fair Price Reversal NY | +39,463.24 USD | 7 of 10 | 0.0107 | 0.7591 | no |
+| Fair Price Reversal London | −1,045.58 USD | 6 of 10 | 0.1663 | 0.4732 | no |
+| Fair Price Reversal Asia | −2,967.60 USD | 5 of 10 | 0.7724 | 0.0848 | no |
 
 ## Reading a results document
 
@@ -311,6 +333,10 @@ Each document follows the TradingView layout, top to bottom:
 ---
 
 ## Adding a new strategy
+
+Every new strategy must use `tvtester.swings` for swing points and preserve the exact rules of
+`indicators/structure_swings.pine`. Swing strength, tie rules, confirmation, alternation, replacement and
+outside-candle ordering are fixed. Do not add a swing search axis or an alternative pivot helper.
 
 1. Create `strategies/my_strategy.py`:
 
@@ -358,60 +384,25 @@ Orders available inside `on_bar` (same meaning as in Pine):
 
 ---
 
-## Historical strategy results
+## Strategies tested so far
 
-The following results predate the limit-entry update. They have not been rerun under the new rules.
+Current runs use only `indicators/structure_swings.pine`, limit entries, $2.01 commission per order,
+and no added slippage. History: 2010-06-07 through 2026-11-03, 5,674,164 CL one-minute bars.
+F1 selects a separate winner for each of 13 metrics; the net-profit references are below.
 
-### Fair Price Reversal (LuxAlgo 9:29 ET), three CL sessions
-
-Full report: [`docs/strategies/fair_price_reversal/README.md`](docs/strategies/fair_price_reversal/README.md).
-Period: 2010-06-07 to 2026-10-27. Top combination of 192 per session, ranked by net profit at 0 ticks.
-
-| Session | Top combination | Net profit, 0 ticks | 1 tick | 2 ticks | Trades | Profit factor | Max drawdown |
-|---|---|---|---|---|---|---|---|
-| Asia (09:00 UTC+8) | window 30, ATR x2.0, swing 3, target 1R | +1,182.96 USD | −5,657.04 USD | −14,087.04 USD | 452 | 1.031 | 5,704.86 USD |
-| London (08:00 London) | window 120, ATR x2.0, swing 3, target 2R | +34,591.64 USD | −33,338.16 USD | −101,643.94 USD | 3,818 | 1.072 | 13,213.46 USD |
-| New York (09:00 NY) | window 120, ATR x0.5, swing 3, target 2R | +42,475.80 USD | −20,100.08 USD | −81,394.00 USD | 3,710 | 1.056 | 20,110.90 USD |
-
-**Verdict: no tradable edge.** Even the best combination of each session makes only a few dollars per trade
-before slippage (New York: $11.45 per trade). One tick of slippage costs up to $20 per trade, so every session
-loses money at 1 tick. Only 3 (Asia), 91 (London) and 19 (New York) of the 192 combinations were profitable
-even at 0 ticks, and those are in-sample.
-
-**Independent check:** Codex rebuilt the New York result with its own code (no shared code) from the raw
-parquet files: 3,710 trades and +42,475.80 USD at 0 ticks, 3,704 trades and −20,100.08 USD at 1 tick. Every
-trade matched on side, times, prices, profit and exit reason ([`docs/REVIEWS.md`](docs/REVIEWS.md)).
-
-**Feature 2 (optimize), development interval 2010-06 to 2023-12, in-sample:** lab notebook
-[`docs/strategies/fair_price_reversal/optimize/README.md`](docs/strategies/fair_price_reversal/optimize/README.md).
-
-| Session | Candidate | Net 0 / 1 / 2 ticks | Trades | Baseline at 1 tick |
+| Strategy / session | Grid settings | Best net profit | Trades | Profit factor |
 |---|---|---|---|---|
-| New York | baseline + `anchor_body_atr >= 0.3`, `risk_ticks >= 32` | +63,293 / +49,297 / +34,592 USD | 927 | +2,423 USD |
-| London | baseline + `risk_ticks >= 30` | +39,017 / +32,197 / +23,121 USD | 436 | -13,754 USD |
-| Asia | none (no eligible trial made money at 1 tick) | | | -4,085 USD |
+| Fair Price Reversal / Asia | 64 | −6,418.68 USD | 1,634 | 0.9483 |
+| Fair Price Reversal / London | 64 | +11,712.66 USD | 1,967 | 1.0711 |
+| Fair Price Reversal / New York | 64 | +60,180.72 USD | 4,664 | 1.0859 |
+| Tupa Trade / New York | 4 | −13,547.10 USD | 855 | 0.8244 |
 
-A minimum stop size (a hypothesis declared before the search: costs are a large share of a small R) is what the
-searches found, with stable neighbours. Picked from 1,500 trials; profits lean on volatile years (London 2022 is
-58% of its total). Codex replicated the New York candidate trade for trade. Not a tradable edge until it passes
-validation (feature 3, below: it does not advance).
+These are in-sample selections on the same data. Swing detection was fixed and never searched.
 
-### Supertrend + ATR trail + Kalman trend + volatility filter, M15 signals
-
-Full report: [`docs/strategies/supertrend_kalman/README.md`](docs/strategies/supertrend_kalman/README.md).
-Period: 2010-06-07 to 2026-10-27. Every design fork the owner left open (entry trigger, volatility filter, exit,
-trading hours) was tested: top combination of 1,728 per variant, ranked by net profit at 0 ticks.
-
-| Variant | Top combination | Net profit, 0 ticks | 1 tick | 2 ticks | Trades | Max drawdown |
-|---|---|---|---|---|---|---|
-| all (24 h) | both, atr_ratio 1.3, fixed, 3R, swing 3, ST 3, Kalman q 0.0001 | +128,886.58 USD | +42,086.78 USD | −37,224.68 USD | 4,471 | 51,168.74 USD |
-| Asia | trail, no filter, trail exit, 3R, swing 3, ST 3, q 0.01 | +18,111.68 USD | −5,888.32 USD | −29,888.32 USD | 1,216 | 7,818.28 USD |
-| London | both, stop_atr 3, trail exit, 2R, swing 5, ST 3, q 0.0001 | +16,241.58 USD | +2,481.58 USD | −11,618.42 USD | 721 | 8,685.46 USD |
-| New York | both, rvi, flip exit, 3R, swing 5, ST 2, q 0.0001 | +84,714.24 USD | +22,574.24 USD | −39,555.76 USD | 3,188 | 24,275.52 USD |
-
-**Verdict: no tradable edge.** Every top combination loses at 2 ticks; best of 1,728 in-sample. The 24-hour top
-has a drawdown larger than the account (102%) and its ten best trades make 79% of its profit. Codex replicated
-the 24-hour top trade for trade (0.00 USD difference at 0 and 1 tick).
+Reports: [Fair Price Reversal](docs/strategies/fair_price_reversal/README.md),
+[Tupa Trade](docs/strategies/tupa_trade/results.md). Current search, validation and exit-study summaries
+are indexed in [the owner-swing results summary](docs/OWNER_SWING_RESULTS.md).
+Older reports remain historical records and do not establish performance under the current rules.
 
 ---
 

@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+pytest.skip("Supertrend Kalman is retired", allow_module_level=True)
+
 from strategies import supertrend_kalman as sk
 from tvtester import experiment, metrics
 from tvtester.config import ROOT

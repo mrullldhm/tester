@@ -40,22 +40,8 @@ def shift(x: np.ndarray, n: int) -> np.ndarray:
 
 
 def buffer_pivots(x: np.ndarray, strength: int, high: bool) -> np.ndarray:
-    """Value confirmed at bar i when bar i - strength is strictly above (high) / below (low) every other bar
-    within `strength` bars on each side, as the LuxAlgo f_findPivotHigh / f_findPivotLow buffer scan."""
-    n = len(x)
-    out = np.full(n, np.nan)
-    if n < 2 * strength + 1:
-        return out
-    xf = x.astype(float)
-    center = xf[strength: n - strength]  # candidate bars j = strength .. n - strength - 1
-    ok = np.ones(len(center), dtype=bool)
-    for k in range(-strength, strength + 1):
-        if k == 0:
-            continue
-        other = xf[strength + k: n - strength + k]
-        ok &= (center > other) if high else (center < other)
-    out[2 * strength:] = np.where(ok, center, np.nan)  # confirmed `strength` bars after the candidate
-    return out
+    """Removed: use the complete owner swing state, never independent adjustable pivots."""
+    raise ValueError("Use tvtester.swings; indicators/structure_swings.pine is the only permitted swing rule")
 
 
 def ema(x: np.ndarray, length: int) -> np.ndarray:

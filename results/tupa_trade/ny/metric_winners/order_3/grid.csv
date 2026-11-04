@@ -1,0 +1,2 @@
+t_min,order,net_profit,total_closed_trades,percent_profitable,profit_factor,max_equity_drawdown,avg_trade,sharpe_ratio,sortino_ratio,expectancy,payoff_ratio,risk_of_ruin,risk_of_ruin_log,max_consecutive_losses,r_multiple,r_stddev,r_consistency,r_valid_trades,mae,mfe
+4h,3,-33499.90000000002,1995,30.576441102756892,0.8136489480590784,35515.53999999896,-16.7919298245614,-0.2653943463334404,-0.32861767793383906,-16.7919298245614,1.8473832673144648,100.0,0.0,18,-0.14590391317766452,1.4573750296739252,-0.10011418489193494,1995,106.67669172932331,124.10526315789474
