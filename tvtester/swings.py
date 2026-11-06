@@ -4,7 +4,9 @@ Swing rule (owner, indicator): swing high at candle k when high[k-1] <= high[k] 
 known when candle k+1 closes. Alternation: a second swing high with no swing low between replaces the last one if it
 is at least as high (equal: the later one), otherwise it is dropped. Outside candle (both): added in the order its
 extremes printed (first 1m bar printing each; same 1m bar: high first when the high is nearer the open). Labels:
-equal high = HH, equal low = LL.
+equal high = HH, equal low = LL. An accepted high must also be the highest high since the accepted low
+(low mirror); all intervening candles count, including those that are not pivots. Same-candle extremes
+are observed in their 1m order. Owner clarification, 2026-11-05.
 
 Higher-timeframe candles (CL1! exchange sessions, America/New_York clock; the CME day runs 18:00 to 17:00 ET):
 - 5m / 15m / 1h: clock aligned. 4h: anchored at 18:00 ET (18, 22, 02, 06, 10, 14; the last one runs to 18:00, so
@@ -33,7 +35,7 @@ SH, SL = 1, -1
 TIMEFRAMES = ("5m", "15m", "1h", "4h", "1d")  # bias timeframes, low to high
 _MS = {"5m": 300_000, "15m": 900_000, "1h": 3_600_000}
 NONE = -(2 ** 62)  # "no swing yet" in tick arrays (CL traded below zero, so -1 is a price)
-SWING_RULE = "structure-swings-v1"
+SWING_RULE = "structure-swings-v2-leg-extremes"
 
 
 def require_owner_swing(strength=1):
@@ -99,7 +101,8 @@ def candles(bars: Bars, tf: str) -> Candles:
 class Zig:
     """Swing state of the indicator's `Zig` type (prices in ticks)."""
 
-    __slots__ = ("last_type", "last_price", "cur_h", "prev_h", "cur_l", "prev_l", "idx_h", "idx_l", "n_h", "n_l")
+    __slots__ = ("last_type", "last_price", "cur_h", "prev_h", "cur_l", "prev_l", "idx_h", "idx_l", "n_h", "n_l",
+                 "hi_since_l", "lo_since_h")
 
     def __init__(self):
         self.last_type = 0
@@ -107,8 +110,13 @@ class Zig:
         self.cur_h = self.prev_h = self.cur_l = self.prev_l = None
         self.idx_h = self.idx_l = -1  # candle index of the current swing high / low
         self.n_h = self.n_l = 0  # swing highs / lows added or moved (dropped pivots do not count)
+        self.hi_since_l = self.lo_since_h = None
 
     def push(self, t: int, p: int, k: int) -> bool:
+        if t == SH and self.hi_since_l is not None and p < self.hi_since_l:
+            return False
+        if t == SL and self.lo_since_h is not None and p > self.lo_since_h:
+            return False
         if self.last_type == t:
             if not (p >= self.last_price if t == SH else p <= self.last_price):
                 return False  # dropped: not a swing
@@ -118,27 +126,32 @@ class Zig:
             self.prev_l = self.cur_l
         if t == SH:
             self.cur_h, self.idx_h, self.n_h = p, k, self.n_h + 1
+            self.lo_since_h = p
         else:
             self.cur_l, self.idx_l, self.n_l = p, k, self.n_l + 1
+            self.hi_since_l = p
         self.last_type, self.last_price = t, p
         return True
+
+    def visit(self, t: int, p: int, k: int, is_pivot: bool) -> bool:
+        """Observe every extreme in time order; only fixed-rule pivots can become swings."""
+        added = self.push(t, p, k) if is_pivot else False
+        if t == SH and self.hi_since_l is not None:
+            self.hi_since_l = max(self.hi_since_l, p)
+        elif t == SL and self.lo_since_h is not None:
+            self.lo_since_h = min(self.lo_since_h, p)
+        return added
 
     def pivots(self, hk1: int, hk: int, hk2: int, lk1: int, lk: int, lk2: int, hi_first: bool, k: int) -> tuple:
         """Candle k with neighbours k-1 (hk1, lk1) and k+1 (hk2, lk2). Returns (high added, low added)."""
         is_h = hk1 <= hk and hk2 < hk
         is_l = lk1 >= lk and lk2 > lk
-        add_h = add_l = False
-        if is_h and is_l:
-            if hi_first:
-                add_h = self.push(SH, hk, k)
-                add_l = self.push(SL, lk, k)
-            else:
-                add_l = self.push(SL, lk, k)
-                add_h = self.push(SH, hk, k)
-        elif is_h:
-            add_h = self.push(SH, hk, k)
-        elif is_l:
-            add_l = self.push(SL, lk, k)
+        if hi_first:
+            add_h = self.visit(SH, hk, k, is_h)
+            add_l = self.visit(SL, lk, k, is_l)
+        else:
+            add_l = self.visit(SL, lk, k, is_l)
+            add_h = self.visit(SH, hk, k, is_h)
         return add_h, add_l
 
     @property
@@ -226,15 +239,12 @@ class MinuteSwings:
 def minute_swings(bars: Bars) -> MinuteSwings:
     o, h, l = bars.o, bars.h, bars.l
     n = len(bars)
-    is_h = np.zeros(n, dtype=bool)
-    is_l = np.zeros(n, dtype=bool)
-    is_h[2:] = (h[:-2] <= h[1:-1]) & (h[2:] < h[1:-1])  # pivot at i-1, confirmed at the close of bar i
-    is_l[2:] = (l[:-2] >= l[1:-1]) & (l[2:] > l[1:-1])
     hf = np.zeros(n, dtype=bool)
     hf[2:] = open_rule_high_first(o[1:-1], h[1:-1], l[1:-1])
     z = Zig()
     rows = []
-    for i in np.flatnonzero(is_h | is_l).tolist():
+    # Non-pivot candles can contain the leg extreme and must also be observed.
+    for i in range(2, n):
         k = i - 1
         add_h, add_l = z.pivots(int(h[k - 1]), int(h[k]), int(h[i]), int(l[k - 1]), int(l[k]), int(l[i]),
                                 bool(hf[i]), k)

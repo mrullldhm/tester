@@ -89,6 +89,8 @@ type Zig
     float prevH
     float curL
     float prevL
+    float hiSinceL
+    float loSinceH
     int nH = 0
     int nL = 0
 
@@ -118,6 +120,23 @@ method push(Zig z, int t, float p) =>
         z.lastPrice := p
     added
 
+// Owner clarification, 2026-11-05: observe every candle, accept only leg-extreme fixed-rule pivots.
+method visit(Zig z, int t, float p, bool isPivot) =>
+    bool extreme = t == SH ? (na(z.hiSinceL) or p >= z.hiSinceL) : (na(z.loSinceH) or p <= z.loSinceH)
+    bool added = false
+    if isPivot and extreme
+        added := z.push(t, p)
+        if added
+            if t == SH
+                z.loSinceH := p
+            else
+                z.hiSinceL := p
+    if t == SH and not na(z.hiSinceL)
+        z.hiSinceL := math.max(z.hiSinceL, p)
+    if t == SL and not na(z.loSinceH)
+        z.loSinceH := math.min(z.loSinceH, p)
+    added
+
 method isHL(Zig z) =>
     not na(z.prevL) and z.curL > z.prevL
 
@@ -140,17 +159,12 @@ int oldL = owner.nL
 if bar_index >= 2 and barstate.isconfirmed
     bool isH = high[2] <= high[1] and high < high[1]
     bool isL = low[2] >= low[1] and low > low[1]
-    if isH and isL
-        if openRule(open[1], high[1], low[1])
-            owner.push(SH, high[1])
-            owner.push(SL, low[1])
-        else
-            owner.push(SL, low[1])
-            owner.push(SH, high[1])
-    else if isH
-        owner.push(SH, high[1])
-    else if isL
-        owner.push(SL, low[1])
+    if openRule(open[1], high[1], low[1])
+        owner.visit(SH, high[1], isH)
+        owner.visit(SL, low[1], isL)
+    else
+        owner.visit(SL, low[1], isL)
+        owner.visit(SH, high[1], isH)
 float pivotHigh = owner.nH > oldH ? owner.curH : na
 float pivotLow = owner.nL > oldL ? owner.curL : na
 int pivotTime = time[1]

@@ -8,6 +8,12 @@
 
 # TradingView Strategy Tester for CL1!
 
+> **Swing correction — 5 November 2026.** The owner clarified that a local swing high must also be
+> the highest high since the accepted swing low (low mirror), counting intervening non-pivot candles
+> in extreme order. Pine and Python now enforce this additional validity check. The fixed neighbour,
+> confirmation, equality and alternation rules remain. Existing strategy/research results below
+> predate this correction and are superseded until rerun; see the Tupa Trade discussion log.
+
 > **Execution update — 3 November 2026.** New runs use limit entries and commission only, with no
 > added slippage and no 1- or 2-tick stress scenarios. Fair Price Reversal places
 > the limit at the signal/decision close, active from the next bar. A waiting entry is cancelled when

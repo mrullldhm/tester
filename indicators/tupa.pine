@@ -1,0 +1,543 @@
+// Owner swing points (structure_break study). Pine v6 indicator, any chart timeframe.
+//
+// Owner rule (2026-11-01):
+// - Swing high at candle k: high[k-1] <= high[k] (left lower or EQUAL) and high[k+1] < high[k] (right strictly lower).
+//   Swing low mirror. Label vs the previous swing of the same type: equal high = HH, equal low = LL.
+//   Known when candle k+1 closes, so labels appear one candle late. The newest swing can still move (rule 2)
+//   until a swing of the other type is added: its label and line end jump to the replacing candle.
+// - Alternation: two swing highs with no swing low between -> the higher one stays (equal: the later one), the
+//   other is no longer a swing (owner rule 2: a new HH needs a HL first). Lows mirror.
+// - Owner clarification (2026-11-05): a high must be the highest high since the accepted low (low mirror).
+//   Observe non-pivot candles too; a smaller later local pivot cannot finish the preceding swing.
+//   Same-candle extremes are observed in their 1m order. No change to the fixed pivot/confirmation rule.
+// - Outside candle that is both a swing high and a swing low: added in the order its extremes printed. Low first ->
+//   new HL and new HH (owner rule 1). High first -> its high replaces the HH, then its low is added.
+//   Order from the 1m candles inside it (first 1m candle printing each extreme; same 1m candle: open nearer the
+//   high -> high first, the TradingView broker-emulator rule). No 1m data (history limit) -> the same open rule on
+//   the chart candle itself; such outside candles are marked "?".
+// Runs on the continuous CL1! series (no reset at contract rolls). Use the exchange-time chart.
+//@version=6
+indicator("Tupa — swings and possible levels", "Tupa", overlay = true, max_lines_count = 500, max_labels_count = 500, dynamic_requests = true)
+
+// Combined companion to structure_swings.pine. Its swing definition is unchanged.
+// Candidate lines are possible locations, never swing confirmations or trade signals.
+string levelsGroup = "Possible next swing levels"
+showPrevious = input.bool(true, "Previous closed candle", group = levelsGroup)
+showLower = input.bool(true, "Latest confirmed lower-timeframe swing", group = levelsGroup)
+referenceInput = input.string("Daily", "Reference timeframe", options = ["Monthly", "Weekly", "Daily", "4H", "1H", "15m", "5m", "1m"], group = levelsGroup,
+     tooltip = "Level calculations stay on this timeframe when you change the chart. Each level is visible only on its own source timeframe and smaller charts.")
+hideFailedCandidates = input.bool(true, "Remove failed swing candidates", group = levelsGroup,
+     tooltip = "After a reference-timeframe candle raids a marked level, its low/high is the candidate extreme. If the next reference candle touches or breaks that extreme, remove the old level. The previous-candle line then moves to the failed candidate's low/high.")
+candidateMode = input.string("Auto", "Next swing", options = ["Auto", "Swing low", "Swing high"], group = levelsGroup,
+     tooltip = "Auto: latest confirmed reference-timeframe swing high → possible swing low; latest swing low → possible swing high.")
+lowerInput = input.string("Auto", "Lower timeframe", options = ["Auto", "Weekly", "Daily", "4H", "1H", "15m", "5m", "1m"], group = levelsGroup,
+     tooltip = "Auto follows the reference timeframe: monthly → weekly → daily → 4H → 1H → 15m → 5m → 1m.")
+previousColor = input.color(color.white, "Previous candle line", group = levelsGroup)
+lowerColor = input.color(color.aqua, "Lower-timeframe swing line", group = levelsGroup)
+candidateWidth = input.int(1, "Line width", minval = 1, maxval = 4, group = levelsGroup)
+showCandidateLabels = input.bool(true, "Level names and prices", group = levelsGroup)
+showCandidateStatus = input.bool(true, "Status panel", group = levelsGroup)
+
+if syminfo.root != "CL"
+    runtime.error("Tupa is for NYMEX CL futures only.")
+
+showZig  = input.bool(true, "Zigzag line")
+showLab  = input.bool(true, "Labels (HH / LH / HL / LL)")
+useLtf   = input.bool(true, "Order outside candles with 1m candles")
+markFb   = input.bool(true, "Mark outside candles ordered without 1m data (?)")
+hiColor  = input.color(color.teal, "Swing high")
+loColor  = input.color(color.red, "Swing low")
+zigColor = input.color(color.gray, "Zigzag")
+
+const int SH = 1
+const int SL = -1
+
+if timeframe.isseconds or timeframe.isticks
+    runtime.error("Use a 1-minute or higher chart.")
+
+// Broker-emulator path: high first when the high is nearer the open (tie -> low first). Same as tvtester.engine.
+openRule(float o, float h, float l) =>
+    (h - o) < (o - l)
+
+// 1 = high printed first, 0 = low first, -1 = unknown (no 1m data for this candle)
+ltfOrder(array<float> hs, array<float> ls, array<float> os, float bh, float bl) =>
+    int fh = -1
+    int fl = -1
+    int n = hs.size()
+    float eps = syminfo.mintick / 2
+    if n > 0
+        for i = 0 to n - 1
+            if fh < 0 and math.abs(hs.get(i) - bh) < eps
+                fh := i
+            if fl < 0 and math.abs(ls.get(i) - bl) < eps
+                fl := i
+    int res = -1
+    if fh >= 0 and fl >= 0
+        res := fh < fl ? 1 : fl < fh ? 0 : (openRule(os.get(fh), hs.get(fh), ls.get(fh)) ? 1 : 0)
+    res
+
+[ltfH, ltfL, ltfO] = request.security_lower_tf(syminfo.tickerid, "1", [high, low, open])
+
+bool oneMin   = timeframe.isminutes and timeframe.multiplier == 1
+int  ord      = oneMin or not useLtf ? -1 : ltfOrder(ltfH, ltfL, ltfO, high, low)
+bool fallback = not oneMin and ord == -1
+bool hiFirst  = ord == -1 ? openRule(open, high, low) : ord == 1
+
+type Zig
+    int   lastType = 0
+    float lastPrice
+    int   lastTime
+    float curH
+    float prevH
+    float curL
+    float prevL
+    float hiSinceL
+    float loSinceH
+    line  ln
+    label lb
+
+// Label against the previous swing of the same type. Equal counts as a break (owner, 2026-11-02): equal high = HH,
+// equal low = LL, same "or equal" as the pivot rule's left candle.
+method tag(Zig z, int t) =>
+    string s = ""
+    if t == SH
+        s := na(z.prevH) ? "H" : z.curH >= z.prevH ? "HH" : "LH"
+    else
+        s := na(z.prevL) ? "L" : z.curL <= z.prevL ? "LL" : "HL"
+    s
+
+method push(Zig z, int t, float p, int b, bool fb) =>  // b = open time of the swing candle (xloc.bar_time)
+    string mark = fb and markFb ? " ?" : ""
+    if z.lastType == t
+        bool more = t == SH ? p >= z.lastPrice : p <= z.lastPrice
+        if more  // replaces the last swing; otherwise the pivot is dropped
+            z.lastPrice := p
+            z.lastTime := b
+            if t == SH
+                z.curH := p
+            else
+                z.curL := p
+            if not na(z.ln)
+                z.ln.set_xy2(b, p)
+            if not na(z.lb)
+                z.lb.set_xy(b, p)
+                z.lb.set_text(z.tag(t) + mark)
+    else
+        if t == SH
+            z.prevH := z.curH
+            z.curH := p
+        else
+            z.prevL := z.curL
+            z.curL := p
+        z.ln := na
+        z.lb := na
+        if showZig and not na(z.lastTime)
+            z.ln := line.new(z.lastTime, z.lastPrice, b, p, xloc = xloc.bar_time, color = zigColor, width = 1)
+        if showLab
+            z.lb := label.new(b, p, z.tag(t) + mark, xloc = xloc.bar_time, style = t == SH ? label.style_label_down : label.style_label_up,
+                 color = color(na), textcolor = t == SH ? hiColor : loColor, size = size.small)
+        z.lastType := t
+        z.lastPrice := p
+        z.lastTime := b
+    z
+
+// Every candle extreme is observed, even when it is not a pivot. The accepted opposite swing resets
+// the leg boundary; earlier extremes in the same candle must not leak into the new leg.
+method visit(Zig z, int t, float p, int b, bool fb, bool isPivot) =>
+    bool extreme = t == SH ? (na(z.hiSinceL) or p >= z.hiSinceL) : (na(z.loSinceH) or p <= z.loSinceH)
+    bool replaces = z.lastType != t or (t == SH ? p >= z.lastPrice : p <= z.lastPrice)
+    if isPivot and extreme and replaces
+        z.push(t, p, b, fb)
+        if t == SH
+            z.loSinceH := p
+        else
+            z.hiSinceL := p
+    if t == SH and not na(z.hiSinceL)
+        z.hiSinceL := math.max(z.hiSinceL, p)
+    if t == SL and not na(z.loSinceH)
+        z.loSinceH := math.min(z.loSinceH, p)
+    z
+
+var Zig z = Zig.new()
+
+// Candle k = the previous candle; its right neighbour (this candle) has just closed
+bool hiFirstK = hiFirst[1]
+bool fbK      = fallback[1]
+if bar_index >= 2 and barstate.isconfirmed
+    bool isH = high[2] <= high[1] and high < high[1]
+    bool isL = low[2] >= low[1] and low > low[1]
+    int k = time[1]
+    bool mark = isH and isL and fbK
+    if hiFirstK
+        z.visit(SH, high[1], k, mark, isH)
+        z.visit(SL, low[1], k, mark, isL)
+    else
+        z.visit(SL, low[1], k, mark, isL)
+        z.visit(SH, high[1], k, mark, isH)
+
+// Last confirmed swing levels, for alerts / other scripts
+plot(z.curH, "Last swing high", hiColor, style = plot.style_stepline, display = display.data_window)
+plot(z.curL, "Last swing low", loColor, style = plot.style_stepline, display = display.data_window)
+
+// Request expressions cannot create drawings. This is the same owner state transition as Zig above,
+// with timestamps instead of drawing handles. Do not add a different swing algorithm here.
+type LevelState
+    int lastType = 0
+    float lastPrice
+    float curH
+    float curL
+    float hiSinceL
+    float loSinceH
+    int highTime
+    int lowTime
+    int highKnown
+    int lowKnown
+    bool highFallback = false
+    bool lowFallback = false
+
+method visitLevel(LevelState s, int t, float p, int pivotTime, int knownTime, bool fb, bool isPivot) =>
+    bool extreme = t == SH ? (na(s.hiSinceL) or p >= s.hiSinceL) : (na(s.loSinceH) or p <= s.loSinceH)
+    bool replaces = s.lastType != t or (t == SH ? p >= s.lastPrice : p <= s.lastPrice)
+    if isPivot and extreme and replaces
+        s.lastType := t
+        s.lastPrice := p
+        if t == SH
+            s.curH := p
+            s.highTime := pivotTime
+            s.highKnown := knownTime
+            s.highFallback := fb
+            s.loSinceH := p
+        else
+            s.curL := p
+            s.lowTime := pivotTime
+            s.lowKnown := knownTime
+            s.lowFallback := fb
+            s.hiSinceL := p
+    if t == SH and not na(s.hiSinceL)
+        s.hiSinceL := math.max(s.hiSinceL, p)
+    if t == SL and not na(s.loSinceH)
+        s.loSinceH := math.min(s.loSinceH, p)
+    s
+
+sourceSnapshot() =>
+    // Evaluated in its calling/requested timeframe, never from drawing objects.
+    // Nested 1m data preserves outside-candle order, including the owner's fallback when unavailable.
+    int order = -1
+    if timeframe.in_seconds() > 60 and useLtf
+        [hs, ls, os] = request.security_lower_tf(syminfo.tickerid, "1", [high, low, open])
+        order := ltfOrder(hs, ls, os, high, low)
+    bool hf = order == -1 ? openRule(open, high, low) : order == 1
+    bool fb = timeframe.in_seconds() > 60 and order == -1
+    var LevelState s = LevelState.new()
+    if bar_index >= 2
+        bool isH = high[2] <= high[1] and high < high[1]
+        bool isL = low[2] >= low[1] and low > low[1]
+        bool mark = isH and isL and fb[1]
+        if hf[1]
+            s.visitLevel(SH, high[1], time[1], time_close, mark, isH)
+            s.visitLevel(SL, low[1], time[1], time_close, mark, isL)
+        else
+            s.visitLevel(SL, low[1], time[1], time_close, mark, isL)
+            s.visitLevel(SH, high[1], time[1], time_close, mark, isH)
+    [time, time_close, high, low, s.lastType, s.curH, s.highTime, s.highKnown, s.highFallback, s.curL, s.lowTime, s.lowKnown, s.lowFallback]
+
+confirmedSourceSwings() =>
+    [sourceOpen, sourceClose, sourceHigh, sourceLow, lastType, highPrice, highOrigin, highKnown, highFb, lowPrice, lowOrigin, lowKnown, lowFb] = sourceSnapshot()
+    [highPrice[1], highOrigin[1], highKnown[1], highFb[1], lowPrice[1], lowOrigin[1], lowKnown[1], lowFb[1]]
+
+timeframeCode(simple string choice) =>
+    switch choice
+        "Monthly" => "1M"
+        "Weekly" => "1W"
+        "Daily" => "1D"
+        "4H" => "240"
+        "1H" => "60"
+        "15m" => "15"
+        "5m" => "5"
+        => "1"
+
+timeframeName(simple string code) =>
+    switch code
+        "1M" => "Monthly"
+        "1W" => "Weekly"
+        "1D" => "Daily"
+        "240" => "4H"
+        "60" => "1H"
+        "15" => "15m"
+        "5" => "5m"
+        => "1m"
+
+string referenceTf = timeframeCode(referenceInput)
+float referenceSeconds = timeframe.in_seconds(referenceTf)
+float chartSeconds = timeframe.in_seconds()
+string automaticLower = referenceSeconds > 604800 ? "1W" : referenceSeconds > 86400 ? "1D" : referenceSeconds > 14400 ? "240" : referenceSeconds > 3600 ? "60" : referenceSeconds > 900 ? "15" : referenceSeconds > 300 ? "5" : "1"
+string lowerTf = lowerInput == "Auto" ? automaticLower : timeframeCode(lowerInput)
+string lowerDisplay = timeframeName(lowerTf)
+bool validLower = timeframe.in_seconds(lowerTf) < referenceSeconds
+if lowerInput != "Auto" and showLower and not validLower
+    runtime.error("Choose a lower timeframe strictly smaller than the reference timeframe.")
+bool previousVisible = showPrevious and chartSeconds <= referenceSeconds
+bool lowerVisible = showLower and validLower and chartSeconds <= timeframe.in_seconds(lowerTf)
+
+// Evaluated on the fixed reference timeframe. Candle A supplies a level; candle B tests it;
+// candle C must respect B's extreme. Source candle time and confirmation time are kept separate.
+type CandidateLevel
+    int direction = 0
+    float price
+    int known
+    int anchor
+    int failedKnown
+    int testBar
+    float testExtreme
+
+method advance(CandidateLevel c, float sourcePrice, int sourceKnown, int sourceAnchor, bool lowSide,
+     bool enabled, bool lowerSource, float observedLow, float observedHigh) =>
+    int direction = lowSide ? SL : SH
+    if c.direction != direction
+        c.direction := direction
+        c.price := na
+        c.known := na
+        c.anchor := na
+        c.failedKnown := na
+        c.testBar := na
+        c.testExtreme := na
+    if not enabled
+        c.price := sourcePrice
+        c.known := sourceKnown
+        c.anchor := sourceAnchor
+        c.failedKnown := na
+        c.testBar := na
+        c.testExtreme := na
+    else
+        bool freshLower = lowerSource and not na(sourceKnown) and (na(c.known) or sourceKnown != c.known) and (na(c.failedKnown) or sourceKnown != c.failedKnown)
+        if freshLower
+            c.price := sourcePrice
+            c.known := sourceKnown
+            c.anchor := sourceAnchor
+            c.testBar := na
+            c.testExtreme := na
+        if not na(c.testBar) and bar_index > c.testBar
+            bool failed = lowSide ? low <= c.testExtreme : high >= c.testExtreme
+            if failed and lowerSource
+                c.failedKnown := c.known
+                c.price := na
+                c.known := na
+                c.anchor := na
+            // This function's output is offset by one reference candle, so all decisions here
+            // are consumed only after this right neighbour closes. No barstate in requests.
+            c.testBar := na
+            c.testExtreme := na
+        if na(c.testBar)
+            bool blocked = lowerSource and not na(c.failedKnown) and sourceKnown == c.failedKnown
+            c.price := blocked ? na : sourcePrice
+            c.known := blocked ? na : sourceKnown
+            c.anchor := blocked ? na : sourceAnchor
+            bool touched = not na(c.price) and (lowSide ? (not na(observedLow) and observedLow <= c.price) : (not na(observedHigh) and observedHigh >= c.price))
+            if touched
+                c.testBar := bar_index
+                c.testExtreme := lowSide ? low : high
+        else if c.testBar == bar_index
+            c.testExtreme := lowSide ? low : high
+    [c.price, c.anchor, c.testExtreme]
+
+referenceLevels() =>
+    [sourceOpen, sourceClose, sourceHigh, sourceLow, lastType, ownHigh, ownHighTime, ownHighKnown, ownHighFb, ownLow, ownLowTime, ownLowKnown, ownLowFb] = sourceSnapshot()
+    bool haveDirection = candidateMode != "Auto" or lastType != 0
+    bool lowSide = candidateMode == "Swing low" or (candidateMode == "Auto" and lastType == SH)
+    var float lowerHigh = na
+    var float lowerLow = na
+    var int lowerHighTime = na
+    var int lowerLowTime = na
+    var int lowerHighKnown = na
+    var int lowerLowKnown = na
+    var bool lowerHighFb = false
+    var bool lowerLowFb = false
+    float observedLow = na
+    float observedHigh = na
+    if showLower and validLower
+        [opens, closes, barHighs, barLows, types, highs, highTimes, highKnowns, highFbs, lows, lowTimes, lowKnowns, lowFbs] = request.security_lower_tf(syminfo.tickerid, lowerTf, sourceSnapshot())
+        int n = array.size(closes)
+        int cutoff = math.min(time_close, timenow)
+        if n > 0
+            for i = n - 1 to 0
+                if array.get(closes, i) <= cutoff
+                    lowerHigh := array.get(highs, i)
+                    lowerLow := array.get(lows, i)
+                    lowerHighTime := array.get(highTimes, i)
+                    lowerLowTime := array.get(lowTimes, i)
+                    lowerHighKnown := array.get(highKnowns, i)
+                    lowerLowKnown := array.get(lowKnowns, i)
+                    lowerHighFb := array.get(highFbs, i)
+                    lowerLowFb := array.get(lowFbs, i)
+                    break
+            int known = lowSide ? lowerLowKnown : lowerHighKnown
+            if not na(known) and known > time
+                // Only post-confirmation intrabars may touch a newly available lower level.
+                for i = 0 to n - 1
+                    if array.get(opens, i) >= known and array.get(closes, i) <= cutoff
+                        float seenLow = array.get(barLows, i)
+                        float seenHigh = array.get(barHighs, i)
+                        observedLow := na(observedLow) ? seenLow : math.min(observedLow, seenLow)
+                        observedHigh := na(observedHigh) ? seenHigh : math.max(observedHigh, seenHigh)
+        int known = lowSide ? lowerLowKnown : lowerHighKnown
+        if not na(known) and known <= time
+            observedLow := low
+            observedHigh := high
+    var CandidateLevel previousCandidate = CandidateLevel.new()
+    var CandidateLevel lowerCandidate = CandidateLevel.new()
+    float previousSource = haveDirection ? (lowSide ? low[1] : high[1]) : na
+    float lowerSource = haveDirection ? (lowSide ? lowerLow : lowerHigh) : na
+    int lowerKnown = lowSide ? lowerLowKnown : lowerHighKnown
+    int lowerAnchor = lowSide ? lowerLowTime : lowerHighTime
+    [previousPrice, previousAnchor, previousTest] = previousCandidate.advance(previousSource, time, time[1], lowSide,
+         hideFailedCandidates, false, low, high)
+    [lowerPrice, lowerOrigin, lowerTest] = lowerCandidate.advance(lowerSource, lowerKnown, lowerAnchor, lowSide,
+         hideFailedCandidates, true, observedLow, observedHigh)
+    bool levelFb = lowSide ? lowerLowFb : lowerHighFb
+    // With no active test, the candle closing now supplies the next period's previous-candle
+    // level. An active test retains candle A's level while B is checked by its right neighbour.
+    bool previousTesting = not na(previousTest)
+    float nextPreviousPrice = previousTesting ? previousPrice : (haveDirection ? (lowSide ? low : high) : na)
+    int nextPreviousAnchor = previousTesting ? previousAnchor : time
+    int lowerIdentity = lowerCandidate.known
+    int failedLowerIdentity = lowerCandidate.failedKnown
+    // Each item is from the last CLOSED reference candle. lookahead_on is safe only because
+    // every returned item is offset. In particular no forming source high/low or swing leaks out.
+    [nextPreviousPrice[1], nextPreviousAnchor[1], previousTest[1], lowerPrice[1], lowerOrigin[1], lowerTest[1],
+         low[1], high[1], time[1], haveDirection[1], lowSide[1], levelFb[1], lowerIdentity[1], failedLowerIdentity[1]]
+
+// Fixed sources make the same level survive a change from Daily to 4H/1H/15m, etc. Lower levels
+// are requested inside the reference context, but are drawn only on charts <= their own timeframe.
+float previousPrice = na
+int previousAnchor = na
+float previousTest = na
+float lowerPrice = na
+int lowerAnchor = na
+float lowerTest = na
+float lastReferenceLow = na
+float lastReferenceHigh = na
+int lastReferenceTime = na
+bool haveDirection = false
+bool seekLow = false
+bool levelFallback = false
+int lowerIdentity = na
+int failedLowerIdentity = na
+if chartSeconds <= referenceSeconds
+    [p, pa, pt, l, la, lt, refLow, refHigh, refTime, directionReady, lowSide, fb, lowerId, failedLowerId] = request.security(syminfo.tickerid, referenceTf,
+         referenceLevels(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+    previousPrice := p
+    previousAnchor := pa
+    previousTest := pt
+    lowerPrice := l
+    lowerAnchor := la
+    lowerTest := lt
+    lastReferenceLow := refLow
+    lastReferenceHigh := refHigh
+    lastReferenceTime := refTime
+    haveDirection := directionReady
+    seekLow := lowSide
+    levelFallback := fb
+    lowerIdentity := lowerId
+    failedLowerIdentity := failedLowerId
+
+// Refresh the lower source at ITS own close, not only when the reference candle closes.
+// The larger reference snapshot still owns the candle-B / candle-C invalidation lifecycle.
+if lowerVisible
+    [hPrice, hOrigin, hKnown, hFb, lPrice, lOrigin, lKnown, lFb] = request.security(syminfo.tickerid, lowerTf,
+         confirmedSourceSwings(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+    float freshPrice = seekLow ? lPrice : hPrice
+    int freshOrigin = seekLow ? lOrigin : hOrigin
+    int freshKnown = seekLow ? lKnown : hKnown
+    bool freshFb = seekLow ? lFb : hFb
+    bool blocked = hideFailedCandidates and not na(failedLowerIdentity) and freshKnown == failedLowerIdentity
+    if blocked
+        lowerPrice := na
+        lowerAnchor := na
+        lowerTest := na
+    else if not na(freshKnown) and (na(lowerIdentity) or freshKnown != lowerIdentity)
+        lowerPrice := haveDirection ? freshPrice : na
+        lowerAnchor := freshOrigin
+        lowerTest := na
+        levelFallback := freshFb
+
+// The closed reference snapshot supplies B's final extreme. On smaller charts we can invalidate
+// it as soon as C touches it, without waiting for C to close or reading C's eventual HTF range.
+int referenceOpen = time(referenceTf)
+var int runningReference = na
+var float referenceLowSoFar = na
+var float referenceHighSoFar = na
+if na(runningReference) or referenceOpen != runningReference
+    runningReference := referenceOpen
+    referenceLowSoFar := low
+    referenceHighSoFar := high
+else
+    referenceLowSoFar := math.min(referenceLowSoFar, low)
+    referenceHighSoFar := math.max(referenceHighSoFar, high)
+if hideFailedCandidates and haveDirection
+    bool previousFailed = not na(previousTest) and (seekLow ? referenceLowSoFar <= previousTest : referenceHighSoFar >= previousTest)
+    bool lowerFailed = not na(lowerTest) and (seekLow ? referenceLowSoFar <= lowerTest : referenceHighSoFar >= lowerTest)
+    if previousFailed
+        previousPrice := seekLow ? lastReferenceLow : lastReferenceHigh
+        previousAnchor := lastReferenceTime
+    if lowerFailed
+        lowerPrice := na
+        lowerAnchor := na
+
+updateCandidate(line existing, label existingLabel, bool visible, float price, int anchor, string title, color shade) =>
+    line result = existing
+    label resultLabel = existingLabel
+    if visible and not na(price) and not na(anchor)
+        int right = math.max(time_close, anchor + 60000)
+        if na(result)
+            result := line.new(anchor, price, right, price, xloc = xloc.bar_time, extend = extend.right,
+                 color = shade, style = line.style_solid, width = candidateWidth)
+        else
+            line.set_xy1(result, anchor, price)
+            line.set_xy2(result, right, price)
+            line.set_color(result, shade)
+            line.set_width(result, candidateWidth)
+        if showCandidateLabels
+            string levelCaption = title + "  " + str.tostring(price, format.mintick)
+            if na(resultLabel)
+                resultLabel := label.new(time_close, price, levelCaption, xloc = xloc.bar_time,
+                     style = label.style_label_left, color = color.new(shade, 85), textcolor = shade, size = size.small)
+            else
+                label.set_xy(resultLabel, time_close, price)
+                label.set_text(resultLabel, levelCaption)
+                label.set_color(resultLabel, color.new(shade, 85))
+                label.set_textcolor(resultLabel, shade)
+        else
+            label.delete(resultLabel)
+            resultLabel := na
+    else
+        line.delete(result)
+        label.delete(resultLabel)
+        result := na
+        resultLabel := na
+    [result, resultLabel]
+
+var line previousLine = na
+var line lowerLine = na
+var label previousLabel = na
+var label lowerLabel = na
+var table status = table.new(position.top_right, 1, 2)
+if barstate.islast
+    string side = seekLow ? "low" : "high"
+    [pLine, pLabel] = updateCandidate(previousLine, previousLabel, previousVisible, previousPrice, previousAnchor,
+         referenceInput + " previous candle " + side, previousColor)
+    previousLine := pLine
+    previousLabel := pLabel
+    [lLine, lLabel] = updateCandidate(lowerLine, lowerLabel, lowerVisible, lowerPrice, lowerAnchor,
+         lowerDisplay + " confirmed swing " + side + (levelFallback ? " ?" : ""), lowerColor)
+    lowerLine := lLine
+    lowerLabel := lLabel
+    if showCandidateStatus
+        string heading = chartSeconds > referenceSeconds ? "Levels hidden above " + referenceInput : haveDirection ? referenceInput + " possible swing " + side : "Waiting for confirmed " + referenceInput + " swing"
+        string detail = not showLower ? "Lower-timeframe line off" : not validLower ? "No lower timeframe below 1m" : not lowerVisible ? lowerDisplay + " levels hidden on higher charts" : na(lowerPrice) ? "Waiting for " + lowerDisplay + " confirmed swing " + side : "Lower timeframe: " + lowerDisplay + (levelFallback ? " · outside order uses fallback" : "")
+        table.cell(status, 0, 0, heading, text_color = color.white, bgcolor = color.new(color.black, 20), text_size = size.small)
+        table.cell(status, 0, 1, detail, text_color = color.silver, bgcolor = color.new(color.black, 20), text_size = size.small)
+    else
+        table.clear(status, 0, 0, 0, 1)
+
+plot(previousVisible ? previousPrice : na, "Previous candle possible level", previousColor, display = display.data_window)
+plot(lowerVisible ? lowerPrice : na, "Lower timeframe possible level", lowerColor, display = display.data_window)

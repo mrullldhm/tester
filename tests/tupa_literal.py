@@ -32,6 +32,22 @@ class Zig:
         self.cur_h = self.prev_h = self.cur_l = self.prev_l = None
         self.n_h = self.n_l = 0
         self.bar_h = self.bar_l = None
+        self.hi_since_l = self.lo_since_h = None
+
+    def visit(self, t, p, b, is_pivot):
+        extreme = (self.hi_since_l is None or p >= self.hi_since_l) if t == SH else (
+            self.lo_since_h is None or p <= self.lo_since_h)
+        added = self.push(t, p, b) if is_pivot and extreme else False
+        if added:
+            if t == SH:
+                self.lo_since_h = p
+            else:
+                self.hi_since_l = p
+        if t == SH and self.hi_since_l is not None:
+            self.hi_since_l = max(self.hi_since_l, p)
+        if t == SL and self.lo_since_h is not None:
+            self.lo_since_h = min(self.lo_since_h, p)
+        return added
 
     def push(self, t, p, b):
         if self.last_type == t:
@@ -122,12 +138,11 @@ class Tf:
             is_l = l1 >= lk and l2 > lk
             order = [(SH, hk), (SL, lk)] if hfk else [(SL, lk), (SH, hk)]
             for t, p in order:
-                if (t == SH and is_h) or (t == SL and is_l):
-                    if self.z.push(t, p, None):
-                        if t == SH:
-                            self.up_used = False
-                        else:
-                            self.dn_used = False
+                if self.z.visit(t, p, None, is_h if t == SH else is_l):
+                    if t == SH:
+                        self.up_used = False
+                    else:
+                        self.dn_used = False
         self.id = None
 
 
@@ -193,12 +208,11 @@ class LiteralTupa(Strategy):
             hf = open_rule(int(b.o[i - 1]), hk, lk)
             order = [(SH, hk), (SL, lk)] if hf else [(SL, lk), (SH, hk)]
             for tp_, p in order:
-                if (tp_ == SH and is_h) or (tp_ == SL and is_l):
-                    if z.push(tp_, p, i - 1):
-                        if tp_ == SH:
-                            self.max_since_h = h
-                        else:
-                            self.min_since_l = l
+                if z.visit(tp_, p, i - 1, is_h if tp_ == SH else is_l):
+                    if tp_ == SH:
+                        self.max_since_h = h
+                    else:
+                        self.min_since_l = l
 
     def _bias(self):
         for d, cand in ((SHORT, SL), (LONG, SH)):

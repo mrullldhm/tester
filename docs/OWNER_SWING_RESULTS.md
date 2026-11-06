@@ -1,5 +1,9 @@
 # Current owner-swing results, 4 November 2026
 
+> **Superseded pending rerun — 5 November 2026.** Pine and Python now enforce the owner's clarified
+> leg-extreme validity condition, including intervening non-pivot candles. All results on this page
+> predate that correction and must not be presented as current. No reruns have been performed yet.
+
 Only Fair Price Reversal and Tupa Trade are active. All current runs, features, exits, charts and future
 strategies must use only [`indicators/structure_swings.pine`](../indicators/structure_swings.pine).
 Swing detection is fixed: one neighbour per side, left equality/right strictness, next-close confirmation,

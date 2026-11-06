@@ -1,9 +1,15 @@
 # Tupa Trade (owner strategy, being written down)
 
-Status: **draft code, not run on data yet** (2026-11-03). Section 3c is coded as `strategies/tupa_trade.py` with the
-Pine twin `strategies/tupa_trade.pine` (section 3d). No backtest result yet: the owner runs the test locally (bars are
-not in the repo), then Codex reviews and replicates. Every rule below is the owner's words turned into a testable
-statement; anything marked *open* still needs the owner's answer, and section 3d lists what Claude chose for now.
+Status: **v1 coded and backtested; no demonstrated edge; collecting more owner walkthroughs** (2026-11-05).
+Section 3c is coded as `strategies/tupa_trade.py` with the Pine twin `strategies/tupa_trade.pine` (section 3d).
+The historical [results report](results.md), generated 4 November, reports a best-of-four in-sample result of
+855 trades and **-$13,547.10** after commission, with no added slippage; all four combinations lose.
+The earlier independently replicated run recorded in section 6 had 858 trades and **-$14,149.16**;
+that historical replication does not verify the newer report. TradingView export parity remains open.
+Both reports predate the 5 November swing correction below and are **superseded pending rerun**.
+Rules were captured from one owner walkthrough (26 October short). Further walkthroughs will identify
+differences between the owner's decisions and the implementation. Anything marked *open* still needs
+the owner's answer; section 3d identifies Claude's provisional choices. Local price bars are in `data/cl1/`.
 
 ## 1. Core idea
 
@@ -31,6 +37,9 @@ Pure price action. No indicators except the owner swing points (`indicators/stru
 - Swing high at candle k: `high[k-1] <= high[k]` and `high[k+1] < high[k]`. Swing low mirror.
 - Known when candle k+1 closes (one candle late).
 - Two swing highs with no swing low between: the higher stays (equal: the later). Lows mirror.
+- Owner clarification (5 November): a local high must also be the highest high since the accepted low,
+  counting intervening non-pivot candles; low mirror. Observe same-candle extremes in their existing
+  1m order. A smaller later local peak cannot finalize the low. The fixed pivot test still applies.
 - Outside candle that is both: added in the order its extremes printed (1m data decides). Both extremes in the same
   1m candle, or no 1m data: open nearer the high = high first; equal distance = low first; no-data case marked `?`.
 
@@ -89,6 +98,33 @@ Open points for code: which timeframes count as "T" candidates (daily, 4H, 1H?),
 have a candidate, and whether T itself must also be checked against the daily bias (answer 9: daily decides).
 
 ## 3d. Code (Claude, draft; owner to confirm the marked choices)
+
+Chart helper (owner requested, 5 November): [`indicators/tupa.pine`](../../../indicators/tupa.pine)
+combines the existing owner swing display with possible next-swing levels. Auto follows the latest
+confirmed chart swing: after a high it marks the previous closed candle low and the latest confirmed
+lower-timeframe swing low; after a low it mirrors to highs. Daily automatically uses 4H below it.
+Lines default to thin solid white (previous candle) and blue (lower swing); source visibility, colors,
+width, labels, lower timeframe and display direction are configurable. These are prospective levels,
+not entries or confirmed next swings. It currently shows the latest level from each source.
+[Usage and verification limits](../../../indicators/README.md). TradingView compilation is pending;
+the research guard refused the scripted source check for insufficient available RAM.
+
+Owner refinement: remove failed level candidates. If candle B raids candle A's low or a lower-timeframe
+swing low, B is a possible swing low. Candle C must keep its low strictly above B's low. If C touches
+or breaks B's low, remove the old tested level; the previous-candle line then marks B's low. Mirror
+for highs. `tupa.pine` tracks this separately from swing detection, with **Remove failed swing
+candidates** enabled by default. An invalidated lower-source level remains hidden until a newer
+confirmed lower swing is available. Price action before a lower swing was confirmed is excluded
+from its touch tracking. Intrabar display invalidation does not confirm an indicator swing or
+authorize intrabar HTF structure inputs to the strategy. TradingView verification remains pending.
+
+Further chart refinement: level lines start at their source candle, not their confirmation candle.
+The level sources now use a fixed configurable **Reference timeframe** (default Daily, Auto lower
+= 4H), independently of the viewing chart. Daily source levels appear on Daily and every smaller
+chart; 4H source levels appear on 4H and smaller charts and are hidden on Daily. Reference 4H
+similarly uses 4H previous-candle levels and 1H confirmed swings. Candidate invalidation still uses
+reference candles on every viewing timeframe. A historical line anchor does not make the level
+knowable before its confirmation. No changes to swing detection were made for this refinement.
 
 Files: `strategies/tupa_trade.py` (strategy), `tvtester/swings.py` (owner swings, timeframe candles, trend),
 `strategies/tupa_trade.pine` (Pine twin), tests `tests/test_tupa_trade.py` (vectorized code = literal bar-by-bar
@@ -323,7 +359,198 @@ Why it was a short (owner): every worst case for the short failed in turn. The 4
 the 15m needed to stop LH-LL (it broke HL 101.21 instead), the 5m needed a HL above 100.72 (only 100.78 was
 needed for a 5m swing low), and the 1m broke its swing low 100.76.
 
-*Walkthrough continues: 27-30 Oct.*
+*Next walkthrough: 2 November 2026 (section 4b).*
+
+## 4b. Continuation: Mon 2 Nov 2026 (awaiting owner charts)
+
+Purpose: compare further owner walkthroughs with v1, including a long, a no-trade day, a losing trade,
+and a day whose tested timeframe is not 1H. These categories are still wanted; the outcome and tested
+timeframe for 2 November have not been supplied.
+
+- NY window: **2 Nov 22:00 to 3 Nov 03:30 MYT** (09:00-14:30 America/New_York, US winter time).
+- Data: the memory's Massive cutoff of 3 Nov 00:30 MYT is historical. The current `data/manifest.json`
+  records bars through 3 Nov 18:29 UTC (4 Nov 02:29 MYT), beyond this session's end. No extension appears
+  necessary from the manifest; verify the relevant bars when checking each chart.
+- Sequence: Daily -> 4H -> 1H -> 15m -> 5m -> 1m, with the owner's chart and notes at each step.
+- At each step, record the owner's reading, verify prices to two decimals against local CL data, and add
+  Codex's independent review. Respect the chart's analysis cutoff and closed-candle availability; do not
+  reveal later price action or the code's later decisions before the owner analyses that part of the day.
+- Use only the mandatory owner swing definition. Ask about unclear decisions; mark any inferred rule
+  as unconfirmed rather than changing the strategy.
+- When the walkthrough reaches the trade decision, compare v1's trade/no-trade, direction, entry,
+  stop and target with the owner. Report all four `t_min` settings, since that choice remains unresolved,
+  and identify the code/data version used. Distinguish the historical v1 from subsequent lifecycle changes.
+
+No chart analysis, trade outcome or code comparison has been recorded for this day yet.
+
+## 4c. Owner clarification: possible swing locations before confirmation (5 Nov 2026)
+
+This is a separate weekly/daily teaching example supplied while discussing Q27/29, not the 2 November
+walkthrough. Six screenshots supplied, filenames `Screenshot 2026-11-05 022858.png`, `023141.png`,
+`023234.png`, `023317.png`, `024447.png`, `024521.png` in the owner's Screenshots directory.
+The annotations are readable. Prices below are chart readings, not yet independently verified from bars;
+the current November candles extend beyond the saved data cutoff. Header OHLC may describe a selected
+historical candle rather than the rightmost candle.
+
+Owner's explanation:
+
+- Applies to every timeframe; weekly is used because the current example is clear.
+- A possible next swing location can arise from a raid/touch of a previous candle's low/high on the
+  same timeframe, or a raid/touch of a swing point on the nearest lower timeframe. Do not wait for
+  swing confirmation to consider the location a candidate.
+- Images 1-2: highlighted weekly low-to-high leg runs from the 24 August to 14 September weekly
+  candles. White weekly levels mark possible locations for the next weekly low. The daily yellow
+  swing-low level is another possible location (chart label 82.76). White labels read 93.14, 87.24,
+  86.63. Images 3-4 show the subsequent chart state supplied by the owner; no claim of a confirmed
+  weekly swing low is inferred from those images.
+- Images 5-6: after the 12 October weekly candle closes, the owner considers the 5 October candle
+  as a possible swing-low candidate. The weekly red line and daily green lines identify further
+  possible swing locations. Owner corrected and confirmed: **5 October** is the possible weekly
+  swing low; **12 October** might be the next weekly swing high, labelled **LH or HH**.
+- If weekly and daily share the same HL-to-HH swing points, inspect 4H for swing points that could
+  locate the next weekly swing low (HL). Also consider previous candle lows on weekly and daily.
+
+Codex review: distinguish an anticipated swing location from a swing already confirmed by the indicator
+but still replaceable. Section 3c and v1 currently select T from the newest indicator-confirmed swing;
+that does not explicitly represent this anticipatory, cross-timeframe location process. No changes to
+the mandatory swing detector are implied or authorized. Weekly is absent from v1's timeframe set.
+Whether this explanation changes the closed-candle rule or merely adds prospective scenarios is open.
+Still to clarify: which lower-timeframe swings qualify, and how
+these possible locations determine the trade's governing timeframe. Historical prices and swing
+identities remain pending independent data verification.
+
+### 4 November teaching example: weekly/daily context and replay cutoff
+
+Owner supplied weekly `Screenshot 2026-11-05 030111.png` and daily
+`Screenshot 2026-11-05 030342 - Copy.png` / `Screenshot 2026-11-05 030342.png`
+(the two daily images show the same annotations).
+
+- Weekly annotation: weekly remains in an uptrend, with HL-HH in formation. Daily price action might
+  form the next weekly swing low (HL). This is a possibility, not a confirmed swing.
+- White daily levels **99.44**, **95.25**, **88.18** mark possible locations for formation of a
+  weekly swing low (HL). Blue **93.59** marks a possible daily swing low (LL). These are the owner's
+  chart labels, pending independent parquet verification. A level's weekly role and its daily role
+  must be kept separate; no claim that touching a line confirms a swing or requires a trade.
+- The owner hid the forming 4 November daily candle using replay. Treat the replay view as the
+  information cutoff, setting aside the forming candle already shown in an earlier screenshot.
+- Free-account replay is unavailable on the next lower timeframe. Owner will mark the beginning of
+  the 4 November candle with a vertical line. Ignore candles to the right when discussing what was
+  knowable at that point. Exact line timestamp/session alignment awaits the next chart.
+
+Codex review: the weekly HL scenario can coexist with a possible daily LL. The labels describe
+different timeframes. This adds weekly context and prospective levels absent from v1's simple
+confirmed-candidate selection, but does not yet resolve how the owner chooses the governing
+timeframe or enters a trade. No later price action or trade outcome is inferred here.
+
+### 4 November teaching example: 4H scenarios before NY open
+
+Owner supplied `Screenshot 2026-11-05 033318.png`, followed by the clearer annotation in
+`Screenshot 2026-11-05 033350.png`.
+
+- The arrow identifies the **19:00 MYT 4H candle**. At NY open (22:00 MYT) it has not closed;
+  owner says to treat it as nonexistent for this 4H reading. Do not use its eventual OHLC or any
+  later candles visible in the screenshot to decide the setup.
+- Blue line **94.60** is at the preceding 15:00 candle's low on the chart. White **93.59** is the
+  previous daily low. Owner considers several prospective paths: break blue while holding white,
+  break white, or hold both. These are scenarios, not confirmed swing points.
+- Owner's annotation says to seek long confirmation on lower timeframes for a hold of blue/white,
+  or aim for a short if price continues. Exact lower-timeframe confirmation and selection between
+  the branches have not been explained yet. The trailing text "or maybe 7pm" is unfinished.
+
+Independent OHLC check (pandas directly from 2026 parquet; no strategy/swing imports, run through
+`tools/run_limited.py`): previous daily candle O **96.30**, H **98.82**, L **93.59**, C **96.76**,
+matching the earlier replay chart (four differences **0.00**). The 4 November 15:00 candle's available
+portion through 18:54 MYT has low **94.60**, matching the blue label so far. Minutes 18:55-18:59
+are not in the saved data, so its completed low remains unverified. No 19:00-or-later bars were read.
+
+Codex review: the owner explicitly excludes the unclosed 4H candle while considering hypothetical
+future touches of existing levels. This supports separating closed-candle inputs from prospective
+scenarios; it does not authorize using forming HTF OHLC as confirmed structure. No entry decision
+or code trade comparison is established yet.
+
+### Owner flags the 1H indicator sequence (5 November, clarification pending)
+
+Screenshot `Screenshot 2026-11-05 033900.png` annotates the low near 4 November 18:00:
+"This is not LL because there is no LH after it. LH should be the highest swing point price after LL."
+Owner requests an indicator fix. Exact intended validity condition for that LH is not yet established.
+Do not assume this authorizes an alternative pivot algorithm or a new tunable setting.
+
+Source inspection: `Zig.push` in the Pine indicator accepts an opposite-type pivot without comparing
+its price to the preceding opposite swing's price. Same-type pivots use extreme replacement.
+The detector uses the fixed neighbouring-candle rule and orders dual pivots by 1m extremes.
+This source observation alone does not establish the cause of the marked sequence. In particular,
+the screenshot's later labels require bars beyond the saved 18:54 MYT cutoff. No numerical
+replication of the disputed sequence or indicator change has been made.
+
+Owner clarification: **both** conditions apply. The LH must be the highest candle high between
+that low and the next lower low, and that high must satisfy the existing fixed swing rule.
+Do not substitute an arbitrary candle high for an indicator swing. Application to the marked
+sequence remains pending bar-level verification; the clarification alone does not prove which
+displayed pivot is invalid or resolve provisional versus final LL presentation.
+
+Implementation (5 November, owner authorized): Pine indicator, Python twin, both active strategy
+Pine copies and Tupa's literal Pine transcription now observe every intervening candle's extremes.
+A local high below the highest price since the accepted low is rejected (low mirror). Accepting or
+replacing a low resets the high boundary at that low, and conversely for highs. Same-candle order
+is preserved, so extremes before the new swing do not leak into its next leg. Processing remains
+causal at the right candle close; there is no scan ahead to the eventual next low. Rule identity is
+`structure-swings-v2-leg-extremes`; earlier results are superseded pending rerun.
+
+Verification: five focused checks passed by direct function invocation through the research guard
+(pytest not run): non-pivot high blocks smaller local peak, mirrored low case, equal/later high,
+outside-candle boundary reset, and prefix causality. Python and the literal Pine transcription agree
+on 15,746 real CL minute bars (20 October through 4 November before 19:00 MYT), for 1m and all five
+higher timeframes, including trend and carried levels. This is Python transcription parity, not a
+TradingView compilation or execution check. Massive refresh reaches only 4 November 19:48 MYT;
+the exact later marked LH in the screenshot remains unavailable for real-bar reproduction.
+
+### 4 November teaching example: 1H attempted turn, then lower-timeframe failure
+
+Owner supplied `Screenshot 2026-11-05 035714.png` after updating the indicator.
+The disputed intermediate low/high pair is no longer visible in this chart; exact real-bar
+reproduction remains pending the missing late-evening data.
+
+- Arrow marks the **22:00 MYT 1H candle**. Owner clarified that the **completed 23:00 1H candle**
+  raids the 22:00 candle's low, so the 22:00 candle fails as a candidate swing low. This is known
+  at **00:00 MYT on 5 November**, not at the beginning of 23:00. The earlier wording is superseded.
+- For the **19:00 4H candle** to qualify as a swing low, its right neighbour, the **23:00 4H candle**,
+  must not raid/touch its low: the right candle's low must be strictly higher. That 4H right-candle
+  confirmation is available at **03:00 MYT on 5 November**. The left-side and other mandatory swing
+  conditions still apply. Raiding the 22:00 1H low and raiding the 19:00 4H low are distinct events;
+  do not infer the second solely from the first.
+- Upper white levels **96.87** and **96.44** are described as possible levels for the 4H candle
+  to make a swing point. Exact swing-high/low role and whether either level suffices remain open.
+- White **93.59** carries the previous daily low. Owner also marks the 4H candle low, chart label
+  **91.67**, as another possible place for a short. The timestamp at which this 4H low becomes
+  available must be respected; it is not automatically known at the 22:00 session open.
+- Next step: examine a still lower timeframe for the **failed uptrend**. This is not yet an
+  entry instruction or a claim that merely touching one of the white lines gives a trade.
+
+Codex review: candidate formation, failure, and entry remain separate stages. The 22:00 1H candle
+closes at 23:00; its right neighbour closes at 00:00, establishing the failure described by the owner.
+The 4H candidate has a separate 03:00 confirmation boundary. Prospective analysis can precede these
+closes but must not borrow their completed OHLC. All new late-evening prices above are chart readings pending parquet checks.
+Ignore the later fall visible on the right when evaluating this decision point.
+
+### 4 November teaching example: 15m rebound candidates
+
+Owner supplied `Screenshot 2026-11-05 040235.png` and explains that 15m tries to make a swing
+high before continuing back. The owner examines each possible case at **22:15, 22:30 and 22:45 MYT**.
+These are prospective swing-high formation cases, not a requirement to wait for the final indicator
+label visible later in the screenshot. Evaluate each case using only information available then.
+
+The chart marks a low near 22:00 with an arrow and carries upper white levels 96.87 / 96.44 and
+the 4H low 91.67. Three short white levels near the rebound are labelled **93.50, 93.47, 93.44**.
+Owner confirmed the respective mapping: **22:15 low 93.50**, **22:30 low 93.47**, **22:45 low 93.44**.
+Each is a low watched for a raid to signal possible swing-high formation for that candle.
+These remain chart readings, not parquet-verified prices. A raid is a prospective formation signal,
+not a substitute for the indicator's right-candle-close confirmation. Do not infer entry, stop,
+target or a requirement to raid all three levels.
+
+Codex review: this describes evaluating successive possible turns during the rebound, consistent
+with the anticipatory process missing from v1's confirmed-candidate selection. The later swing
+label and decline cannot be borrowed to select a successful setup retrospectively. Exact candidate
+checks and the next lower-timeframe entry analysis remain to be supplied.
 
 ## 5. Open questions for the owner
 

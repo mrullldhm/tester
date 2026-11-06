@@ -1,5 +1,9 @@
 # Tupa Trade (owner price action, MSS stop-limit), CL1! New York session: results
 
+> **Historical; superseded pending rerun (5 November 2026).** The owner swing twins now reject
+> local pivots that are not leg extremes, including non-pivot candle extremes. The results below
+> predate that correction. They have not been rerun or verified under the corrected detector.
+
 Generated 2026-11-04 13:55 UTC by `python -m tvtester.cli test tupa_trade`.
 
 Owner strategy, spec in [README.md](README.md) (sections 3b and 3c). Pure price action on the owner swing points

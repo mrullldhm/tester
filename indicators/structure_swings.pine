@@ -7,6 +7,9 @@
 //   until a swing of the other type is added: its label and line end jump to the replacing candle.
 // - Alternation: two swing highs with no swing low between -> the higher one stays (equal: the later one), the
 //   other is no longer a swing (owner rule 2: a new HH needs a HL first). Lows mirror.
+// - Owner clarification (2026-11-05): a high must be the highest high since the accepted low (low mirror).
+//   Observe non-pivot candles too; a smaller later local pivot cannot finish the preceding swing.
+//   Same-candle extremes are observed in their 1m order. No change to the fixed pivot/confirmation rule.
 // - Outside candle that is both a swing high and a swing low: added in the order its extremes printed. Low first ->
 //   new HL and new HH (owner rule 1). High first -> its high replaces the HH, then its low is added.
 //   Order from the 1m candles inside it (first 1m candle printing each extreme; same 1m candle: open nearer the
@@ -66,6 +69,8 @@ type Zig
     float prevH
     float curL
     float prevL
+    float hiSinceL
+    float loSinceH
     line  ln
     label lb
 
@@ -114,6 +119,23 @@ method push(Zig z, int t, float p, int b, bool fb) =>  // b = open time of the s
         z.lastTime := b
     z
 
+// Every candle extreme is observed, even when it is not a pivot. The accepted opposite swing resets
+// the leg boundary; earlier extremes in the same candle must not leak into the new leg.
+method visit(Zig z, int t, float p, int b, bool fb, bool isPivot) =>
+    bool extreme = t == SH ? (na(z.hiSinceL) or p >= z.hiSinceL) : (na(z.loSinceH) or p <= z.loSinceH)
+    bool replaces = z.lastType != t or (t == SH ? p >= z.lastPrice : p <= z.lastPrice)
+    if isPivot and extreme and replaces
+        z.push(t, p, b, fb)
+        if t == SH
+            z.loSinceH := p
+        else
+            z.hiSinceL := p
+    if t == SH and not na(z.hiSinceL)
+        z.hiSinceL := math.max(z.hiSinceL, p)
+    if t == SL and not na(z.loSinceH)
+        z.loSinceH := math.min(z.loSinceH, p)
+    z
+
 var Zig z = Zig.new()
 
 // Candle k = the previous candle; its right neighbour (this candle) has just closed
@@ -123,17 +145,13 @@ if bar_index >= 2 and barstate.isconfirmed
     bool isH = high[2] <= high[1] and high < high[1]
     bool isL = low[2] >= low[1] and low > low[1]
     int k = time[1]
-    if isH and isL
-        if hiFirstK
-            z.push(SH, high[1], k, fbK)
-            z.push(SL, low[1], k, fbK)
-        else
-            z.push(SL, low[1], k, fbK)
-            z.push(SH, high[1], k, fbK)
-    else if isH
-        z.push(SH, high[1], k, false)
-    else if isL
-        z.push(SL, low[1], k, false)
+    bool mark = isH and isL and fbK
+    if hiFirstK
+        z.visit(SH, high[1], k, mark, isH)
+        z.visit(SL, low[1], k, mark, isL)
+    else
+        z.visit(SL, low[1], k, mark, isL)
+        z.visit(SH, high[1], k, mark, isH)
 
 // Last confirmed swing levels, for alerts / other scripts
 plot(z.curH, "Last swing high", hiColor, style = plot.style_stepline, display = display.data_window)

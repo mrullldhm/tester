@@ -1,5 +1,9 @@
 # Fair Price Reversal (LuxAlgo 9:29 ET), CL1! sessions: results
 
+> **Historical; superseded pending rerun (5 November 2026).** The shared owner swing detector and
+> this strategy's Pine twin now enforce the clarified leg-extreme validity condition. The results
+> below predate the correction and have not been rerun under it.
+
 Generated 2026-11-04 13:56 UTC by `python -m tvtester.cli test fair_price_reversal`.
 
 Source: LuxAlgo, [9:29 ET Fair Price Reversal](https://www.luxalgo.com/library/indicator/9-29-et-fair-price-reversal/)

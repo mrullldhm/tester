@@ -73,6 +73,8 @@ type Zig
     float prevH
     float curL
     float prevL
+    float hiSinceL
+    float loSinceH
     int nH = 0
     int nL = 0
 
@@ -100,6 +102,23 @@ method push(Zig z, int t, float p) =>
             z.nL += 1
         z.lastType := t
         z.lastPrice := p
+    added
+
+// Owner clarification, 2026-11-05: observe every candle, accept only leg-extreme fixed-rule pivots.
+method visit(Zig z, int t, float p, bool isPivot) =>
+    bool extreme = t == SH ? (na(z.hiSinceL) or p >= z.hiSinceL) : (na(z.loSinceH) or p <= z.loSinceH)
+    bool added = false
+    if isPivot and extreme
+        added := z.push(t, p)
+        if added
+            if t == SH
+                z.loSinceH := p
+            else
+                z.hiSinceL := p
+    if t == SH and not na(z.hiSinceL)
+        z.hiSinceL := math.max(z.hiSinceL, p)
+    if t == SL and not na(z.loSinceH)
+        z.loSinceH := math.min(z.loSinceH, p)
     added
 
 method isHL(Zig z) =>
@@ -195,14 +214,14 @@ method closeCandle(Tf f) =>
         bool isH = f.h1 <= f.h2 and f.h3 < f.h2
         bool isL = f.l1 >= f.l2 and f.l3 > f.l2
         if f.f2
-            if isH and f.z.push(SH, f.h2)
+            if f.z.visit(SH, f.h2, isH)
                 f.upUsed := false
-            if isL and f.z.push(SL, f.l2)
+            if f.z.visit(SL, f.l2, isL)
                 f.dnUsed := false
         else
-            if isL and f.z.push(SL, f.l2)
+            if f.z.visit(SL, f.l2, isL)
                 f.dnUsed := false
-            if isH and f.z.push(SH, f.h2)
+            if f.z.visit(SH, f.h2, isH)
                 f.upUsed := false
     f.id := na
     f
@@ -238,14 +257,14 @@ if bar_index >= 2
     bool isL1 = low[2] >= low[1] and low > low[1]
     bool hf1 = openRule(open[1], high[1], low[1])
     if hf1
-        if isH1 and z1.push(SH, high[1])
+        if z1.visit(SH, high[1], isH1)
             maxSinceH := high
-        if isL1 and z1.push(SL, low[1])
+        if z1.visit(SL, low[1], isL1)
             minSinceL := low
     else
-        if isL1 and z1.push(SL, low[1])
+        if z1.visit(SL, low[1], isL1)
             minSinceL := low
-        if isH1 and z1.push(SH, high[1])
+        if z1.visit(SH, high[1], isH1)
             maxSinceH := high
 
 // --- bias ---
