@@ -2,8 +2,8 @@
   "written_utc": "2026-11-04T02:31:15+00:00",
   "source": "market-tester data/processed: ohlcv-1m CL.v.0 (Databento GLBX.MDP3) + ohlcv-1m-ext (Massive)",
   "first_bar": "2010-06-07 00:00:00+00:00",
-  "last_bar": "2026-11-06 21:59:00+00:00",
-  "rows": 5678334,
+  "last_bar": "2026-11-10 08:27:00+00:00",
+  "rows": 5680278,
   "rows_by_vendor": {
     "databento": 5674153,
     "massive": 11
@@ -56,6 +56,22 @@
       "rows_added": 3191,
       "first": "2026-11-04 11:49:00+00:00",
       "last": "2026-11-06 21:59:00+00:00"
+    },
+    {
+      "utc": "2026-11-10T14:40:20+00:00",
+      "source": "massive",
+      "replaced_from": "2026-11-06 22:00:00+00:00",
+      "rows_added": 1837,
+      "first": "2026-11-08 23:00:00+00:00",
+      "last": "2026-11-10 06:40:00+00:00"
+    },
+    {
+      "utc": "2026-11-10T16:27:54+00:00",
+      "source": "massive",
+      "replaced_from": "2026-11-10 06:41:00+00:00",
+      "rows_added": 107,
+      "first": "2026-11-10 06:41:00+00:00",
+      "last": "2026-11-10 08:27:00+00:00"
     }
   ],
   "files_sha256": {
@@ -75,7 +91,7 @@
     "year=2023.parquet": "d7589fd931db809594a0f63363b5c9e32b325db4684f7054299f61859d731773",
     "year=2024.parquet": "6aa7a3ce531d22eae94e1ae35113aa1da67f3c013dd7b8e97d9faada9f4cb318",
     "year=2025.parquet": "543af0bc4941bc2b68a0b70cd0a578bd2099f078c841e496d5d1866e953f1b45",
-    "year=2026.parquet": "e78d61b8ccbe4d7835651476cb43d1c452b3fddbb2c2b9baf01caa799da6b872"
+    "year=2026.parquet": "2d6408558beccfe80a66423c718a8b3ea2635e84667abbc137ccacfb749cc4c2"
   },
   "last_verified_utc": "2026-11-04T02:31:15+00:00",
   "data_quality_notes": [

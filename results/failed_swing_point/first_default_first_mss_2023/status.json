@@ -1,0 +1,9 @@
+{
+  "status": "started",
+  "started_utc": "2026-11-11T14:56:25.221071+00:00",
+  "start": null,
+  "end_exclusive": "2024-01-01",
+  "swing_rule": "structure-swings-v4-opposite-confirmation-first",
+  "lifecycle": "ny_session_flat_first_mss_v4",
+  "variant": "original"
+}
