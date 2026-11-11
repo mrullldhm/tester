@@ -95,6 +95,72 @@ type Zig
     float loSinceH
     line  ln
     label lb
+    bool pending = false
+    int savedLastType = 0
+    float savedLastPrice
+    int savedLastTime
+    float savedCurH
+    float savedPrevH
+    float savedCurL
+    float savedPrevL
+    float savedHiSinceL
+    float savedLoSinceH
+    line savedLn
+    label savedLb
+    string savedText = ""
+
+
+// Only the newest endpoint is provisional. At a close, accept qualifying opposite pivots before touch removal.
+method remember(Zig z) =>
+    z.savedLastType := z.lastType
+    z.savedLastPrice := z.lastPrice
+    z.savedLastTime := z.lastTime
+    z.savedCurH := z.curH
+    z.savedPrevH := z.prevH
+    z.savedCurL := z.curL
+    z.savedPrevL := z.prevL
+    z.savedHiSinceL := z.hiSinceL
+    z.savedLoSinceH := z.loSinceH
+    z.savedLn := z.ln
+    z.savedLb := z.lb
+    z.savedText := na(z.lb) ? "" : z.lb.get_text()
+    z
+
+method invalidate(Zig z, float h, float l) =>
+    bool removed = z.pending and (z.lastType == SH ? h >= z.lastPrice : l <= z.lastPrice)
+    if removed
+        float observedH = z.hiSinceL
+        float observedL = z.loSinceH
+        if not na(z.ln) and (na(z.savedLn) or z.ln != z.savedLn)
+            z.ln.delete()
+        if not na(z.lb) and (na(z.savedLb) or z.lb != z.savedLb)
+            z.lb.delete()
+        z.lastType := z.savedLastType
+        z.lastPrice := z.savedLastPrice
+        z.lastTime := z.savedLastTime
+        z.curH := z.savedCurH
+        z.prevH := z.savedPrevH
+        z.curL := z.savedCurL
+        z.prevL := z.savedPrevL
+        z.hiSinceL := z.savedHiSinceL
+        z.loSinceH := z.savedLoSinceH
+        z.ln := z.savedLn
+        z.lb := z.savedLb
+        z.pending := false
+        if not na(observedH)
+            z.hiSinceL := na(z.hiSinceL) ? observedH : math.max(z.hiSinceL, observedH)
+        if not na(observedL)
+            z.loSinceH := na(z.loSinceH) ? observedL : math.min(z.loSinceH, observedL)
+        if not na(z.hiSinceL)
+            z.hiSinceL := math.max(z.hiSinceL, h)
+        if not na(z.loSinceH)
+            z.loSinceH := math.min(z.loSinceH, l)
+        if not na(z.ln)
+            z.ln.set_xy2(z.lastTime, z.lastPrice)
+        if not na(z.lb)
+            z.lb.set_xy(z.lastTime, z.lastPrice)
+            z.lb.set_text(z.savedText)
+    removed
 
 // Label against the previous swing of the same type. Equal counts as a break (owner, 2026-11-02): equal high = HH,
 // equal low = LL, same "or equal" as the pivot rule's left candle.
@@ -108,6 +174,11 @@ method tag(Zig z, int t) =>
 
 method push(Zig z, int t, float p, int b, bool fb) =>  // b = open time of the swing candle (xloc.bar_time)
     string mark = fb and markFb ? " ?" : ""
+    bool accepts = z.lastType != t or (t == SH ? p >= z.lastPrice : p <= z.lastPrice)
+    if accepts
+        if z.lastType != t or not z.pending
+            z.remember()
+        z.pending := true
     if z.lastType == t
         bool more = t == SH ? p >= z.lastPrice : p <= z.lastPrice
         if more  // replaces the last swing; otherwise the pivot is dropped
@@ -152,6 +223,11 @@ method visit(Zig z, int t, float p, int b, bool fb, bool isPivot) =>
             z.loSinceH := p
         else
             z.hiSinceL := p
+    if z.pending
+        if t == SH and not na(z.savedHiSinceL)
+            z.savedHiSinceL := math.max(z.savedHiSinceL, p)
+        if t == SL and not na(z.savedLoSinceH)
+            z.savedLoSinceH := math.min(z.savedLoSinceH, p)
     if t == SH and not na(z.hiSinceL)
         z.hiSinceL := math.max(z.hiSinceL, p)
     if t == SL and not na(z.loSinceH)
@@ -175,6 +251,10 @@ if bar_index >= 2 and barstate.isconfirmed
         z.visit(SL, low[1], k, mark, isL)
         z.visit(SH, high[1], k, mark, isH)
 
+// At a right-candle close the opposite pivot secures the preceding endpoint first.
+// During a forming candle, remove on a touch; Pine rollback re-evaluates from the last closed state.
+z.invalidate(high, low)
+
 // Last confirmed swing levels, for alerts / other scripts
 plot(z.curH, "Last swing high", hiColor, style = plot.style_stepline, display = display.data_window)
 plot(z.curL, "Last swing low", loColor, style = plot.style_stepline, display = display.data_window)
@@ -195,10 +275,70 @@ type LevelState
     bool highFallback = false
     bool lowFallback = false
 
+    bool pending = false
+    int savedLastType = 0
+    float savedLastPrice
+    float savedCurH
+    float savedCurL
+    float savedHiSinceL
+    float savedLoSinceH
+    int savedHighTime
+    int savedLowTime
+    int savedHighKnown
+    int savedLowKnown
+    bool savedHighFallback = false
+    bool savedLowFallback = false
+
+
+method rememberLevel(LevelState s) =>
+    s.savedLastType := s.lastType
+    s.savedLastPrice := s.lastPrice
+    s.savedCurH := s.curH
+    s.savedCurL := s.curL
+    s.savedHiSinceL := s.hiSinceL
+    s.savedLoSinceH := s.loSinceH
+    s.savedHighTime := s.highTime
+    s.savedLowTime := s.lowTime
+    s.savedHighKnown := s.highKnown
+    s.savedLowKnown := s.lowKnown
+    s.savedHighFallback := s.highFallback
+    s.savedLowFallback := s.lowFallback
+    s
+
+method invalidateLevel(LevelState s, float h, float l) =>
+    if s.pending and (s.lastType == SH ? h >= s.lastPrice : l <= s.lastPrice)
+        float observedH = s.hiSinceL
+        float observedL = s.loSinceH
+        s.lastType := s.savedLastType
+        s.lastPrice := s.savedLastPrice
+        s.curH := s.savedCurH
+        s.curL := s.savedCurL
+        s.hiSinceL := s.savedHiSinceL
+        s.loSinceH := s.savedLoSinceH
+        s.highTime := s.savedHighTime
+        s.lowTime := s.savedLowTime
+        s.highKnown := s.savedHighKnown
+        s.lowKnown := s.savedLowKnown
+        s.highFallback := s.savedHighFallback
+        s.lowFallback := s.savedLowFallback
+        s.pending := false
+        if not na(observedH)
+            s.hiSinceL := na(s.hiSinceL) ? observedH : math.max(s.hiSinceL, observedH)
+        if not na(observedL)
+            s.loSinceH := na(s.loSinceH) ? observedL : math.min(s.loSinceH, observedL)
+        if not na(s.hiSinceL)
+            s.hiSinceL := math.max(s.hiSinceL, h)
+        if not na(s.loSinceH)
+            s.loSinceH := math.min(s.loSinceH, l)
+    s
+
 method visitLevel(LevelState s, int t, float p, int pivotTime, int knownTime, bool fb, bool isPivot) =>
     bool extreme = t == SH ? (na(s.hiSinceL) or p >= s.hiSinceL) : (na(s.loSinceH) or p <= s.loSinceH)
     bool replaces = s.lastType != t or (t == SH ? p >= s.lastPrice : p <= s.lastPrice)
     if isPivot and extreme and replaces
+        if s.lastType != t or not s.pending
+            s.rememberLevel()
+        s.pending := true
         s.lastType := t
         s.lastPrice := p
         if t == SH
@@ -213,6 +353,11 @@ method visitLevel(LevelState s, int t, float p, int pivotTime, int knownTime, bo
             s.lowKnown := knownTime
             s.lowFallback := fb
             s.hiSinceL := p
+    if s.pending
+        if t == SH and not na(s.savedHiSinceL)
+            s.savedHiSinceL := math.max(s.savedHiSinceL, p)
+        if t == SL and not na(s.savedLoSinceH)
+            s.savedLoSinceH := math.min(s.savedLoSinceH, p)
     if t == SH and not na(s.hiSinceL)
         s.hiSinceL := math.max(s.hiSinceL, p)
     if t == SL and not na(s.loSinceH)
@@ -239,7 +384,8 @@ sourceSnapshot() =>
         else
             s.visitLevel(SL, low[1], time[1], time_close, mark, isL)
             s.visitLevel(SH, high[1], time[1], time_close, mark, isH)
-    [time, time_close, high, low, s.lastType, s.curH, s.highTime, s.highKnown, s.highFallback, s.curL, s.lowTime, s.lowKnown, s.lowFallback]
+    s.invalidateLevel(high, low)
+    [time, time_close, high, low, s.pending ? s.lastType : 0, s.curH, s.highTime, s.highKnown, s.highFallback, s.curL, s.lowTime, s.lowKnown, s.lowFallback]
 
 confirmedSourceSwings() =>
     [sourceOpen, sourceClose, sourceHigh, sourceLow, lastType, highPrice, highOrigin, highKnown, highFb, lowPrice, lowOrigin, lowKnown, lowFb] = sourceSnapshot()

@@ -43,6 +43,8 @@ class Order:
     abs_stop: int | None = None  # exit: absolute levels as given, kept apart from profit / loss distances
     abs_limit: int | None = None
     triggered: bool = False  # stop-limit entry: the stop has been reached, only the limit works now
+    cancel_touch: int | None = None  # optional owner policy: upper touch for shorts, lower touch for longs
+    cancel_side: int | None = None  # +1 upper / -1 lower; omitted = opposite entry side
 
 
 @dataclass
@@ -103,13 +105,28 @@ class Context:
         return self._e.i
 
     def entry(self, id: str, direction: int, stop: int | None = None, limit: int | None = None,
-              oca: str | None = None, comment: str = "") -> None:
+              oca: str | None = None, comment: str = "", cancel_touch: int | None = None,
+              cancel_side: int | None = None) -> None:
+        if cancel_side not in (None, LONG, SHORT):
+            raise ValueError("cancel_side must be +1 (upper), -1 (lower), or None")
         if stop is not None and limit is not None:
             c = self._e.c[self._e.i]
             if (direction == LONG and stop <= c) or (direction == SHORT and stop >= c):
                 raise NotImplementedError("stop-limit entry with its stop already through the close: TradingView's "
                                           "behaviour is not verified")
-        self._e.orders[id] = Order(id, "entry", direction, stop, limit, oca=oca, placed_bar=self._e.i, comment=comment)
+        self._e.orders[id] = Order(id, "entry", direction, stop, limit, oca=oca, placed_bar=self._e.i,
+                                   comment=comment, cancel_touch=cancel_touch, cancel_side=cancel_side)
+
+    def entry_cancel_touch(self, id: str, price: int | None, side: int | None = None) -> None:
+        """Update an unfilled entry's owner cancellation level without changing its placement or limit."""
+        order = self._e.orders.get(id)
+        if order is not None and order.kind == "entry":
+            order.cancel_touch = price
+            order.cancel_side = side
+
+    def has_entry(self, id: str) -> bool:
+        order = self._e.orders.get(id)
+        return order is not None and order.kind == "entry"
 
     def exit(self, id: str, from_entry: str, stop: int | None = None, limit: int | None = None,
              profit: int | None = None, loss: int | None = None, comment: str = "") -> None:
@@ -232,6 +249,12 @@ class Engine:
 
     def _at_open(self, o: int, prev_close: int) -> None:
         """Market orders, triggered stops and anything the open gaps through fill at the open."""
+        # Cancellation wins when the open gaps through both a limit and its invalidation level.
+        for order in list(self.orders.values()):
+            if order.kind == "entry" and order.cancel_touch is not None and (
+                o >= order.cancel_touch if (order.cancel_side or -order.side) == LONG else o <= order.cancel_touch
+            ):
+                self._cancel_entry(order)
         changed = True
         while changed:
             changed = False
@@ -242,6 +265,12 @@ class Engine:
                     changed = True
                     break
         self._mark(o)
+
+    def _cancel_entry(self, order: Order) -> None:
+        self.orders.pop(order.id, None)
+        for key in [key for key, bracket in self.orders.items()
+                    if bracket.kind == "exit" and bracket.from_entry == order.id]:
+            self.orders.pop(key, None)
 
     def _open_leg(self, order: Order, o: int, prev_close: int) -> str | None:
         if order.kind == "close" or (order.stop is None and order.limit is None):
@@ -273,12 +302,15 @@ class Engine:
                 legs = (("stop", order.stop), ("limit", order.limit))
                 if order.kind == "entry" and order.stop is not None and order.limit is not None:
                     legs = (("limit", order.limit),) if order.triggered else (("trigger", order.stop),)
+                if order.kind == "entry" and order.cancel_touch is not None:
+                    legs = (("cancel", order.cancel_touch), *legs)
                 for leg, px in legs:
                     if px is None:
                         continue
                     s = order.side
                     hit = (leg in ("stop", "trigger") and ((s == LONG and up) or (s == SHORT and not up))) or \
-                          (leg == "limit" and ((s == LONG and not up) or (s == SHORT and up)))
+                          (leg == "limit" and ((s == LONG and not up) or (s == SHORT and up))) or \
+                          (leg == "cancel" and ((order.cancel_side or -s) == (LONG if up else SHORT)))
                     if not hit:
                         continue
                     if up and not (cur <= px <= b):
@@ -292,6 +324,10 @@ class Engine:
                 break
             _, order, px, leg = best
             self._mark(px)
+            if leg == "cancel":
+                self._cancel_entry(order)
+                cur = px
+                continue
             if leg == "trigger":
                 order.triggered = True  # now a limit order; it fills here if the limit is already marketable
                 cur = px
@@ -345,6 +381,9 @@ def run(strategy, bars: Bars, props: Properties = DEFAULT, start: int = 0) -> Re
     k0 = int(np.searchsorted(idx, start))
     i = int(idx[k0]) if k0 < len(idx) else n
     while i < n:
+        before_bar = getattr(strategy, "before_bar", None)
+        if before_bar is not None:
+            before_bar(e.ctx, i)
         e.process_bar(i)
         strategy.on_bar(e.ctx, i)
         if e.pos is not None and bars.last_of_contract[i]:

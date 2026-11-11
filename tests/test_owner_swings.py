@@ -37,7 +37,7 @@ class OwnerSwingContract(unittest.TestCase):
     def test_authoritative_indicator_is_unchanged(self):
         source = Path(__file__).resolve().parents[1] / "indicators/structure_swings.pine"
         self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),
-                         "162bba6a226acdcc518042b100f7ff33186501479dd4d0634be1c48a70f5be13")
+                         "77692c498f0d7f76bb91108840956563f8f4df71d40f7ad0769b5eda530745f5")
 
     def test_left_equal_right_strict_and_confirmation(self):
         bars = make_bars([(9, 10, 5, 8), (10, 12, 6, 11), (10, 12, 7, 11), (9, 11, 8, 10)])

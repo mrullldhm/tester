@@ -9,6 +9,8 @@ A strategy is the Python twin of a Pine `strategy()` script:
   `on_bar` must run while the strategy is flat with no working orders.
 - `on_bar(ctx, i)` runs at the close of bar i (and on every bar while a position or order exists).
   Use ctx.entry / ctx.exit / ctx.close_all / ctx.cancel like strategy.entry / exit / close_all / cancel.
+- Optional `before_bar(ctx, i)` may update an existing pending entry's cancellation level using only
+  information available before this bar opens. FSP uses the previous source candle, never current OHLC.
 - `filters` (feature 2): entry vetoes checked at the signal bar, in `on_bar` (docs/OPTIMIZE.md). A strategy that
   takes filters exposes its feature values; with no filters it is the plain strategy.
 """

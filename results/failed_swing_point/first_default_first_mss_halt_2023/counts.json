@@ -1,0 +1,10 @@
+{
+  "bars": 4682668,
+  "setups": 11158,
+  "eligible_signal_bars": 3296,
+  "orders_placed": 3229,
+  "unfilled_orders_cancelled": 31,
+  "pending_at_end": false,
+  "halt_reopen_exits": 1,
+  "nonpositive_initial_risk_closed_trades": 24
+}

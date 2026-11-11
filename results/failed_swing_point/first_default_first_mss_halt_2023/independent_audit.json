@@ -1,0 +1,10 @@
+{
+  "scope": "Independent ledger math and raw CL execution replay; signals supplied, swings not independently detected",
+  "trades_checked": 3198,
+  "net_profit": -11925.96,
+  "reported_net_profit": -11925.96000000008,
+  "difference": 8.003553375601768e-11,
+  "winning_trades": 603,
+  "profit_factor": 0.9582193083776418,
+  "all_entry_exit_prices_and_times_match": true
+}

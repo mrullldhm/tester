@@ -6,12 +6,17 @@
 //   Known when candle k+1 closes, so labels appear one candle late. The newest swing can still move (rule 2)
 //   until a swing of the other type is added: its label and line end jump to the replacing candle.
 // - Alternation: two swing highs with no swing low between -> the higher one stays (equal: the later one), the
-//   other is no longer a swing (owner rule 2: a new HH needs a HL first). Lows mirror.
+//   other is no longer a swing. Lows mirror. HH is determined by comparison with the previous accepted high;
+//   no preceding HL is required.
+// - Owner clarification (2026-11-10): before an opposite swing is accepted, an equal touch/breach removes
+//   the newest provisional endpoint immediately. Restore surviving fixed swings, not an older provisional
+//   version of the removed endpoint. At a right-candle close, a qualifying opposite pivot secures this endpoint before touch removal.
+//   Live indicators check every update; historical minute replays remove at the first touching 1m close.
 // - Owner clarification (2026-11-05): a high must be the highest high since the accepted low (low mirror).
 //   Observe non-pivot candles too; a smaller later local pivot cannot finish the preceding swing.
 //   Same-candle extremes are observed in their 1m order. No change to the fixed pivot/confirmation rule.
-// - Outside candle that is both a swing high and a swing low: added in the order its extremes printed. Low first ->
-//   new HL and new HH (owner rule 1). High first -> its high replaces the HH, then its low is added.
+// - Outside candle that is both a swing high and a swing low: candidates are processed in the order its extremes
+//   printed, each subject to the acceptance/replacement rules. HH/LH and HL/LL labels follow price comparisons.
 //   Order from the 1m candles inside it (first 1m candle printing each extreme; same 1m candle: open nearer the
 //   high -> high first, the TradingView broker-emulator rule). No 1m data (history limit) -> the same open rule on
 //   the chart candle itself; such outside candles are marked "?".
@@ -73,6 +78,72 @@ type Zig
     float loSinceH
     line  ln
     label lb
+    bool pending = false
+    int savedLastType = 0
+    float savedLastPrice
+    int savedLastTime
+    float savedCurH
+    float savedPrevH
+    float savedCurL
+    float savedPrevL
+    float savedHiSinceL
+    float savedLoSinceH
+    line savedLn
+    label savedLb
+    string savedText = ""
+
+
+// Only the newest endpoint is provisional. At a close, accept qualifying opposite pivots before touch removal.
+method remember(Zig z) =>
+    z.savedLastType := z.lastType
+    z.savedLastPrice := z.lastPrice
+    z.savedLastTime := z.lastTime
+    z.savedCurH := z.curH
+    z.savedPrevH := z.prevH
+    z.savedCurL := z.curL
+    z.savedPrevL := z.prevL
+    z.savedHiSinceL := z.hiSinceL
+    z.savedLoSinceH := z.loSinceH
+    z.savedLn := z.ln
+    z.savedLb := z.lb
+    z.savedText := na(z.lb) ? "" : z.lb.get_text()
+    z
+
+method invalidate(Zig z, float h, float l) =>
+    bool removed = z.pending and (z.lastType == SH ? h >= z.lastPrice : l <= z.lastPrice)
+    if removed
+        float observedH = z.hiSinceL
+        float observedL = z.loSinceH
+        if not na(z.ln) and (na(z.savedLn) or z.ln != z.savedLn)
+            z.ln.delete()
+        if not na(z.lb) and (na(z.savedLb) or z.lb != z.savedLb)
+            z.lb.delete()
+        z.lastType := z.savedLastType
+        z.lastPrice := z.savedLastPrice
+        z.lastTime := z.savedLastTime
+        z.curH := z.savedCurH
+        z.prevH := z.savedPrevH
+        z.curL := z.savedCurL
+        z.prevL := z.savedPrevL
+        z.hiSinceL := z.savedHiSinceL
+        z.loSinceH := z.savedLoSinceH
+        z.ln := z.savedLn
+        z.lb := z.savedLb
+        z.pending := false
+        if not na(observedH)
+            z.hiSinceL := na(z.hiSinceL) ? observedH : math.max(z.hiSinceL, observedH)
+        if not na(observedL)
+            z.loSinceH := na(z.loSinceH) ? observedL : math.min(z.loSinceH, observedL)
+        if not na(z.hiSinceL)
+            z.hiSinceL := math.max(z.hiSinceL, h)
+        if not na(z.loSinceH)
+            z.loSinceH := math.min(z.loSinceH, l)
+        if not na(z.ln)
+            z.ln.set_xy2(z.lastTime, z.lastPrice)
+        if not na(z.lb)
+            z.lb.set_xy(z.lastTime, z.lastPrice)
+            z.lb.set_text(z.savedText)
+    removed
 
 // Label against the previous swing of the same type. Equal counts as a break (owner, 2026-11-02): equal high = HH,
 // equal low = LL, same "or equal" as the pivot rule's left candle.
@@ -86,6 +157,11 @@ method tag(Zig z, int t) =>
 
 method push(Zig z, int t, float p, int b, bool fb) =>  // b = open time of the swing candle (xloc.bar_time)
     string mark = fb and markFb ? " ?" : ""
+    bool accepts = z.lastType != t or (t == SH ? p >= z.lastPrice : p <= z.lastPrice)
+    if accepts
+        if z.lastType != t or not z.pending
+            z.remember()
+        z.pending := true
     if z.lastType == t
         bool more = t == SH ? p >= z.lastPrice : p <= z.lastPrice
         if more  // replaces the last swing; otherwise the pivot is dropped
@@ -130,6 +206,11 @@ method visit(Zig z, int t, float p, int b, bool fb, bool isPivot) =>
             z.loSinceH := p
         else
             z.hiSinceL := p
+    if z.pending
+        if t == SH and not na(z.savedHiSinceL)
+            z.savedHiSinceL := math.max(z.savedHiSinceL, p)
+        if t == SL and not na(z.savedLoSinceH)
+            z.savedLoSinceH := math.min(z.savedLoSinceH, p)
     if t == SH and not na(z.hiSinceL)
         z.hiSinceL := math.max(z.hiSinceL, p)
     if t == SL and not na(z.loSinceH)
@@ -152,6 +233,10 @@ if bar_index >= 2 and barstate.isconfirmed
     else
         z.visit(SL, low[1], k, mark, isL)
         z.visit(SH, high[1], k, mark, isH)
+
+// At a right-candle close the opposite pivot secures the preceding endpoint first.
+// During a forming candle, remove on a touch; Pine rollback re-evaluates from the last closed state.
+z.invalidate(high, low)
 
 // Last confirmed swing levels, for alerts / other scripts
 plot(z.curH, "Last swing high", hiColor, style = plot.style_stepline, display = display.data_window)

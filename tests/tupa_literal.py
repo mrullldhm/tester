@@ -27,12 +27,52 @@ def open_rule(o, h, l):
 
 
 class Zig:
+    def copy(self):
+        other = Zig()
+        other.__dict__ = {k: v.copy() if k == "before" and v is not None else v
+                          for k, v in self.__dict__.items()}
+        return other
+
     def __init__(self):
         self.last_type, self.last_price = 0, None
         self.cur_h = self.prev_h = self.cur_l = self.prev_l = None
         self.n_h = self.n_l = 0
         self.bar_h = self.bar_l = None
         self.hi_since_l = self.lo_since_h = None
+        self.pending = False
+        self.before = None
+        self.min_since_l = self.max_since_h = None
+
+    def invalidate(self, h, l):
+        if self.min_since_l is not None:
+            self.min_since_l = min(self.min_since_l, l)
+        if self.max_since_h is not None:
+            self.max_since_h = max(self.max_since_h, h)
+        if self.before is not None:
+            if self.before["min_since_l"] is not None:
+                self.before["min_since_l"] = min(self.before["min_since_l"], l)
+            if self.before["max_since_h"] is not None:
+                self.before["max_since_h"] = max(self.before["max_since_h"], h)
+        if not self.pending or not (h >= self.last_price if self.last_type == SH else l <= self.last_price):
+            return False
+        if self.last_type == SH:
+            self.n_h += 1
+        else:
+            self.n_l += 1
+        observed_h, observed_l = self.hi_since_l, self.lo_since_h
+        for name, value in self.before.items():
+            setattr(self, name, value)
+        self.pending = False
+        self.before = None
+        if observed_h is not None:
+            self.hi_since_l = observed_h if self.hi_since_l is None else max(self.hi_since_l, observed_h)
+        if observed_l is not None:
+            self.lo_since_h = observed_l if self.lo_since_h is None else min(self.lo_since_h, observed_l)
+        if self.hi_since_l is not None:
+            self.hi_since_l = max(self.hi_since_l, h)
+        if self.lo_since_h is not None:
+            self.lo_since_h = min(self.lo_since_h, l)
+        return True
 
     def visit(self, t, p, b, is_pivot):
         extreme = (self.hi_since_l is None or p >= self.hi_since_l) if t == SH else (
@@ -43,6 +83,10 @@ class Zig:
                 self.lo_since_h = p
             else:
                 self.hi_since_l = p
+        if self.before is not None:
+            name = "hi_since_l" if t == SH else "lo_since_h"
+            if self.before[name] is not None:
+                self.before[name] = max(self.before[name], p) if t == SH else min(self.before[name], p)
         if t == SH and self.hi_since_l is not None:
             self.hi_since_l = max(self.hi_since_l, p)
         if t == SL and self.lo_since_h is not None:
@@ -50,6 +94,13 @@ class Zig:
         return added
 
     def push(self, t, p, b):
+        accepts = self.last_type != t or (p >= self.last_price if t == SH else p <= self.last_price)
+        if accepts:
+            if self.last_type != t or not self.pending:
+                self.before = {name: getattr(self, name) for name in (
+                    "last_type", "last_price", "cur_h", "prev_h", "cur_l", "prev_l", "bar_h", "bar_l",
+                    "hi_since_l", "lo_since_h", "min_since_l", "max_since_h")}
+            self.pending = True
         if self.last_type == t:
             more = p >= self.last_price if t == SH else p <= self.last_price
             if not more:
@@ -68,10 +119,10 @@ class Zig:
         return True
 
     def hl(self):
-        return self.prev_l is not None and self.cur_l > self.prev_l
+        return self.cur_l is not None and self.prev_l is not None and self.cur_l > self.prev_l
 
     def lh(self):
-        return self.prev_h is not None and self.cur_h < self.prev_h
+        return self.cur_h is not None and self.prev_h is not None and self.cur_h < self.prev_h
 
 
 class Tf:
@@ -89,6 +140,7 @@ class Tf:
         return dn, up
 
     def start(self, cid, i, o, h, l):
+        self.opening = self.z.copy()
         self.id, self.h, self.l = cid, h, l
         self.hi_i = self.lo_i = i
         self.same_hf = open_rule(o, h, l)
@@ -137,6 +189,13 @@ class Tf:
             is_h = h1 <= hk and h2 < hk
             is_l = l1 >= lk and l2 > lk
             order = [(SH, hk), (SL, lk)] if hfk else [(SL, lk), (SH, hk)]
+            if self.opening.pending and not self.z.pending:
+                probe = self.opening.copy()
+                accepted = [probe.visit(t, p, None, is_h if t == SH else is_l) for t, p in order]
+                if any(accepted):
+                    nh, nl = self.z.n_h, self.z.n_l
+                    self.z = self.opening.copy()
+                    self.z.n_h, self.z.n_l = nh, nl
             for t, p in order:
                 if self.z.visit(t, p, None, is_h if t == SH else is_l):
                     if t == SH:
@@ -172,7 +231,6 @@ class LiteralTupa(Strategy):
         self.bars = bars
         self.tfs = [Tf() for _ in TFS]
         self.z1 = Zig()
-        self.min_since_l = self.max_since_h = None
         self.cur_day, self.traded, self.n_closed = None, False, 0
         self.expired = None
         self.pend, self.trig = None, False
@@ -195,12 +253,9 @@ class LiteralTupa(Strategy):
                 f.add(i, o, h, l)
             if cn != c:
                 f.close()
+            f.z.invalidate(h, l)
         # 1m swings: candle i-1 confirmed by bar i
         z = self.z1
-        if self.min_since_l is not None:
-            self.min_since_l = min(self.min_since_l, l)
-        if self.max_since_h is not None:
-            self.max_since_h = max(self.max_since_h, h)
         if i >= 2:
             hk1, hk, lk1, lk = int(b.h[i - 2]), int(b.h[i - 1]), int(b.l[i - 2]), int(b.l[i - 1])
             is_h = hk1 <= hk and h < hk
@@ -210,14 +265,15 @@ class LiteralTupa(Strategy):
             for tp_, p in order:
                 if z.visit(tp_, p, i - 1, is_h if tp_ == SH else is_l):
                     if tp_ == SH:
-                        self.max_since_h = h
+                        z.max_since_h = h
                     else:
-                        self.min_since_l = l
+                        z.min_since_l = l
+        z.invalidate(h, l)
 
     def _bias(self):
         for d, cand in ((SHORT, SL), (LONG, SH)):
             for k in range(self.k0, len(TFS)):
-                if self.tfs[k].z.last_type == cand:
+                if self.tfs[k].z.pending and self.tfs[k].z.last_type == cand:
                     if all(self.tfs[j].trend == d for j in range(k)):
                         return d
                     break
@@ -225,10 +281,10 @@ class LiteralTupa(Strategy):
 
     def _setup(self, bias):
         z, R = self.z1, self.params["max_risk"]
-        if bias == SHORT and z.last_type == SH and z.hl() and self.min_since_l > z.cur_l:
+        if bias == SHORT and z.pending and z.last_type == SH and z.hl() and z.min_since_l > z.cur_l:
             bp, sl = z.cur_l, z.cur_h
             return SHORT, bp, sl, (sl - R if sl - bp > R else bp), z.n_h
-        if bias == LONG and z.last_type == SL and z.lh() and self.max_since_h < z.cur_h:
+        if bias == LONG and z.pending and z.last_type == SL and z.lh() and z.max_since_h < z.cur_h:
             bp, sl = z.cur_h, z.cur_l
             return LONG, bp, sl, (sl + R if bp - sl > R else bp), z.n_l
         return None

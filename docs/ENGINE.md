@@ -36,6 +36,18 @@ only when at least as extreme (equal: later). Outside candles process extremes i
 order, using the indicator open-distance fallback when needed (ties: low first). Equal highs label HH,
 equal lows LL. Continue through contract rolls. The newest swing may move until the opposite type is added.
 
+**Owner clarification, 10 November 2026:** the newest endpoint is provisional until an opposite swing
+is accepted. An equal touch or breach before then removes it immediately, restoring surviving fixed
+levels rather than an older provisional version of the removed endpoint. **11 November clarification:**
+at a right-candle close, qualifying opposite-pivot confirmation takes priority over that candle's touch
+removal. An endpoint removed during a forming HTF candle is secured/restored if that opposite pivot
+qualifies when the candle closes. Historical decisions before that close are never backdated.
+Historical replays expose removal at the first touching
+1-minute close, including within forming higher-timeframe candles; live indicators check every update.
+Confirmation of new pivots and higher-timeframe trend changes still require their existing candle closes.
+Removal is a state event, not a new pivot signal. Previously emitted historical events are not erased.
+Results predating this clarification must be rerun before being presented as current.
+
 Historical pivot-based results do not establish results under these rules; rerun them before publication.
 
 ## Script cycle
@@ -71,6 +83,33 @@ Historical pivot-based results do not establish results under these rules; rerun
    quantity reservation across partial exits).
 10. **Slippage.** Market and stop fills move N ticks against the trader. Limit fills never slip.
 11. **Commission.** $2.01 x contracts on every fill. Cancelled orders cost nothing.
+
+**Optional broker cancellation.** Generic entries can carry `cancel_touch` and `cancel_side` boundaries;
+touches cancel an unfilled entry along the broker path, with cancellation first at a gap through both
+prices. FSP does not use that optional pending-order feature.
+
+**FSP MSS eligibility.** After the breach confirmation candle closes, touching its fixed 15m high
+invalidates subsequent short MSS signals; touching its fixed 15m low invalidates subsequent long MSS
+signals. The MSS minute must not reach that boundary before its own close, when the entry decision is
+made. Later 1H candidates and previous-1H extremes have no cancellation role. Already-placed limits are
+unaffected by that eligibility cutoff and keep their price/bracket until fill or the entry/day cutoff.
+
+**FSP New York reset and entry window (owner default update, 11 November 2026).** FSP entries/fills use
+09:00–14:30 America/New_York. At 14:30 ET, or the earlier scheduled exchange close, cancel limits,
+close remaining positions with `close_all(immediately=True)` and discard failed setups. Only new
+failed setups can arm trades after reset. TP is 50 ticks from actual fill, max planned risk remains 25. The daily source's
+later swing-confirmation timestamp is not used as an execution deadline. The bounded calendar supplies
+regular/holiday close times without observing a later price gap. If a halt spans the cutoff, cancel the
+old orders and queue the overdue market close before processing the first available reopening bar;
+the position exits at that bar's open, labeled `New York halt reopen`, before its intrabar bracket path.
+No price is fabricated or backdated. These lifecycle
+changes do not reset or modify owner swing detection. Fresh failures after the cutoff belong to the next
+New York cycle, without a second reset at the CL evening reopen. Each failed 1H setup can supply only
+its first valid 1m entry signal. No later attempt is allowed after TP, SL, cancellation or a first signal
+skipped while another trade/order is active. All 43 focused checks pass. The full baseline through 2023
+is complete with the owner-approved halt exception. Independent raw CL replay matches all 3,198
+entry/exit prices and times and net P&L to the cent, with no repeated trade from one failed setup.
+This audit uses supplied signals and does not independently detect swings.
 
 ## Limit-entry lifecycle (owner rule, revised 3 November 2026)
 

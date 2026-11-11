@@ -216,16 +216,18 @@ def test_bars_inside_the_daily_halt_match_literal(seed, t_min):
 
 
 def test_trend_down_when_hl_touched_by_closed_candle():
-    # 5m candles (high, low): L 100 (candle 1), H 115 (2), HL 104 (3), HH 120 (4); candle 5 touches 104 -> down
-    five = [(110, 105), (108, 100), (115, 106), (112, 104), (120, 107), (118, 103), (110, 101)]
+    # Candle 4 confirms HL 104 without touching provisional H 115. Candle 6 touches 104 -> down,
+    # before H 120 confirms at that close. Confirmation then secures/restores the preceding low.
+    five = [(110, 105), (108, 100), (115, 106), (112, 104), (114, 107), (120, 108), (118, 103), (110, 101)]
     one = []
     for h, l in five:  # five 1m bars per 5m candle
         mid = (h + l) // 2
         one += [(mid, h, l, mid)] + [(mid,) * 4] * 4
     st = sw.timeframe_state(make(one, start="2026-03-04 15:00"), "5m")
-    assert list(st.trend) == [0, 0, 0, 0, 0, -1, -1]
-    assert list(st.last_type[4:6]) == [sw.SL, sw.SH]  # HL 104 confirmed by candle 4, HH 120 by candle 5
-    assert st.cur_l[5] == 104 and st.cur_h[5] == 120
+    closed = st.at_bars(len(one))[4::5]  # sparse states also include immediate removal inside candle 6
+    assert list(st.trend[closed]) == [0, 0, 0, 0, 0, 0, -1, -1]
+    assert list(st.last_type[closed[5:7]]) == [sw.SL, sw.SH]
+    assert st.cur_l[closed[6]] == 104 and st.cur_h[closed[6]] == 120
 
 
 @pytest.mark.skipif(not any(DATA_DIR.glob("*.parquet")), reason="no data")

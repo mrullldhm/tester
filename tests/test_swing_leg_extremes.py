@@ -23,18 +23,18 @@ def rebound_bars(mirror=False):
 
 def test_nonpivot_high_blocks_smaller_later_pivot():
     m = sw.minute_swings(rebound_bars())
-    assert m.bar.tolist() == [2, 6]  # original low, then lower replacement; no intervening high
-    assert m.cur_l.tolist() == [50, 40]
-    assert m.n_h.tolist() == [0, 0]
-    assert m.prev_l.tolist() == [sw.NONE, sw.NONE]
+    assert m.bar.tolist() == [2, 5, 6]  # low, immediate removal, then new lower candidate
+    assert m.cur_l.tolist() == [50, sw.NONE, 40]
+    assert m.n_h.tolist() == [0, 0, 0]
+    assert m.prev_l.tolist() == [sw.NONE, sw.NONE, sw.NONE]
 
 
 def test_nonpivot_low_blocks_higher_later_pivot():
     m = sw.minute_swings(rebound_bars(mirror=True))
-    assert m.bar.tolist() == [2, 6]
-    assert m.cur_h.tolist() == [-50, -40]
-    assert m.n_l.tolist() == [0, 0]
-    assert m.prev_h.tolist() == [sw.NONE, sw.NONE]
+    assert m.bar.tolist() == [2, 5, 6]
+    assert m.cur_h.tolist() == [-50, sw.NONE, -40]
+    assert m.n_l.tolist() == [0, 0, 0]
+    assert m.prev_h.tolist() == [sw.NONE, sw.NONE, sw.NONE]
 
 
 def test_equal_leg_high_is_allowed_and_later_equal_replaces():

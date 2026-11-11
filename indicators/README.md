@@ -83,6 +83,10 @@ The status panel reports when no suitable lower swing is available. The lower sn
 
 The chart swing core is copied verbatim from `structure_swings.pine`. The request-safe lower state
 uses the same pivot, alternation, replacement, leg-extreme and ordering rules without creating drawings.
+Owner clarification (10 November 2026): an equal touch or breach removes the newest provisional swing
+before an opposite swing is accepted. The chart core deletes its label and segment on the touching live
+update and restores surviving fixed levels. A removed endpoint is not kept until a replacement pivot.
+This mandatory swing rule is separate from the optional possible-next-level display lifecycle above.
 This file has not yet been compiled or visually checked in TradingView. Local verification does not
 establish TradingView execution parity. No backtest or trade recommendation is provided by the levels.
 The scripted source checks were refused before execution by the research guard (5 November): available

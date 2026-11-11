@@ -4,7 +4,16 @@
 > next-candle-close confirmation, alternating swings, same-type extreme replacement (equal: later),
 > and outside-candle ordering from 1-minute extremes with the indicator fallback. Equal highs are HH;
 > equal lows are LL. No reset at contract rolls. Old pivot-based results are superseded.
-> Active strategies: Fair Price Reversal and Tupa Trade. Supertrend Kalman is retired.
+> Active strategies: Fair Price Reversal, Tupa Trade and FSP (Failed Swing Point). Supertrend Kalman is retired.
+
+> **Swing candidate removal — 10 November 2026.** The newest swing is provisional until an opposite
+> swing is accepted. Before then, an equal touch or breach immediately removes that endpoint and restores
+> the surviving fixed swing structure. Historical replays apply removal at the first touching 1-minute
+> close, including inside an incomplete higher-timeframe candle; live indicators check each update.
+> At a right-candle close, qualifying opposite-pivot confirmation takes priority over touch removal
+> (owner clarification, 11 November). An endpoint removed during a forming candle can be secured/restored
+> at that close; decisions before that close are never backdated. Fixed one-neighbour detection, extreme
+> ordering and leg-extreme validity remain mandatory. Results predating this change are superseded until rerun.
 
 # TradingView Strategy Tester for CL1!
 
@@ -392,9 +401,21 @@ Orders available inside `on_bar` (same meaning as in Pine):
 
 ## Strategies tested so far
 
-Current runs use only `indicators/structure_swings.pine`, limit entries, $2.01 commission per order,
-and no added slippage. History: 2010-06-07 through 2026-11-03, 5,674,164 CL one-minute bars.
-F1 selects a separate winner for each of 13 metrics; the net-profit references are below.
+**FSP — Failed Swing Point:** [first default specification](docs/strategies/failed_swing_point/README.md).
+The first default uses provisional 1H swings, 15m confirmation, 50-tick TP, maximum planned risk 25 ticks,
+New York entries 09:00–14:30 ET. At 14:30 ET (or an earlier exchange close), cancel all limits,
+close positions, discard failed setups and require a new setup.
+The fixed high/low of the 15m breach candle bounds later 1m MSS eligibility; later 1H points do not
+expire a setup or cancel an already placed order. Only the first valid 1m MSS per failed 1H setup is
+eligible; no retries after TP, SL or cancellation. If a halt prevents the scheduled exit, close at the first
+tradable reopening price. All 43 focused checks pass. The [full baseline through 2023](docs/strategies/failed_swing_point/first_default_first_mss_halt_2023.md)
+is complete. Independent raw CL replay matches all 3,198 fills and net P&L to the cent; no failed setup
+produced a repeated trade. This is an execution audit using supplied signals.
+No reverse comparison is included.
+TradingView compilation and export parity are not established.
+
+The older FPR/Tupa numbers below predate the latest swing clarifications and are **superseded pending rerun**.
+Their history was 2010-06-07 through 2026-11-03, 5,674,164 CL one-minute bars; the net-profit references follow.
 
 | Strategy / session | Grid settings | Best net profit | Trades | Profit factor |
 |---|---|---|---|---|
@@ -405,8 +426,8 @@ F1 selects a separate winner for each of 13 metrics; the net-profit references a
 
 These are in-sample selections on the same data. Swing detection was fixed and never searched.
 
-Reports: [Fair Price Reversal](docs/strategies/fair_price_reversal/README.md),
-[Tupa Trade](docs/strategies/tupa_trade/results.md). Current search, validation and exit-study summaries
+Historical reports: [Fair Price Reversal](docs/strategies/fair_price_reversal/README.md),
+[Tupa Trade](docs/strategies/tupa_trade/results.md). Search, validation and exit-study summaries
 are indexed in [the owner-swing results summary](docs/OWNER_SWING_RESULTS.md).
 Older reports remain historical records and do not establish performance under the current rules.
 

@@ -7,6 +7,12 @@ extremes printed (first 1m bar printing each; same 1m bar: high first when the h
 equal high = HH, equal low = LL. An accepted high must also be the highest high since the accepted low
 (low mirror); all intervening candles count, including those that are not pivots. Same-candle extremes
 are observed in their 1m order. Owner clarification, 2026-11-05.
+Owner clarification, 2026-11-10: the newest endpoint is provisional until an opposite swing is accepted.
+An equal touch/breach before then removes it immediately, restoring the surviving fixed structure.
+On historical data removal is visible at the first touching 1m close, including inside forming HTF candles.
+At a right-candle close, accept a qualifying opposite pivot before applying that candle's touch removal.
+An endpoint removed during a forming HTF candle can therefore be secured/restored by the opposite pivot
+confirmed at its close. Previously emitted decisions are never backdated or erased.
 
 Higher-timeframe candles (CL1! exchange sessions, America/New_York clock; the CME day runs 18:00 to 17:00 ET):
 - 5m / 15m / 1h: clock aligned. 4h: anchored at 18:00 ET (18, 22, 02, 06, 10, 14; the last one runs to 18:00, so
@@ -33,9 +39,9 @@ from .data import Bars
 NY = "America/New_York"
 SH, SL = 1, -1
 TIMEFRAMES = ("5m", "15m", "1h", "4h", "1d")  # bias timeframes, low to high
-_MS = {"5m": 300_000, "15m": 900_000, "1h": 3_600_000}
+_MS = {"5m": 300_000, "15m": 900_000, "30m": 1_800_000, "1h": 3_600_000}
 NONE = -(2 ** 62)  # "no swing yet" in tick arrays (CL traded below zero, so -1 is a price)
-SWING_RULE = "structure-swings-v2-leg-extremes"
+SWING_RULE = "structure-swings-v4-opposite-confirmation-first"
 
 
 def require_owner_swing(strength=1):
@@ -102,15 +108,60 @@ class Zig:
     """Swing state of the indicator's `Zig` type (prices in ticks)."""
 
     __slots__ = ("last_type", "last_price", "cur_h", "prev_h", "cur_l", "prev_l", "idx_h", "idx_l", "n_h", "n_l",
-                 "hi_since_l", "lo_since_h")
+                 "hi_since_l", "lo_since_h", "pending", "_before", "recovered_type")
+
+    _RESTORE = ("last_type", "last_price", "cur_h", "prev_h", "cur_l", "prev_l", "idx_h", "idx_l",
+                "hi_since_l", "lo_since_h")
 
     def __init__(self):
         self.last_type = 0
         self.last_price = 0
         self.cur_h = self.prev_h = self.cur_l = self.prev_l = None
         self.idx_h = self.idx_l = -1  # candle index of the current swing high / low
-        self.n_h = self.n_l = 0  # swing highs / lows added or moved (dropped pivots do not count)
+        self.n_h = self.n_l = 0  # high/low revisions: added, moved or removed; dropped pivots do not count
         self.hi_since_l = self.lo_since_h = None
+        self.pending = False
+        self._before = None
+        self.recovered_type = 0
+
+    def copy(self):
+        """A source-candle opening checkpoint; no shared mutable leg-boundary backup."""
+        other = Zig()
+        for name in self.__slots__:
+            value = getattr(self, name)
+            setattr(other, name, value.copy() if name == "_before" and value is not None else value)
+        return other
+
+    @property
+    def candidate_type(self):
+        return self.last_type if self.pending else 0
+
+    def invalidate(self, h: int, l: int) -> bool:
+        """An equal touch removes only the provisional endpoint.
+
+        Restore the surviving structure, never an earlier provisional version of a replaced endpoint.
+        Counts remain monotonic event ids. Historical states emitted before this touch are unchanged.
+        """
+        if not self.pending or not (h >= self.last_price if self.last_type == SH else l <= self.last_price):
+            return False
+        if self.last_type == SH:
+            self.n_h += 1
+        else:
+            self.n_l += 1
+        observed_h, observed_l = self.hi_since_l, self.lo_since_h
+        for name, value in zip(self._RESTORE, self._before):
+            setattr(self, name, value)
+        self.pending = False
+        self._before = None
+        if observed_h is not None:
+            self.hi_since_l = observed_h if self.hi_since_l is None else max(self.hi_since_l, observed_h)
+        if observed_l is not None:
+            self.lo_since_h = observed_l if self.lo_since_h is None else min(self.lo_since_h, observed_l)
+        if self.hi_since_l is not None:
+            self.hi_since_l = max(self.hi_since_l, h)
+        if self.lo_since_h is not None:
+            self.lo_since_h = min(self.lo_since_h, l)
+        return True
 
     def push(self, t: int, p: int, k: int) -> bool:
         if t == SH and self.hi_since_l is not None and p < self.hi_since_l:
@@ -120,9 +171,11 @@ class Zig:
         if self.last_type == t:
             if not (p >= self.last_price if t == SH else p <= self.last_price):
                 return False  # dropped: not a swing
-        elif t == SH:
+        if self.last_type != t or not self.pending:
+            self._before = [getattr(self, name) for name in self._RESTORE]
+        if self.last_type != t and t == SH:
             self.prev_h = self.cur_h
-        else:
+        elif self.last_type != t:
             self.prev_l = self.cur_l
         if t == SH:
             self.cur_h, self.idx_h, self.n_h = p, k, self.n_h + 1
@@ -131,19 +184,38 @@ class Zig:
             self.cur_l, self.idx_l, self.n_l = p, k, self.n_l + 1
             self.hi_since_l = p
         self.last_type, self.last_price = t, p
+        self.pending = True
         return True
 
     def visit(self, t: int, p: int, k: int, is_pivot: bool) -> bool:
         """Observe every extreme in time order; only fixed-rule pivots can become swings."""
         added = self.push(t, p, k) if is_pivot else False
+        if self._before is not None:
+            j = 8 if t == SH else 9
+            old = self._before[j]
+            if old is not None:
+                self._before[j] = max(old, p) if t == SH else min(old, p)
         if t == SH and self.hi_since_l is not None:
             self.hi_since_l = max(self.hi_since_l, p)
         elif t == SL and self.lo_since_h is not None:
             self.lo_since_h = min(self.lo_since_h, p)
         return added
 
-    def pivots(self, hk1: int, hk: int, hk2: int, lk1: int, lk: int, lk2: int, hi_first: bool, k: int) -> tuple:
+    def pivots(self, hk1: int, hk: int, hk2: int, lk1: int, lk: int, lk2: int, hi_first: bool, k: int,
+               opening=None) -> tuple:
         """Candle k with neighbours k-1 (hk1, lk1) and k+1 (hk2, lk2). Returns (high added, low added)."""
+        self.recovered_type = 0
+        if opening is not None and opening.pending and not self.pending:
+            # A live removal was known earlier, but a pivot on the intervening source candle
+            # may now secure that endpoint. Evaluate only NOW, when the right candle closed.
+            probe = opening.copy()
+            accepted = probe.pivots(hk1, hk, hk2, lk1, lk, lk2, hi_first, k)
+            if any(accepted):
+                for name in self._RESTORE:
+                    setattr(self, name, getattr(opening, name))
+                self._before = None if opening._before is None else opening._before.copy()
+                self.pending = True
+                self.recovered_type = opening.last_type
         is_h = hk1 <= hk and hk2 < hk
         is_l = lk1 >= lk and lk2 > lk
         if hi_first:
@@ -156,19 +228,19 @@ class Zig:
 
     @property
     def low_is_hl(self) -> bool:
-        return self.prev_l is not None and self.cur_l > self.prev_l
+        return self.cur_l is not None and self.prev_l is not None and self.cur_l > self.prev_l
 
     @property
     def high_is_lh(self) -> bool:
-        return self.prev_h is not None and self.cur_h < self.prev_h
+        return self.cur_h is not None and self.prev_h is not None and self.cur_h < self.prev_h
 
 
 @dataclass
 class TfState:
-    """Per-candle state after the candle closed, and the 1m bar it applies from."""
+    """Sparse states at candle closes and at the first 1m close removing a provisional swing."""
 
     visible: np.ndarray
-    last_type: np.ndarray  # newest swing: SH / SL / 0
+    last_type: np.ndarray  # provisional swing: SH / SL / 0 (none, including after removal)
     trend: np.ndarray  # 1 up, -1 down, 0 none yet
     cur_h: np.ndarray  # ticks, NONE when none
     cur_l: np.ndarray
@@ -180,43 +252,59 @@ class TfState:
 
 def timeframe_state(bars: Bars, tf: str) -> TfState:
     cd = candles(bars, tf)
-    m = len(cd.start)
-    last_type = np.zeros(m, dtype=np.int8)
-    trend_out = np.zeros(m, dtype=np.int8)
-    cur_h = np.full(m, NONE, dtype=np.int64)
-    cur_l = np.full(m, NONE, dtype=np.int64)
     z = Zig()
     trend, dn_used, up_used = 0, False, False
     H, L, hf = cd.h.tolist(), cd.l.tolist(), cd.hi_first.tolist()
-    for j in range(m):
-        dn = z.cur_l if (z.low_is_hl and not dn_used) else None
-        up = z.cur_h if (z.high_is_lh and not up_used) else None
-        td = dn is not None and L[j] <= dn
-        tu = up is not None and H[j] >= up
-        if td and tu:
-            s, e = cd.start[j], cd.end[j] + 1
-            fd = s + int(np.argmax(bars.l[s:e] <= dn))
-            fu = s + int(np.argmax(bars.h[s:e] >= up))
-            if fd == fu:
-                up_last = not open_rule_high_first(bars.o[fd], bars.h[fd], bars.l[fd])
-            else:
-                up_last = fu > fd
+    highs, lows = bars.h.tolist(), bars.l.tolist()
+    paths = open_rule_high_first(bars.o, bars.h, bars.l)
+    fd = np.full(len(cd.start), -1, dtype=np.int64)
+    fu = np.full(len(cd.start), -1, dtype=np.int64)
+    rows = []
+
+    def emit(i):
+        rows.append((i, z.candidate_type, trend, NONE if z.cur_h is None else z.cur_h,
+                     NONE if z.cur_l is None else z.cur_l))
+
+    def finish(j, i):
+        nonlocal trend, dn_used, up_used
+        if fd[j] >= 0 and fu[j] >= 0:
+            up_last = not paths[fd[j]] if fd[j] == fu[j] else fu[j] > fd[j]
             trend, dn_used, up_used = (1 if up_last else -1), True, True
-        elif td:
+        elif fd[j] >= 0:
             trend, dn_used = -1, True
-        elif tu:
+        elif fu[j] >= 0:
             trend, up_used = 1, True
         if j >= 2:
             k = j - 1
-            add_h, add_l = z.pivots(H[k - 1], H[k], H[j], L[k - 1], L[k], L[j], hf[k], k)
+            add_h, add_l = z.pivots(H[k - 1], H[k], H[j], L[k - 1], L[k], L[j], hf[k], k, opening=opening)
             if add_h:
                 up_used = False
             if add_l:
                 dn_used = False
-        last_type[j], trend_out[j] = z.last_type, trend
-        cur_h[j] = NONE if z.cur_h is None else z.cur_h
-        cur_l[j] = NONE if z.cur_l is None else z.cur_l
-    return TfState(cd.visible, last_type, trend_out, cur_h, cur_l)
+        emit(i)
+
+    j = 0
+    opening = z.copy()
+    for i, (h, l) in enumerate(zip(highs, lows)):
+        # A candle missing its last minute closes before feeding the next candle's first bar,
+        # exactly as the Pine accumulator. Never expose its pivots on an earlier minute.
+        if i > cd.end[j]:
+            if cd.visible[j] == i:
+                finish(j, i)
+            j += 1
+            opening = z.copy()
+        if z.low_is_hl and not dn_used and fd[j] < 0 and l <= z.cur_l:
+            fd[j] = i
+        if z.high_is_lh and not up_used and fu[j] < 0 and h >= z.cur_h:
+            fu[j] = i
+        if cd.visible[j] == i and cd.end[j] == i:
+            finish(j, i)
+        if z.invalidate(h, l):
+            emit(i)
+    if not rows:
+        rows.append((len(bars), 0, 0, NONE, NONE))
+    a = np.asarray(rows, dtype=np.int64).reshape(-1, 5)
+    return TfState(a[:, 0], a[:, 1].astype(np.int8), a[:, 2].astype(np.int8), a[:, 3], a[:, 4])
 
 
 @dataclass
@@ -234,6 +322,8 @@ class MinuteSwings:
     n_h: np.ndarray
     n_l: np.ndarray
     at: np.ndarray  # per bar: event index (-1 none)
+    added_h: np.ndarray  # actual accepted pivots; removals are state events, never new pivot signals
+    added_l: np.ndarray
 
 
 def minute_swings(bars: Bars) -> MinuteSwings:
@@ -248,14 +338,15 @@ def minute_swings(bars: Bars) -> MinuteSwings:
         k = i - 1
         add_h, add_l = z.pivots(int(h[k - 1]), int(h[k]), int(h[i]), int(l[k - 1]), int(l[k]), int(l[i]),
                                 bool(hf[i]), k)
-        if add_h or add_l:
-            rows.append((i, z.last_type, NONE if z.cur_h is None else z.cur_h, NONE if z.prev_h is None else z.prev_h,
+        removed = z.invalidate(int(h[i]), int(l[i]))
+        if removed or add_h or add_l:
+            rows.append((i, z.candidate_type, NONE if z.cur_h is None else z.cur_h, NONE if z.prev_h is None else z.prev_h,
                          NONE if z.cur_l is None else z.cur_l, NONE if z.prev_l is None else z.prev_l,
-                         z.idx_h, z.idx_l, z.n_h, z.n_l))
-    a = np.array(rows, dtype=np.int64).reshape(-1, 10)
+                         z.idx_h, z.idx_l, z.n_h, z.n_l, add_h, add_l))
+    a = np.array(rows, dtype=np.int64).reshape(-1, 12)
     ev = a[:, 0]
     return MinuteSwings(ev, a[:, 1], a[:, 2], a[:, 3], a[:, 4], a[:, 5], a[:, 6], a[:, 7], a[:, 8], a[:, 9],
-                        np.searchsorted(ev, np.arange(n), side="right") - 1)
+                        np.searchsorted(ev, np.arange(n), side="right") - 1, a[:, 10].astype(bool), a[:, 11].astype(bool))
 
 
 def minute_swing_series(bars: Bars) -> dict[str, np.ndarray]:
@@ -269,12 +360,11 @@ def minute_swing_series(bars: Bars) -> dict[str, np.ndarray]:
         return bars.cache[key]
     m = minute_swings(bars)
     out = {}
-    for name, current, previous, counts in (
-        ("high", m.cur_h, m.prev_h, m.n_h), ("low", m.cur_l, m.prev_l, m.n_l)
+    for name, current, previous, added in (
+        ("high", m.cur_h, m.prev_h, m.added_h), ("low", m.cur_l, m.prev_l, m.added_l)
     ):
         event = np.full(len(bars), np.nan)
         prev = np.full(len(bars), np.nan)
-        added = np.diff(np.r_[0, counts]) > 0
         event[m.bar[added]] = current[added]
         valid_prev = added & (previous != NONE)
         prev[m.bar[valid_prev]] = previous[valid_prev]

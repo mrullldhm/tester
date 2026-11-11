@@ -77,10 +77,82 @@ type Zig
     float loSinceH
     int nH = 0
     int nL = 0
+    bool pending = false
+    float minSinceL
+    float maxSinceH
+    float savedMinSinceL
+    float savedMaxSinceH
+    int savedLastType = 0
+    float savedLastPrice
+    float savedCurH
+    float savedPrevH
+    float savedCurL
+    float savedPrevL
+    float savedHiSinceL
+    float savedLoSinceH
+
+
+// Only the newest endpoint is provisional. At a close, accept qualifying opposite pivots before touch removal.
+method remember(Zig z) =>
+    z.savedMinSinceL := z.minSinceL
+    z.savedMaxSinceH := z.maxSinceH
+    z.savedLastType := z.lastType
+    z.savedLastPrice := z.lastPrice
+    z.savedCurH := z.curH
+    z.savedPrevH := z.prevH
+    z.savedCurL := z.curL
+    z.savedPrevL := z.prevL
+    z.savedHiSinceL := z.hiSinceL
+    z.savedLoSinceH := z.loSinceH
+    z
+
+method invalidate(Zig z, float h, float l) =>
+    if not na(z.minSinceL)
+        z.minSinceL := math.min(z.minSinceL, l)
+    if not na(z.maxSinceH)
+        z.maxSinceH := math.max(z.maxSinceH, h)
+    if z.pending
+        if not na(z.savedMinSinceL)
+            z.savedMinSinceL := math.min(z.savedMinSinceL, l)
+        if not na(z.savedMaxSinceH)
+            z.savedMaxSinceH := math.max(z.savedMaxSinceH, h)
+    bool removed = z.pending and (z.lastType == SH ? h >= z.lastPrice : l <= z.lastPrice)
+    if removed
+        float observedH = z.hiSinceL
+        float observedL = z.loSinceH
+        if z.lastType == SH
+            z.nH += 1
+        else
+            z.nL += 1
+        z.lastType := z.savedLastType
+        z.lastPrice := z.savedLastPrice
+        z.curH := z.savedCurH
+        z.prevH := z.savedPrevH
+        z.curL := z.savedCurL
+        z.prevL := z.savedPrevL
+        z.hiSinceL := z.savedHiSinceL
+        z.loSinceH := z.savedLoSinceH
+        z.pending := false
+        z.minSinceL := z.savedMinSinceL
+        z.maxSinceH := z.savedMaxSinceH
+        if not na(observedH)
+            z.hiSinceL := na(z.hiSinceL) ? observedH : math.max(z.hiSinceL, observedH)
+        if not na(observedL)
+            z.loSinceH := na(z.loSinceH) ? observedL : math.min(z.loSinceH, observedL)
+        if not na(z.hiSinceL)
+            z.hiSinceL := math.max(z.hiSinceL, h)
+        if not na(z.loSinceH)
+            z.loSinceH := math.min(z.loSinceH, l)
+    removed
 
 // Owner indicator push: same type replaces when at least as extreme (equal: the later), else dropped
 method push(Zig z, int t, float p) =>
     bool added = true
+    bool accepts = z.lastType != t or (t == SH ? p >= z.lastPrice : p <= z.lastPrice)
+    if accepts
+        if z.lastType != t or not z.pending
+            z.remember()
+        z.pending := true
     if z.lastType == t
         added := t == SH ? p >= z.lastPrice : p <= z.lastPrice
         if added
@@ -115,6 +187,11 @@ method visit(Zig z, int t, float p, bool isPivot) =>
                 z.loSinceH := p
             else
                 z.hiSinceL := p
+    if z.pending
+        if t == SH and not na(z.savedHiSinceL)
+            z.savedHiSinceL := math.max(z.savedHiSinceL, p)
+        if t == SL and not na(z.savedLoSinceH)
+            z.savedLoSinceH := math.min(z.savedLoSinceH, p)
     if t == SH and not na(z.hiSinceL)
         z.hiSinceL := math.max(z.hiSinceL, p)
     if t == SL and not na(z.loSinceH)
@@ -147,6 +224,7 @@ type Tf
     bool f3 = false
     int nBuf = 0
     Zig z
+    Zig opening
     int trend = 0
     bool dnUsed = false
     bool upUsed = false
@@ -165,6 +243,7 @@ method touch(Tf f) =>
     f
 
 method begin(Tf f, int cid) =>
+    f.opening := f.z.copy()
     f.id := cid
     f.h := high
     f.l := low
@@ -210,6 +289,24 @@ method closeCandle(Tf f) =>
     f.l3 := f.l
     f.f3 := hf
     f.nBuf := math.min(f.nBuf + 1, 3)
+    if f.nBuf == 3 and not na(f.opening) and f.opening.pending and not f.z.pending
+        Zig probe = f.opening.copy()
+        bool ph = f.h1 <= f.h2 and f.h3 < f.h2
+        bool pl = f.l1 >= f.l2 and f.l3 > f.l2
+        bool a = false
+        bool b = false
+        if f.f2
+            a := probe.visit(SH, f.h2, ph)
+            b := probe.visit(SL, f.l2, pl)
+        else
+            b := probe.visit(SL, f.l2, pl)
+            a := probe.visit(SH, f.h2, ph)
+        if a or b
+            int nh = f.z.nH
+            int nl = f.z.nL
+            f.z := f.opening.copy()
+            f.z.nH := nh
+            f.z.nL := nl
     if f.nBuf == 3
         bool isH = f.h1 <= f.h2 and f.h3 < f.h2
         bool isL = f.l1 >= f.l2 and f.l3 > f.l2
@@ -237,6 +334,7 @@ method feed(Tf f, int tf) =>
         f.add()
     if cn != c
         f.closeCandle()
+    f.z.invalidate(high, low)
     f
 
 var array<Tf> tfs = array.from(Tf.new(z = Zig.new()), Tf.new(z = Zig.new()), Tf.new(z = Zig.new()),
@@ -246,31 +344,27 @@ for k = 0 to 4
 
 // --- 1m swings: candle [1] confirmed by this bar ---
 var Zig z1 = Zig.new()
-var float minSinceL = na
-var float maxSinceH = na
-if not na(minSinceL)
-    minSinceL := math.min(minSinceL, low)
-if not na(maxSinceH)
-    maxSinceH := math.max(maxSinceH, high)
 if bar_index >= 2
     bool isH1 = high[2] <= high[1] and high < high[1]
     bool isL1 = low[2] >= low[1] and low > low[1]
     bool hf1 = openRule(open[1], high[1], low[1])
     if hf1
         if z1.visit(SH, high[1], isH1)
-            maxSinceH := high
+            z1.maxSinceH := high
         if z1.visit(SL, low[1], isL1)
-            minSinceL := low
+            z1.minSinceL := low
     else
         if z1.visit(SL, low[1], isL1)
-            minSinceL := low
+            z1.minSinceL := low
         if z1.visit(SH, high[1], isH1)
-            maxSinceH := high
+            z1.maxSinceH := high
+
+z1.invalidate(high, low)
 
 // --- bias ---
 int bias = 0
 for k = k0 to 4
-    if tfs.get(k).z.lastType == SL
+    if tfs.get(k).z.pending and tfs.get(k).z.lastType == SL
         bool ok = true
         for j = 0 to k - 1
             if tfs.get(j).trend != -1
@@ -280,7 +374,7 @@ for k = k0 to 4
         break
 if bias == 0
     for k = k0 to 4
-        if tfs.get(k).z.lastType == SH
+        if tfs.get(k).z.pending and tfs.get(k).z.lastType == SH
             bool ok = true
             for j = 0 to k - 1
                 if tfs.get(j).trend != 1
@@ -352,12 +446,12 @@ else
         float wBp = na
         float wSl = na
         int wCnt = 0
-        if bias == -1 and z1.lastType == SH and z1.isHL() and minSinceL > z1.curL
+        if bias == -1 and z1.pending and z1.lastType == SH and z1.isHL() and z1.minSinceL > z1.curL
             wDir := -1
             wBp := z1.curL
             wSl := z1.curH
             wCnt := z1.nH
-        else if bias == 1 and z1.lastType == SL and z1.isLH() and maxSinceH < z1.curH
+        else if bias == 1 and z1.pending and z1.lastType == SL and z1.isLH() and z1.maxSinceH < z1.curH
             wDir := 1
             wBp := z1.curH
             wSl := z1.curL

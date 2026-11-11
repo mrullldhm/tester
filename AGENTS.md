@@ -17,6 +17,12 @@ builds; you, Codex, are the **reviewer and independent replicator**. Read `READM
 - Never tune, replace or relax swing detection. No adjustable strength, independent pivots or alternative
   swing algorithms, including in tests. Filters and exit activation may vary; swing detection may not.
 - Superseded results must be rerun before being presented as current. Supertrend Kalman is retired.
+- Owner clarification, 2026-11-10: the newest swing is provisional until an opposite swing is accepted.
+  An equal touch/breach before then removes it immediately, restoring surviving fixed structure. Historical
+  replays apply removal at the first touching 1-minute close, including within forming higher timeframes;
+  live indicators check every update. Owner clarification, 2026-11-11: at a right-candle close, accept a
+  qualifying opposite pivot before applying that candle's touch removal. An endpoint removed during a
+  forming HTF candle can be secured/restored at that close; never backdate trading decisions.
 
 ## Research resource limits (after the 2026-11-04 WSL OOM)
 - Standard CLI commands, default runs, updates and chart replays automatically use `tvtester/resource_guard.py`.

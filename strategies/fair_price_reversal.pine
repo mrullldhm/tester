@@ -93,10 +93,65 @@ type Zig
     float loSinceH
     int nH = 0
     int nL = 0
+    bool pending = false
+    int savedLastType = 0
+    float savedLastPrice
+    float savedCurH
+    float savedPrevH
+    float savedCurL
+    float savedPrevL
+    float savedHiSinceL
+    float savedLoSinceH
+
+
+// Only the newest endpoint is provisional. At a close, accept qualifying opposite pivots before touch removal.
+method remember(Zig z) =>
+    z.savedLastType := z.lastType
+    z.savedLastPrice := z.lastPrice
+    z.savedCurH := z.curH
+    z.savedPrevH := z.prevH
+    z.savedCurL := z.curL
+    z.savedPrevL := z.prevL
+    z.savedHiSinceL := z.hiSinceL
+    z.savedLoSinceH := z.loSinceH
+    z
+
+method invalidate(Zig z, float h, float l) =>
+    bool removed = z.pending and (z.lastType == SH ? h >= z.lastPrice : l <= z.lastPrice)
+    if removed
+        float observedH = z.hiSinceL
+        float observedL = z.loSinceH
+        if z.lastType == SH
+            z.nH += 1
+        else
+            z.nL += 1
+        z.lastType := z.savedLastType
+        z.lastPrice := z.savedLastPrice
+        z.curH := z.savedCurH
+        z.prevH := z.savedPrevH
+        z.curL := z.savedCurL
+        z.prevL := z.savedPrevL
+        z.hiSinceL := z.savedHiSinceL
+        z.loSinceH := z.savedLoSinceH
+        z.pending := false
+        if not na(observedH)
+            z.hiSinceL := na(z.hiSinceL) ? observedH : math.max(z.hiSinceL, observedH)
+        if not na(observedL)
+            z.loSinceH := na(z.loSinceH) ? observedL : math.min(z.loSinceH, observedL)
+        if not na(z.hiSinceL)
+            z.hiSinceL := math.max(z.hiSinceL, h)
+        if not na(z.loSinceH)
+            z.loSinceH := math.min(z.loSinceH, l)
+    removed
 
 // Owner indicator push: same type replaces when at least as extreme (equal: the later), else dropped
 method push(Zig z, int t, float p) =>
     bool added = true
+    bool accepts = z.lastType != t or (t == SH ? p >= z.lastPrice : p <= z.lastPrice)
+    if accepts
+        if z.lastType != t or not z.pending
+            z.remember()
+        z.pending := true
     if z.lastType == t
         added := t == SH ? p >= z.lastPrice : p <= z.lastPrice
         if added
@@ -131,6 +186,11 @@ method visit(Zig z, int t, float p, bool isPivot) =>
                 z.loSinceH := p
             else
                 z.hiSinceL := p
+    if z.pending
+        if t == SH and not na(z.savedHiSinceL)
+            z.savedHiSinceL := math.max(z.savedHiSinceL, p)
+        if t == SL and not na(z.savedLoSinceH)
+            z.savedLoSinceH := math.min(z.savedLoSinceH, p)
     if t == SH and not na(z.hiSinceL)
         z.hiSinceL := math.max(z.hiSinceL, p)
     if t == SL and not na(z.loSinceH)
@@ -167,6 +227,7 @@ if bar_index >= 2 and barstate.isconfirmed
         owner.visit(SH, high[1], isH)
 float pivotHigh = owner.nH > oldH ? owner.curH : na
 float pivotLow = owner.nL > oldL ? owner.curL : na
+owner.invalidate(high, low)
 int pivotTime = time[1]
 float lastSwingHigh = owner.prevH
 float lastSwingLow = owner.prevL
