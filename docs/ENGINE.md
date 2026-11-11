@@ -114,6 +114,9 @@ This audit uses supplied signals and does not independently detect swings.
 ## Limit-entry lifecycle (owner rule, revised 3 November 2026)
 
 - Fair Price Reversal: limit at the signal candle close.
+- Elliott Wave 5 (12 November 2026): limit at the wave-4 Fibonacci level, or the signal close when that is
+  nearer the stop. Stop and target are absolute prices fixed at placement. Same TP expiry and session
+  cancellation. Limit entries only (owner); the stop is an exit order. Spec: `docs/strategies/elliott_wave/`.
 - The limit starts working on the next bar, with its bracket already attached. No re-pricing while waiting.
 - Planned TP is fixed at placement: the anchor target for near/far, otherwise the planned limit plus/minus
   the declared profit distance. Actual relative-profit exits still measure that distance from the fill.
