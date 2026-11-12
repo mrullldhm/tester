@@ -110,8 +110,8 @@ def cmd_search(name: str, variant: str, space_name: str, sampler: str, trials: i
                 f.write(json.dumps({"config": c, "row": r}, default=float) + "\n")
         print(f"  {run_id}: {n_done}/{trials} trials, {search.elapsed(t0)}", flush=True)
 
-    if sampler == "random":
-        cfgs = search.draw_random(space, trials, seed)
+    if sampler in ("random", "grid"):
+        cfgs = search.draw_random(space, trials, seed) if sampler == "random" else search.draw_grid(space, trials)
         rows = []
         step = max(1, jobs) * 8
         for i in range(0, len(cfgs), step):
@@ -121,9 +121,11 @@ def cmd_search(name: str, variant: str, space_name: str, sampler: str, trials: i
             progress(len(rows), part, cfgs[i:i + step])
         dups = [False] * len(cfgs)
     elif sampler == "tpe":
+        if space.get("exclude"):
+            raise SystemExit("this space declares exclusions; only the grid sampler honours them")
         cfgs, rows, dups = search.run_tpe(name, space, out, trials, seed, objective, jobs, progress, claim)
     else:
-        raise SystemExit("sampler must be random or tpe")
+        raise SystemExit("sampler must be random, grid or tpe")
     df = search.rank(search.table(cfgs, rows, space["base"], dups), objective)
     df.to_csv(out / "trials.csv", index=False)
     print(f"  {run_id}: {len(df)} trials in {search.elapsed(t0)}", flush=True)

@@ -25,6 +25,9 @@ Higher-timeframe candles (CL1! exchange sessions, America/New_York clock; the CM
 Trend per timeframe (owner, answers 21 and 28): down when the last uptrend HL (the current swing low, labelled HL)
 is touched by a closed candle (low <= HL); up when the last downtrend LH is touched (high >= LH). A touched level is
 used up until the swing it belongs to changes. Both in one candle: the later touch (1m bars) decides.
+`fresh` (Claude's alternative for the feature-2 trend study, not an owner rule): the same trend, cleared to 0
+when the timeframe accepts its next swing high after a down break (swing low after an up break), pivot candle
+strictly after the breaking candle. It is set again only by a new touch.
 
 The Pine twin of all of this is inside strategies/tupa_trade.pine (same rules, bar by bar).
 """
@@ -242,6 +245,7 @@ class TfState:
     visible: np.ndarray
     last_type: np.ndarray  # provisional swing: SH / SL / 0 (none, including after removal)
     trend: np.ndarray  # 1 up, -1 down, 0 none yet
+    fresh: np.ndarray  # trend cleared by the next opposite swing after the break (feature-2 alternative)
     cur_h: np.ndarray  # ticks, NONE when none
     cur_l: np.ndarray
 
@@ -254,6 +258,7 @@ def timeframe_state(bars: Bars, tf: str) -> TfState:
     cd = candles(bars, tf)
     z = Zig()
     trend, dn_used, up_used = 0, False, False
+    fresh, fresh_c = 0, -1  # fresh trend and the candle whose touch set it
     H, L, hf = cd.h.tolist(), cd.l.tolist(), cd.hi_first.tolist()
     highs, lows = bars.h.tolist(), bars.l.tolist()
     paths = open_rule_high_first(bars.o, bars.h, bars.l)
@@ -262,11 +267,11 @@ def timeframe_state(bars: Bars, tf: str) -> TfState:
     rows = []
 
     def emit(i):
-        rows.append((i, z.candidate_type, trend, NONE if z.cur_h is None else z.cur_h,
+        rows.append((i, z.candidate_type, trend, fresh, NONE if z.cur_h is None else z.cur_h,
                      NONE if z.cur_l is None else z.cur_l))
 
     def finish(j, i):
-        nonlocal trend, dn_used, up_used
+        nonlocal trend, dn_used, up_used, fresh, fresh_c
         if fd[j] >= 0 and fu[j] >= 0:
             up_last = not paths[fd[j]] if fd[j] == fu[j] else fu[j] > fd[j]
             trend, dn_used, up_used = (1 if up_last else -1), True, True
@@ -274,6 +279,8 @@ def timeframe_state(bars: Bars, tf: str) -> TfState:
             trend, dn_used = -1, True
         elif fu[j] >= 0:
             trend, up_used = 1, True
+        if fd[j] >= 0 or fu[j] >= 0:
+            fresh, fresh_c = trend, j
         if j >= 2:
             k = j - 1
             add_h, add_l = z.pivots(H[k - 1], H[k], H[j], L[k - 1], L[k], L[j], hf[k], k, opening=opening)
@@ -281,6 +288,8 @@ def timeframe_state(bars: Bars, tf: str) -> TfState:
                 up_used = False
             if add_l:
                 dn_used = False
+            if k > fresh_c and ((add_h and fresh == -1) or (add_l and fresh == 1)):
+                fresh = 0
         emit(i)
 
     j = 0
@@ -302,9 +311,9 @@ def timeframe_state(bars: Bars, tf: str) -> TfState:
         if z.invalidate(h, l):
             emit(i)
     if not rows:
-        rows.append((len(bars), 0, 0, NONE, NONE))
-    a = np.asarray(rows, dtype=np.int64).reshape(-1, 5)
-    return TfState(a[:, 0], a[:, 1].astype(np.int8), a[:, 2].astype(np.int8), a[:, 3], a[:, 4])
+        rows.append((len(bars), 0, 0, 0, NONE, NONE))
+    a = np.asarray(rows, dtype=np.int64).reshape(-1, 6)
+    return TfState(a[:, 0], a[:, 1].astype(np.int8), a[:, 2].astype(np.int8), a[:, 3].astype(np.int8), a[:, 4], a[:, 5])
 
 
 @dataclass

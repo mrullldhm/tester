@@ -146,6 +146,9 @@ transcription of the Pine script, `tests/tupa_literal.py`, on synthetic bars; pl
 | Session | orders work 09:00-14:29 New York; one filled trade per session | answers 6, 22 |
 | Daily bias override (answer 9) | not coded | *open* |
 
+Interpretation study (2026-11-12): the Claude choices above are switches in **Tupa Trade v2**
+([`../tupa_trade_v2/`](../tupa_trade_v2/README.md)); v1 is unchanged.
+
 Grid: `t_min` in 15m / 1h / 4h / 1d (which timeframes may be T, open point Q27/29). On 26 Oct, `t_min` = 15m or 1h
 gives T = 1H (15m newest swing was the LH 101.92), 4h gives T = 4H, which needs the 1H down too, so no trade.
 

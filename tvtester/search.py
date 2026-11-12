@@ -1,10 +1,12 @@
-"""Feature 2 search: random (drawn up front from the seed) or Optuna TPE over a strategy's declared SPACES.
+"""Feature 2 search: random (drawn up front from the seed), exhaustive grid, or Optuna TPE over a strategy's
+declared SPACES.
 
 A configuration is {"params": {...}, "filters": [[feature, op, threshold], ...]}: base parameters (variant fixed
 parameters included) and entry filters, filters sorted by feature. Thresholds sit on the declared step grid, so
 configurations compare exactly and duplicates are evaluated once. docs/OPTIMIZE.md has the protocol.
 """
 
+import itertools
 import json
 import math
 import time
@@ -94,11 +96,39 @@ def rank(df: pd.DataFrame, objective: str) -> pd.DataFrame:
 def space_of(mod, variant: str, name: str) -> dict:
     sp = mod.SPACES[name]
     base = {**mod.VARIANTS[variant], **mod.BASELINES[variant]}
-    return {"base": base, "params": sp["params"], "filters": sp["filters"]}
+    return {"base": base, "params": sp["params"], "filters": sp["filters"], "exclude": sp.get("exclude", [])}
+
+
+def excluded(params: dict, space: dict) -> bool:
+    """A declared exclusion (partial parameter dict) names configurations that duplicate another one's behaviour."""
+    return any(all(params.get(k) == v for k, v in e.items()) for e in space.get("exclude", []))
+
+
+def draw_grid(space: dict, n: int) -> list[dict]:
+    """Every combination of the declared parameter lists (no filters), exclusions removed; trial 0 = the baseline.
+    `n` must equal the grid size: the budget is declared, never truncated or padded."""
+    if space["filters"]:
+        raise SystemExit("the grid sampler searches parameters only; this space declares filters")
+    if excluded(space["base"], space):
+        raise SystemExit("the baseline is an excluded configuration")
+    names = list(space["params"])
+    out = [canonical(space["base"], [])]
+    seen = {key(out[0])}
+    for combo in itertools.product(*(space["params"][p] for p in names)):
+        params = {**space["base"], **dict(zip(names, combo))}
+        c = canonical(params, [])
+        if not excluded(params, space) and key(c) not in seen:
+            seen.add(key(c))
+            out.append(c)
+    if len(out) != n:
+        raise SystemExit(f"the grid has {len(out)} configurations; --trials must be {len(out)}")
+    return out
 
 
 def draw_random(space: dict, n: int, seed: int) -> list[dict]:
     """N unique configurations, trial 0 = the baseline (no filters). Same seed, same list."""
+    if space.get("exclude"):
+        raise SystemExit("this space declares exclusions; only the grid sampler honours them")
     rng = np.random.default_rng(seed)
     out = [canonical(space["base"], [])]
     seen = {key(out[0])}
@@ -133,7 +163,8 @@ def neighbours(cfg: dict, space: dict) -> list[dict]:
         cands = [values[j] for j in (i - 1, i + 1) if 0 <= j < len(values)] if not isinstance(v, str) else \
             [x for x in values if x != v]
         for x in cands:
-            out.append(canonical({**cfg["params"], p: x}, cfg["filters"]))
+            if not excluded({**cfg["params"], p: x}, space):
+                out.append(canonical({**cfg["params"], p: x}, cfg["filters"]))
     for n, (ft, op, thr) in enumerate(cfg["filters"]):
         rest = [f for m, f in enumerate(cfg["filters"]) if m != n]
         out.append(canonical(cfg["params"], rest))

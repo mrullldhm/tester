@@ -251,7 +251,7 @@ def main() -> None:
     se.add_argument("strategy")
     se.add_argument("--variant", required=True)
     se.add_argument("--space", required=True)
-    se.add_argument("--sampler", choices=["random", "tpe"], required=True)
+    se.add_argument("--sampler", choices=["random", "grid", "tpe"], required=True)
     se.add_argument("--trials", type=int, required=True)
     se.add_argument("--objective", choices=["net0"], required=True)
     se.add_argument("--seed", type=int, default=1)

@@ -130,6 +130,10 @@ can let in another trade the baseline never took).
   engine runs, never under-counts. `evaluations.jsonl` keeps the results as batches finish; the final `search`
   event carries the summary (`engine_runs`) and adds no count of its own.
 - The no-filter baseline is always trial 0.
+- `grid`: every combination of the declared parameter lists (parameters only, no filters), minus the space's
+  declared `exclude` entries (configurations that behave identically to another). `--trials` must equal the
+  grid size; the budget is never truncated or padded. Trial 0 is the baseline. Excluded configurations are also
+  skipped as neighbours.
 - Every trial runs the baseline only; all headline numbers are kept in `results/<strategy>/search/<run_id>/trials.csv`
   (one writer) with `run.json` (space, sampler, seed, objective, interval, code / data hashes, versions).
 - Neighbours of the winner: each searched base parameter one step either way in its declared list (categorical:

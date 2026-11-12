@@ -1,0 +1,83 @@
+{
+  "strategy": "tupa_trade_v2",
+  "variant": "ny",
+  "space_name": "interpretation",
+  "space": {
+    "base": {
+      "session": "ny",
+      "t_min": "1d",
+      "tp": 25,
+      "max_risk": 25,
+      "t_rule": "lowest",
+      "trend": "sticky",
+      "touched": "skip",
+      "order": "follow",
+      "tp_expiry": "on"
+    },
+    "params": {
+      "t_min": [
+        "15m",
+        "1h",
+        "4h",
+        "1d"
+      ],
+      "t_rule": [
+        "lowest",
+        "highest"
+      ],
+      "trend": [
+        "sticky",
+        "fresh"
+      ],
+      "touched": [
+        "skip",
+        "retest"
+      ],
+      "order": [
+        "follow",
+        "freeze"
+      ],
+      "tp_expiry": [
+        "on",
+        "off"
+      ]
+    },
+    "filters": {},
+    "exclude": [
+      {
+        "t_min": "1d",
+        "t_rule": "highest"
+      }
+    ]
+  },
+  "sampler": "grid",
+  "trials": 112,
+  "objective": "net0",
+  "seed": 1,
+  "jobs": 1,
+  "min_trades": 300,
+  "started_utc": "2026-11-12 00:47",
+  "dev_interval": [
+    "2010-06-07 00:00:00+00:00",
+    "2023-12-29 21:59:00+00:00",
+    "end exclusive 2024-01-01"
+  ],
+  "bars": 4682668,
+  "data_hash": "93fc8344a86603ea",
+  "manifest_hash": "c460e97f92492ce8",
+  "code_hash": "078d4b174f6cbd8a",
+  "execution_version": "limit-close-tp-expiry-owner-swings-v2",
+  "swing_rule": "indicators/structure_swings.pine",
+  "swing_source_sha256": "77692c498f0d7f76bb91108840956563f8f4df71d40f7ad0769b5eda530745f5",
+  "properties": {
+    "initial_capital": 50000.0,
+    "qty": 1,
+    "commission_per_order": 2.01
+  },
+  "versions": {
+    "python": "3.12.3",
+    "numpy": "2.5.4",
+    "pandas": "3.1.0",
+    "optuna": "4.9.0"
+  }
+}
