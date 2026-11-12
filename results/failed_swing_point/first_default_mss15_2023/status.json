@@ -1,9 +1,0 @@
-{
-  "status": "started",
-  "started_utc": "2026-11-11T14:09:31.093697+00:00",
-  "start": null,
-  "end_exclusive": "2024-01-01",
-  "swing_rule": "structure-swings-v4-opposite-confirmation-first",
-  "lifecycle": "ny_entries_daily_flat_mss15_v2",
-  "variant": "original"
-}

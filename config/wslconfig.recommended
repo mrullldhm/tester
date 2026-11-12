@@ -1,6 +1,0 @@
-# Global WSL 2 limits for this 29.67 GiB / 12-thread laptop.
-# Activate at the next WSL restart; no network or filesystem settings change.
-[wsl2]
-memory=12GB
-processors=6
-swap=8GB

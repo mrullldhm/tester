@@ -1,2 +1,0 @@
-entry_cap,tp_mode,order,net_profit,total_closed_trades,percent_profitable,profit_factor,max_equity_drawdown,avg_trade,sharpe_ratio,sortino_ratio,expectancy,payoff_ratio,risk_of_ruin,risk_of_ruin_log,max_consecutive_losses,r_multiple,r_stddev,r_consistency,r_valid_trades,mae,mfe
-50,default,15,-5936.979999999981,1549,32.34344738540994,0.9494307468908793,8392.359999998342,-3.832782440284047,-0.2185691241690572,-0.27434752121849837,-3.832782440284047,1.98603477593142,100.0,0.0,20,,,,1547,87.74047772756617,118.88960619754681

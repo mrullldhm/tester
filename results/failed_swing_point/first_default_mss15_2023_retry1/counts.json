@@ -1,9 +1,0 @@
-{
-  "bars": 4682668,
-  "setups": 11153,
-  "eligible_signal_bars": 25182,
-  "orders_placed": 12722,
-  "unfilled_orders_cancelled": 122,
-  "pending_at_end": false,
-  "nonpositive_initial_risk_closed_trades": 86
-}

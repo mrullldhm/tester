@@ -1,4 +1,0 @@
-// Retired strategy. No historical swing settings may be executed.
-//@version=6
-strategy("Retired strategy", overlay = true)
-runtime.error("Supertrend Kalman is retired; use Fair Price Reversal or Tupa Trade")
