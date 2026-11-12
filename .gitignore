@@ -14,3 +14,6 @@ web/
 
 # paid Databento bars: licence restricts redistribution; keep local
 data/cl1/
+
+# per-run trade lists are rebuilt from the ledger; the ledger itself is committed
+results/*/

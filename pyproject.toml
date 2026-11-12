@@ -1,0 +1,22 @@
+[project]
+name = "cltester"
+version = "0.1.0"
+description = "CL 1-minute strategy research for the Topstep Trading Combine"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E741", "B008"]  # l = bar low; Fills() is a frozen dataclass
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+files = ["cltester"]

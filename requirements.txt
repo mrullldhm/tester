@@ -1,0 +1,10 @@
+pandas>=3.0
+numpy>=2.0
+pyarrow>=20
+databento>=0.80
+requests>=2.32
+python-dotenv>=1.0
+pytest>=9.0
+ruff>=0.15
+mypy>=1.10
+pandas-stubs>=2.2
