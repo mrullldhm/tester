@@ -113,3 +113,22 @@ def test_empty_period_has_stable_schema():
     r, s = rolling(t, []), sequential(t, [])
     assert list(r.columns) == list(s.columns) and "outcome" in r.columns
     assert summary(r, s, [])["rolling_attempts"] == 0
+
+
+def test_sequence_ending_in_fail_still_pays_its_subscription():
+    days = list(pd.date_range("2024-01-01", periods=50, freq="B"))
+    t = pd.DataFrame([{"trading_day": days[-1], "net": -100, "mae": -2000, "qty": 1}])
+    s = sequential(t, days)
+    assert list(s["outcome"]) == ["fail"]
+    # one reset + 70 calendar days of subscription = 3 billing periods
+    assert subscription_cost(s, days[-1]) == 49 + 3 * 49
+
+
+def test_pass_then_final_day_fail_bills_both_subscriptions():
+    days = list(pd.date_range("2024-01-01", periods=50, freq="B"))
+    rows = [(0, 1600, -10), (1, 1450, -10), (49, -100, -2000)]
+    t = pd.DataFrame([{"trading_day": days[d], "net": n, "mae": m, "qty": 1} for d, n, m in rows])
+    s = sequential(t, days)
+    assert list(s["outcome"]) == ["pass", "fail"]
+    # sub 1: one month; sub 2: day 2 (Jan 3) .. day 49 (Mar 8) = 65 days -> 3 periods; plus one reset
+    assert subscription_cost(s, days[-1]) == 49 + 3 * 49 + 49

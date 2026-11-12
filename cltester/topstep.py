@@ -126,6 +126,8 @@ def subscription_cost(seq: pd.DataFrame, last_day: pd.Timestamp, rules: Combine 
         stop = end if outcome == "pass" else last_day
         cost += rules.monthly_fee * ((stop - sub_start).days // 30 + 1)
         sub_start = None
+    if sub_start is not None:  # the data ended right after a fail: that subscription ran to the last day
+        cost += rules.monthly_fee * ((last_day - sub_start).days // 30 + 1)
     return cost
 
 
