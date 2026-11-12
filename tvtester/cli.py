@@ -7,6 +7,7 @@ A strategy module in strategies/ exposes:
     STRATEGY  Strategy subclass          TITLE, ABOUT  Markdown header text (CONCLUSION optional, shown after the summary)
     DOC       optional result file name in docs/strategies/<name>/ (default README.md)
     GRID      {param: [values]}          VARIANTS      {variant: {fixed params}} (one doc section each)
+    GRIDS     optional {variant: grid} overriding GRID for that variant
     notes(tf, params) -> list[str]       optional extra lines per variant
 For each variant the grid runs once per setting without added slippage and selects thirteen metric winners.
 The historical net-profit reference is retained. Output: docs/strategies/<name>/README.md (+ PNGs) and
@@ -45,6 +46,17 @@ from .data import MANIFEST, Bars, load_bars
 from .objectives import DEFAULT_MIN_TRADES, DEFAULT_RUIN_LOSS, OBJECTIVES, selection, validate_options
 
 
+def grid_of(mod, variant: str) -> dict:
+    """The variant's own grid (GRIDS) or the module GRID."""
+    return getattr(mod, "GRIDS", {}).get(variant, mod.GRID)
+
+
+def chunk_orders(size: int, chunks: int) -> list[list[int]]:
+    """Grid orders 1..size split into at most `chunks` interleaved lists (even chunk cost)."""
+    k = max(1, min(chunks, size))
+    return [list(range(j + 1, size + 1, k)) for j in range(k)]
+
+
 def _factory(mod, variant: str):
     fixed = mod.VARIANTS[variant]
 
@@ -58,7 +70,7 @@ def _grid_chunk(module_name: str, variant: str, start: str | None, end: str | No
     """Grid rows of the combinations numbered `orders`, in their own process (bars loaded there)."""
     mod = importlib.import_module(f"strategies.{module_name}")
     bars = Bars.from_frame(load_bars(start, end))
-    return optimize.grid_rows(_factory(mod, variant), mod.GRID, bars, DEFAULT, label=variant, orders=orders,
+    return optimize.grid_rows(_factory(mod, variant), grid_of(mod, variant), bars, DEFAULT, label=variant, orders=orders,
                               ruin_loss=ruin_loss)
 
 
@@ -69,7 +81,7 @@ def _finish_variant(module_name: str, variant: str, start: str | None, end: str 
     fixed = mod.VARIANTS[variant]
     factory = _factory(mod, variant)
     grid = optimize.rank(rows)
-    best = {k: grid.iloc[0][k] for k in mod.GRID}
+    best = {k: grid.iloc[0][k] for k in grid_of(mod, variant)}
     best = {k: (v.item() if hasattr(v, "item") else v) for k, v in best.items()}
     results = optimize.stress(factory, best, bars)
     out = ROOT / "results" / module_name
@@ -77,7 +89,7 @@ def _finish_variant(module_name: str, variant: str, start: str | None, end: str 
         out /= output_tag
     out /= variant
     sums = report.save_variant(results, grid, out)
-    selected = selection(grid, mod.GRID, min_trades, ruin_loss)
+    selected = selection(grid, grid_of(mod, variant), min_trades, ruin_loss)
     from .experiment import EXECUTION_VERSION
 
     selected["execution_version"] = EXECUTION_VERSION
@@ -100,9 +112,18 @@ def _finish_variant(module_name: str, variant: str, start: str | None, end: str 
     return variant, best, grid, sums, tfs, extra, len(bars), str(bars.ts[0]), str(bars.ts[-1])
 
 
-def write_doc(mod, module_name: str, outputs: list, n_combos: int, output_tag: str = "") -> str:
+def write_doc(mod, module_name: str, outputs: list, n_combos: int | str, output_tag: str = "") -> str:
     doc_dir = ROOT / "docs" / "strategies" / module_name
     _, _, _, _, _, _, nbars, first, last = outputs[0]
+    grids = {}  # distinct grids of the variants in this run -> their variants
+    for variant, *_ in outputs:
+        g = grid_of(mod, variant)
+        grids.setdefault(json.dumps(g), (g, []))[1].append(variant)
+    grid_lines = []
+    for g, vs in grids.values():
+        if len(grids) > 1:
+            grid_lines += [f"Variants {', '.join(vs)}: {len(optimize.combos(g))} combinations.", ""]
+        grid_lines += ["| Parameter | Values |", "|---|---|", *[f"| `{k}` | {', '.join(map(str, v))} |" for k, v in g.items()], ""]
     manifest = json.loads(MANIFEST.read_text()) if MANIFEST.exists() else {}
     lines = [
         f"# {mod.TITLE}: results", "",
@@ -122,15 +143,14 @@ def write_doc(mod, module_name: str, outputs: list, n_combos: int, output_tag: s
         "| Roll rule | position closed at the last bar of a contract (exit reason `roll`) |",
         "",
         "## How the top combination was chosen", "",
-        f"Every variant ran all {n_combos} combinations of the grid below with commission included. The combination "
+        f"Every variant ran all combinations of its grid below with commission included. The combination "
         "with the highest **net profit** is the top combination (ties: higher profit factor, then grid order). "
         "This reference is retained for compatibility. Thirteen separate metric winners are also selected, "
         "with a declared minimum trade count; their values, settings and trade lists are linked below. "
         "No slippage stress runs are performed.", "",
-        "| Parameter | Values |", "|---|---|",
-        *[f"| `{k}` | {', '.join(map(str, v))} |" for k, v in mod.GRID.items()], "",
+        *grid_lines,
         "> **Read this first.** The top combination is the best of "
-        f"{n_combos} tries on the same data it is reported on (in-sample). Picking the best of many tries makes "
+        f"{n_combos} tries (per variant) on the same data it is reported on (in-sample). Picking the best of many tries makes "
         "the result look better than what the same rules can be expected to earn on new data. Treat these numbers "
         "as an upper bound, not as a forecast.", "",
         "## Summary: top combination per variant", "",
@@ -193,7 +213,7 @@ def write_doc(mod, module_name: str, outputs: list, n_combos: int, output_tag: s
             lines += [f"#### {k} tick{'s' if k > 1 else ''} slippage: full report", "",
                       report.full_report(sums[k], tfs[k], level=5)]
         top = grid.head(10)
-        cols = list(mod.GRID)
+        cols = list(grid_of(mod, variant))
         lines += [
             "### Top 10 combinations", "",
             "| # | " + " | ".join(cols) + " | Net profit | Trades | % profitable | Profit factor | Max DD |",
@@ -282,15 +302,15 @@ def main() -> None:
         raise ValueError("ruin-loss cannot exceed starting capital")
     variants = a.variants or list(mod.VARIANTS)
     t0 = time.time()
-    n = len(optimize.combos(mod.GRID))
-    k = max(1, min(a.chunks, n))
-    tasks = [(v, list(range(j + 1, n + 1, k))) for v in variants for j in range(k)]  # interleaved: even chunk cost
+    sizes = {v: len(optimize.combos(grid_of(mod, v))) for v in variants}
+    tasks = [(v, orders) for v in variants for orders in chunk_orders(sizes[v], a.chunks)]
     parts = Parallel(n_jobs=a.jobs)(delayed(_grid_chunk)(a.strategy, v, a.start, a.end, o, a.ruin_loss) for v, o in tasks)
     rows = {v: [] for v in variants}
     for (v, _), r in zip(tasks, parts):
         rows[v] += r
     outputs = Parallel(n_jobs=a.jobs)(delayed(_finish_variant)(a.strategy, v, a.start, a.end, rows[v], a.min_trades, a.ruin_loss, a.output_tag)
                                       for v in variants)
+    n = sizes[variants[0]] if len(set(sizes.values())) == 1 else " / ".join(str(x) for x in sorted(set(sizes.values())))
     path = write_doc(mod, a.strategy, outputs, n, a.output_tag)
     print(f"wrote {path} in {time.time() - t0:.0f}s")
 

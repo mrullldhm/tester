@@ -114,6 +114,12 @@ This audit uses supplied signals and does not independently detect swings.
 ## Limit-entry lifecycle (owner rule, revised 3 November 2026)
 
 - Fair Price Reversal: limit at the signal candle close.
+- Price Reversal v2 (12 November 2026, owner study): FPR setup anchored to a Globex hour (hour 1 = 18:00 ET)
+  or an FPR session. `entry_cap` N > 0: limit at stop +/- N ticks when the signal close is more than N ticks
+  from the stop, else at the signal close; the stop never moves. Target R = planned limit to stop;
+  `tp_mode = fixed` = 2 x the 5-tick tier at or above R (<= 20 -> 40 ticks, <= 25 -> 50, ...), from the fill.
+  Hour anchors flat 5 hours after the hour open, never later than 16:59 ET (before the 17:00 ET halt).
+  Same TP expiry and session cancellation. Spec: `strategies/price_reversal_v2.py`.
 - Elliott Wave 5 (12 November 2026): limit at the wave-4 Fibonacci level, or the signal close when that is
   nearer the stop. Stop and target are absolute prices fixed at placement. Same TP expiry and session
   cancellation. Limit entries only (owner); the stop is an exit order. Spec: `docs/strategies/elliott_wave/`.

@@ -1,0 +1,455 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Signal logic: LuxAlgo "9:29 ET Fair Price Reversal" (MPL-2.0), anchor moved to a Globex hourly candle or a CL
+// session open. Pine twin of strategies/price_reversal_v2.py: same properties, signals and trade rules, so trades
+// can be checked against the Python tester. Hour 1 = 18:00 New York (06:00 / 07:00 Malaysia, US summer / winter). Use on NYMEX:CL1!, 1-minute chart, Deep Backtesting for long ranges.
+// Not in the twin: the tester's roll exit (a position open on a contract's last bar closes at its close).
+// Intraday sessions never hold a position across the 00:00 UTC roll switch, so it does not change results here.
+//@version=6
+strategy("Price Reversal v2 CL1! (tvtester twin)", overlay = true, initial_capital = 50000,
+     default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 2.01, slippage = 0,
+     pyramiding = 0, margin_long = 0, margin_short = 0, calc_on_every_tick = false, calc_on_order_fills = false,
+     process_orders_on_close = false, backtest_fill_limits_assumption = 0, use_bar_magnifier = false)
+
+if not (timeframe.isminutes and timeframe.multiplier == 1)
+    runtime.error("Use a 1-minute chart; owner swing ordering must use the underlying 1-minute candles.")
+
+// --- Inputs (defaults: the indicator's own defaults; set them to a combination from the results doc) ---
+string sessionInput = input.string("Hour", "Anchor", options = ["Hour", "Asia", "London", "NY"])
+int hourInput = input.int(16, "Globex hour number (Anchor = Hour; 1 = 18:00 ET)", minval = 1, maxval = 23)
+int windowInput = input.int(60, "Setup window from the anchor open (minutes)", minval = 5, maxval = 120)
+int atrLengthInput = input.int(14, "Move-away ATR length", minval = 2, maxval = 100)
+float atrMultInput = input.float(1.0, "Significant move: ATR multiple", minval = 0.1, maxval = 5.0, step = 0.1)
+string targetInput = input.string("rr2", "Target (TP mode default)", options = ["near", "far", "rr1", "rr2"])
+int entryCapInput = input.int(0, "Entry cap: max ticks from stop (0 = limit at signal close)", minval = 0)
+string tpModeInput = input.string("default", "TP mode", options = ["default", "fixed"],
+     tooltip = "fixed: 2 x the 5-tick tier at or above the stop distance (<=20 -> 40, <=25 -> 50, ...)")
+bool hourly = sessionInput == "Hour"
+
+// --- Entry filters (feature 2, docs/OPTIMIZE.md). "off" = the plain strategy. A vetoed signal still uses up the
+// day's long / short signal. Set them from a frozen configuration in strategies/configs/*.json ---
+string F = "Filters (feature 2)"
+string fMinutesMode = input.string("off", "Minutes from open", options = ["off", "min", "max"], group = F, inline = "f1")
+float fMinutesThr = input.float(0, "", group = F, inline = "f1")
+string fBodyMode = input.string("off", "Anchor body / ATR", options = ["off", "min", "max"], group = F, inline = "f2")
+float fBodyThr = input.float(0, "", step = 0.1, group = F, inline = "f2")
+string fRiskTicksMode = input.string("off", "Risk (ticks)", options = ["off", "min", "max"], group = F, inline = "f3")
+float fRiskTicksThr = input.float(0, "", group = F, inline = "f3")
+string fRiskAtrMode = input.string("off", "Risk / ATR", options = ["off", "min", "max"], group = F, inline = "f4")
+float fRiskAtrThr = input.float(0, "", step = 0.25, group = F, inline = "f4")
+string fRangeMode = input.string("off", "Range ratio", options = ["off", "min", "max"], group = F, inline = "f5")
+float fRangeThr = input.float(0, "", step = 0.1, group = F, inline = "f5")
+// --- Exit management (exit study, tvtester/exits.py). Defaults = off. T = target distance in ticks (profit ticks,
+// or |limit - fill| for a price target). Stops move at the bar close, work from the next bar, never loosen ---
+string X = "Exit management (exit study)"
+string beStyle = input.string("none", "Breakeven", options = ["none", "touch", "close", "time"], group = X)
+float beX = input.float(0, "Breakeven trigger (x T; bars for time)", step = 0.25, group = X)
+int beOffset = input.int(0, "Breakeven offset (ticks beyond entry)", minval = 0, group = X)
+string trailStyle = input.string("none", "Trailing", options = ["none", "frac", "atr", "swing", "step", "close", "ema", "sar"], group = X)
+float trailAt = input.float(0, "Trailing starts at (x T)", step = 0.25, group = X)
+float trailX = input.float(0, "Trailing setting (x T / ATR k / EMA bars / SAR set 0-1; swing fixed)", step = 0.25, group = X)
+bool keepTarget = input.bool(true, "Keep target (off needs trailing or time exit)", group = X)
+int timeExit = input.int(0, "Time exit after N bars (0 = off)", minval = 0, group = X)
+if not keepTarget and trailStyle == "none" and timeExit == 0
+    runtime.error("Keep target off needs a trailing stop or a time exit")
+int RANGE_BARS = 1380
+int RANGE_DAYS = 20
+
+// --- Session clock: own time zone per session (US, UK and Asia change clocks on different dates) ---
+// Hour anchors: Globex clock = minutes since 18:00 ET; trading date = ET date of (bar open + 6 h). Trades for
+// 5 hours after the hour open, flat never later than 16:59 ET (before the 17:00 ET halt).
+string tz = sessionInput == "Asia" ? "Asia/Shanghai" : sessionInput == "London" ? "Europe/London" : "America/New_York"
+int openMinute = hourly ? (hourInput - 1) * 60 : sessionInput == "London" ? 8 * 60 : 9 * 60
+int flatMinute = hourly ? math.min(openMinute + 300, 1379) : sessionInput == "Asia" ? 15 * 60 : sessionInput == "London" ? 13 * 60 : 14 * 60 + 30
+int anchorMinute = openMinute - 1
+
+var int lastDayKey = na
+var float bodyUpper = na
+var float bodyLower = na
+var bool upperExcursionSeen = false
+var bool lowerExcursionSeen = false
+var bool longSignalSent = false
+var bool shortSignalSent = false
+var int upperExcursionTime = na
+var int lowerExcursionTime = na
+var bool longStructureReady = false
+var bool shortStructureReady = false
+var float longStructureTrigger = na
+var float shortStructureTrigger = na
+var int activeSetupDirection = 0
+var float lowSinceLowerExcursion = na
+var float highSinceUpperExcursion = na
+var float anchorBodyAtr = na
+var float rangeRatio = na
+var float[] rangeHist = array.new_float()
+
+// Mandatory owner swing state; no inputs can alter detection.
+const int SH = 1
+const int SL = -1
+openRule(float o, float h, float l) =>
+    (h - o) < (o - l)
+
+type Zig
+    int lastType = 0
+    float lastPrice
+    float curH
+    float prevH
+    float curL
+    float prevL
+    float hiSinceL
+    float loSinceH
+    int nH = 0
+    int nL = 0
+    bool pending = false
+    int savedLastType = 0
+    float savedLastPrice
+    float savedCurH
+    float savedPrevH
+    float savedCurL
+    float savedPrevL
+    float savedHiSinceL
+    float savedLoSinceH
+
+
+// Only the newest endpoint is provisional. At a close, accept qualifying opposite pivots before touch removal.
+method remember(Zig z) =>
+    z.savedLastType := z.lastType
+    z.savedLastPrice := z.lastPrice
+    z.savedCurH := z.curH
+    z.savedPrevH := z.prevH
+    z.savedCurL := z.curL
+    z.savedPrevL := z.prevL
+    z.savedHiSinceL := z.hiSinceL
+    z.savedLoSinceH := z.loSinceH
+    z
+
+method invalidate(Zig z, float h, float l) =>
+    bool removed = z.pending and (z.lastType == SH ? h >= z.lastPrice : l <= z.lastPrice)
+    if removed
+        float observedH = z.hiSinceL
+        float observedL = z.loSinceH
+        if z.lastType == SH
+            z.nH += 1
+        else
+            z.nL += 1
+        z.lastType := z.savedLastType
+        z.lastPrice := z.savedLastPrice
+        z.curH := z.savedCurH
+        z.prevH := z.savedPrevH
+        z.curL := z.savedCurL
+        z.prevL := z.savedPrevL
+        z.hiSinceL := z.savedHiSinceL
+        z.loSinceH := z.savedLoSinceH
+        z.pending := false
+        if not na(observedH)
+            z.hiSinceL := na(z.hiSinceL) ? observedH : math.max(z.hiSinceL, observedH)
+        if not na(observedL)
+            z.loSinceH := na(z.loSinceH) ? observedL : math.min(z.loSinceH, observedL)
+        if not na(z.hiSinceL)
+            z.hiSinceL := math.max(z.hiSinceL, h)
+        if not na(z.loSinceH)
+            z.loSinceH := math.min(z.loSinceH, l)
+    removed
+
+// Owner indicator push: same type replaces when at least as extreme (equal: the later), else dropped
+method push(Zig z, int t, float p) =>
+    bool added = true
+    bool accepts = z.lastType != t or (t == SH ? p >= z.lastPrice : p <= z.lastPrice)
+    if accepts
+        if z.lastType != t or not z.pending
+            z.remember()
+        z.pending := true
+    if z.lastType == t
+        added := t == SH ? p >= z.lastPrice : p <= z.lastPrice
+        if added
+            z.lastPrice := p
+            if t == SH
+                z.curH := p
+                z.nH += 1
+            else
+                z.curL := p
+                z.nL += 1
+    else
+        if t == SH
+            z.prevH := z.curH
+            z.curH := p
+            z.nH += 1
+        else
+            z.prevL := z.curL
+            z.curL := p
+            z.nL += 1
+        z.lastType := t
+        z.lastPrice := p
+    added
+
+// Owner clarification, 2026-11-05: observe every candle, accept only leg-extreme fixed-rule pivots.
+method visit(Zig z, int t, float p, bool isPivot) =>
+    bool extreme = t == SH ? (na(z.hiSinceL) or p >= z.hiSinceL) : (na(z.loSinceH) or p <= z.loSinceH)
+    bool added = false
+    if isPivot and extreme
+        added := z.push(t, p)
+        if added
+            if t == SH
+                z.loSinceH := p
+            else
+                z.hiSinceL := p
+    if z.pending
+        if t == SH and not na(z.savedHiSinceL)
+            z.savedHiSinceL := math.max(z.savedHiSinceL, p)
+        if t == SL and not na(z.savedLoSinceH)
+            z.savedLoSinceH := math.min(z.savedLoSinceH, p)
+    if t == SH and not na(z.hiSinceL)
+        z.hiSinceL := math.max(z.hiSinceL, p)
+    if t == SL and not na(z.loSinceH)
+        z.loSinceH := math.min(z.loSinceH, p)
+    added
+
+method isHL(Zig z) =>
+    not na(z.prevL) and z.curL > z.prevL
+
+method isLH(Zig z) =>
+    not na(z.prevH) and z.curH < z.prevH
+
+f_pass(string mode, float thr, float v) =>
+    mode == "off" ? true : na(v) ? false : mode == "min" ? v >= thr : v <= thr
+
+float moveAtr = ta.atr(atrLengthInput)[1]
+float highPrior = ta.highest(high, RANGE_BARS)[1]  // every bar (global scope), sampled at the anchor reset
+float lowPrior = ta.lowest(low, RANGE_BARS)[1]
+bool longSignal = false
+bool shortSignal = false
+int localMinute = hour(time, tz) * 60 + minute(time, tz)
+int minuteOfDay = hourly ? (localMinute - 18 * 60 + 1440) % 1440 : localMinute
+int tDay = hourly ? time + 6 * 3600000 : time
+
+var Zig owner = Zig.new()
+int oldH = owner.nH
+int oldL = owner.nL
+if bar_index >= 2 and barstate.isconfirmed
+    bool isH = high[2] <= high[1] and high < high[1]
+    bool isL = low[2] >= low[1] and low > low[1]
+    if openRule(open[1], high[1], low[1])
+        owner.visit(SH, high[1], isH)
+        owner.visit(SL, low[1], isL)
+    else
+        owner.visit(SL, low[1], isL)
+        owner.visit(SH, high[1], isH)
+float pivotHigh = owner.nH > oldH ? owner.curH : na
+float pivotLow = owner.nL > oldL ? owner.curL : na
+owner.invalidate(high, low)
+int pivotTime = time[1]
+float lastSwingHigh = owner.prevH
+float lastSwingLow = owner.prevL
+lowSinceLowerExcursion := na(lowSinceLowerExcursion) ? na : math.min(lowSinceLowerExcursion, low)
+highSinceUpperExcursion := na(highSinceUpperExcursion) ? na : math.max(highSinceUpperExcursion, high)
+
+// Hour anchor: the bar before the hour's first bar of the trading date (read as [1] on that first bar; the
+// Python twin resets on the anchor bar itself, which is equivalent because nothing else happens there).
+bool hourFirst = hourly and minuteOfDay >= openMinute and minuteOfDay < openMinute + 60 and bar_index > 0
+bool anchorHere = hourly ? hourFirst : minuteOfDay == anchorMinute
+int aOff = hourly ? 1 : 0
+if anchorHere
+    int dayKey = year(tDay, tz) * 10000 + month(tDay, tz) * 100 + dayofmonth(tDay, tz)
+    if na(lastDayKey) or dayKey != lastDayKey
+        bodyUpper := math.max(open[aOff], close[aOff])
+        bodyLower := math.min(open[aOff], close[aOff])
+        upperExcursionSeen := false
+        lowerExcursionSeen := false
+        longSignalSent := false
+        shortSignalSent := false
+        activeSetupDirection := 0
+        upperExcursionTime := na
+        lowerExcursionTime := na
+        longStructureReady := false
+        shortStructureReady := false
+        longStructureTrigger := na
+        shortStructureTrigger := na
+        lowSinceLowerExcursion := na
+        highSinceUpperExcursion := na
+        lastDayKey := dayKey
+        anchorBodyAtr := not na(moveAtr) and moveAtr > 0 ? math.abs(close[aOff] - open[aOff]) / moveAtr[aOff] : na
+        float priorRange = bar_index - aOff >= RANGE_BARS ? highPrior[aOff] - lowPrior[aOff] : na
+        rangeRatio := na
+        if not na(priorRange)
+            if array.size(rangeHist) == RANGE_DAYS and array.avg(rangeHist) > 0
+                rangeRatio := priorRange / array.avg(rangeHist)
+            array.push(rangeHist, priorRange)
+            if array.size(rangeHist) > RANGE_DAYS
+                array.shift(rangeHist)
+
+bool inSignalWindow = minuteOfDay >= openMinute and minuteOfDay < openMinute + windowInput
+if inSignalWindow and not na(moveAtr) and moveAtr > 0 and not na(bodyUpper) and not na(bodyLower)
+    float moveDistance = moveAtr * atrMultInput
+    if upperExcursionSeen and activeSetupDirection != -1 and not shortSignalSent and close < bodyUpper + moveDistance
+        upperExcursionSeen := false
+    if lowerExcursionSeen and activeSetupDirection != 1 and not longSignalSent and close > bodyLower - moveDistance
+        lowerExcursionSeen := false
+    bool upperMoveHit = not upperExcursionSeen and not shortSignalSent and high >= bodyUpper + moveDistance
+    bool lowerMoveHit = not lowerExcursionSeen and not longSignalSent and low <= bodyLower - moveDistance
+    if upperMoveHit and lowerMoveHit
+        upperExcursionSeen := true
+        lowerExcursionSeen := true
+        upperExcursionTime := time
+        lowerExcursionTime := time
+        highSinceUpperExcursion := high
+        lowSinceLowerExcursion := low
+        activeSetupDirection := 0
+        longStructureReady := false
+        shortStructureReady := false
+        longStructureTrigger := na
+        shortStructureTrigger := na
+    else if upperMoveHit
+        upperExcursionSeen := true
+        upperExcursionTime := time
+        highSinceUpperExcursion := high
+        activeSetupDirection := -1
+        longStructureReady := false
+        shortStructureReady := false
+        longStructureTrigger := na
+        shortStructureTrigger := na
+    else if lowerMoveHit
+        lowerExcursionSeen := true
+        lowerExcursionTime := time
+        lowSinceLowerExcursion := low
+        activeSetupDirection := 1
+        longStructureReady := false
+        shortStructureReady := false
+        longStructureTrigger := na
+        shortStructureTrigger := na
+if not na(pivotHigh) and activeSetupDirection == 1
+    longStructureReady := inSignalWindow and lowerExcursionSeen and not longSignalSent and not na(lastSwingHigh) and not na(pivotTime) and pivotTime > lowerExcursionTime and pivotHigh < lastSwingHigh
+    longStructureTrigger := longStructureReady ? pivotHigh : na
+if not na(pivotLow) and activeSetupDirection == -1
+    shortStructureReady := inSignalWindow and upperExcursionSeen and not shortSignalSent and not na(lastSwingLow) and not na(pivotTime) and pivotTime > upperExcursionTime and pivotLow > lastSwingLow
+    shortStructureTrigger := shortStructureReady ? pivotLow : na
+if inSignalWindow and activeSetupDirection == 1 and longStructureReady and not longSignalSent and close > longStructureTrigger and close < bodyLower
+    longSignal := true
+    longSignalSent := true
+    longStructureReady := false
+    activeSetupDirection := 0
+if inSignalWindow and activeSetupDirection == -1 and shortStructureReady and not shortSignalSent and close < shortStructureTrigger and close > bodyUpper
+    shortSignal := true
+    shortSignalSent := true
+    shortStructureReady := false
+    activeSetupDirection := 0
+if minuteOfDay >= openMinute + windowInput
+    longStructureReady := false
+    shortStructureReady := false
+
+// --- Trade rules ---
+bool inSession = minuteOfDay >= openMinute and minuteOfDay < flatMinute - 1
+float rMult = targetInput == "rr1" ? 1.0 : 2.0
+float signalStop = longSignal ? lowSinceLowerExcursion : shortSignal ? highSinceUpperExcursion : na
+float riskTicks = na(signalStop) ? na : math.round(math.abs(close - signalStop) / syminfo.mintick)
+float riskAtr = not na(riskTicks) and not na(moveAtr) and moveAtr > 0 ? riskTicks * syminfo.mintick / moveAtr : na
+bool allowed = f_pass(fMinutesMode, fMinutesThr, minuteOfDay - openMinute) and f_pass(fBodyMode, fBodyThr, anchorBodyAtr)
+     and f_pass(fRiskTicksMode, fRiskTicksThr, riskTicks) and f_pass(fRiskAtrMode, fRiskAtrThr, riskAtr)
+     and f_pass(fRangeMode, fRangeThr, rangeRatio)
+// Exit-management indicators: computed on every bar, flat or not (as the Python twin)
+int xLen = math.max(1, int(trailX))
+float xAtr = ta.atr(14)
+float xEma = ta.ema(close, xLen)
+// Swing trailing uses exactly the same owner state as entry structure.
+float lastPl = owner.curL
+float lastPh = owner.curH
+if trailStyle == "swing" and trailX != 0
+    runtime.error("Owner swings are fixed; trailing setting must be 0 for swing trailing")
+bool sarSlow = int(trailX) == 1
+float xSar = ta.sar(sarSlow ? 0.01 : 0.02, sarSlow ? 0.01 : 0.02, sarSlow ? 0.1 : 0.2)
+bool exitRuleOn = beStyle != "none" or trailStyle != "none" or timeExit > 0
+f_toward(float x, bool isLong) =>
+    isLong ? math.floor(x / syminfo.mintick + 1e-6) * syminfo.mintick : math.ceil(x / syminfo.mintick - 1e-6) * syminfo.mintick
+// New stop at this close: tightest active level, only if tighter than stopNow (else na)
+f_newStop(bool isLong, float entry, int tTicks, float stopNow, float best, float bestClose, int age) =>
+    float dir = isLong ? 1.0 : -1.0
+    float mt = syminfo.mintick
+    float fav = math.round((best - entry) * dir / mt)
+    float cfav = math.round((close - entry) * dir / mt)
+    float lvl = na
+    bool beHit = beStyle == "touch" ? fav >= math.round(beX * tTicks) : beStyle == "close" ? cfav >= math.round(beX * tTicks) : beStyle == "time" ? age >= beX and cfav > beOffset : false
+    if beHit
+        lvl := entry + dir * beOffset * mt
+    if trailStyle != "none" and fav >= math.round(trailAt * tTicks)
+        float t = na
+        if trailStyle == "frac"
+            t := best - dir * math.max(1, math.round(trailX * tTicks)) * mt
+        else if trailStyle == "close"
+            t := bestClose - dir * math.max(1, math.round(trailX * tTicks)) * mt
+        else if trailStyle == "step"
+            float s = math.max(1, math.round(trailX * tTicks))
+            float m = math.floor(fav / s)
+            t := m >= 1 ? entry + dir * (m - 1) * s * mt : na
+        else if trailStyle == "atr"
+            t := na(xAtr) ? na : f_toward(best - dir * trailX * xAtr, isLong)
+        else if trailStyle == "swing"
+            t := isLong ? lastPl : lastPh
+        else
+            float x = trailStyle == "ema" ? xEma : xSar
+            t := na(x) or (x - close) * dir >= 0 ? na : f_toward(x, isLong)
+        if not na(t)
+            lvl := na(lvl) ? t : isLong ? math.max(lvl, t) : math.min(lvl, t)
+    not na(lvl) and (lvl - stopNow) * dir > mt / 2 ? lvl : na
+var float stopLvl = na
+var float limitLvl = na
+var int profitTicks = na
+var int tTicks = na
+var float bestPx = na
+var float bestClose = na
+var string eid = ""
+var int pendingDir = 0
+var float pendingTp = na
+var int pendingClosed = 0
+if strategy.position_size != 0 or strategy.closedtrades != pendingClosed
+    pendingDir := 0
+pendingClosed := strategy.closedtrades
+if strategy.position_size == 0 and pendingDir != 0
+    bool tpReached = pendingDir == 1 ? high >= pendingTp : low <= pendingTp
+    if tpReached or not inSession
+        strategy.cancel(eid)
+        strategy.cancel("Exit")
+        pendingDir := 0
+
+if strategy.position_size != 0 and not inSession
+    strategy.close_all(comment = "Session end")
+else if strategy.position_size != 0 and exitRuleOn
+    bool isLong = strategy.position_size > 0
+    float entryPx = strategy.position_avg_price
+    int eb = strategy.opentrades.entry_bar_index(0)
+    if eb == bar_index
+        bestPx := isLong ? high : low
+        bestClose := close
+        tTicks := na(profitTicks) ? int(math.round(math.abs(limitLvl - entryPx) / syminfo.mintick)) : profitTicks
+    else
+        bestPx := isLong ? math.max(bestPx, high) : math.min(bestPx, low)
+        bestClose := isLong ? math.max(bestClose, close) : math.min(bestClose, close)
+    int age = bar_index - eb + 1
+    if timeExit > 0 and age >= timeExit
+        strategy.cancel("Exit")
+        strategy.close_all(comment = "Time exit")
+    else
+        float ns = f_newStop(isLong, entryPx, tTicks, stopLvl, bestPx, bestClose, age)
+        if not na(ns)
+            stopLvl := ns
+            strategy.exit("Exit", eid, stop = stopLvl, limit = keepTarget ? limitLvl : na, profit = keepTarget ? profitTicks : na)
+else if strategy.position_size == 0 and pendingDir == 0 and inSession and allowed and (longSignal or shortSignal)
+    eid := longSignal ? "Long" : "Short"
+    stopLvl := longSignal ? lowSinceLowerExcursion : highSinceUpperExcursion
+    bool nearFar = targetInput == "near" or targetInput == "far"
+    limitLvl := not nearFar ? na : longSignal ? (targetInput == "near" ? bodyLower : bodyUpper) : (targetInput == "near" ? bodyUpper : bodyLower)
+    float dirF = longSignal ? 1.0 : -1.0
+    int closeRisk = int(math.round(math.abs(close - stopLvl) / syminfo.mintick))
+    float entryPx = entryCapInput > 0 and closeRisk > entryCapInput ? stopLvl + dirF * entryCapInput * syminfo.mintick : close
+    int risk = int(math.round(math.abs(entryPx - stopLvl) / syminfo.mintick))
+    bool fixedTp = tpModeInput == "fixed"
+    if fixedTp
+        limitLvl := na
+    profitTicks := fixedTp ? 2 * math.max(20, int(math.ceil(risk / 5.0)) * 5) : nearFar ? na : int(risk * rMult)
+    pendingDir := longSignal ? 1 : -1
+    pendingTp := not na(limitLvl) ? limitLvl : entryPx + pendingDir * profitTicks * syminfo.mintick
+    strategy.entry(eid, longSignal ? strategy.long : strategy.short, limit = entryPx)
+    strategy.exit("Exit", eid, stop = stopLvl, limit = keepTarget ? limitLvl : na, profit = keepTarget ? profitTicks : na)
+
+plotshape(shortSignal, title = "MSS SHORT", style = shape.labeldown, location = location.abovebar, color = #f23645, text = "MSS SHORT", textcolor = color.white, size = size.tiny)
+plotshape(longSignal, title = "MSS LONG", style = shape.labelup, location = location.belowbar, color = #089981, text = "MSS LONG", textcolor = color.white, size = size.tiny)
+plot(inSignalWindow ? bodyUpper : na, "Anchor body top", color = #f6a623, style = plot.style_linebr)
+plot(inSignalWindow ? bodyLower : na, "Anchor body bottom", color = #5b9cf6, style = plot.style_linebr)

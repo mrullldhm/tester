@@ -1,0 +1,72 @@
+{
+  "strategy": "price_reversal_v2",
+  "variant": "h01",
+  "space_name": "filters",
+  "space": {
+    "base": {
+      "anchor": "h01",
+      "window": 60,
+      "atr_mult": 2.0,
+      "swing": 1,
+      "target": "rr2"
+    },
+    "params": {},
+    "filters": {
+      "minutes_from_open": [
+        5,
+        115,
+        5
+      ],
+      "anchor_body_atr": [
+        0.1,
+        2.0,
+        0.1
+      ],
+      "risk_ticks": [
+        6,
+        60,
+        2
+      ],
+      "risk_atr": [
+        1.0,
+        6.0,
+        0.25
+      ],
+      "range_ratio": [
+        0.5,
+        2.0,
+        0.1
+      ]
+    }
+  },
+  "sampler": "random",
+  "trials": 200,
+  "objective": "net0",
+  "seed": 1,
+  "jobs": 1,
+  "min_trades": 300,
+  "started_utc": "2026-11-11 20:15",
+  "dev_interval": [
+    "2010-06-07 00:00:00+00:00",
+    "2023-12-29 21:59:00+00:00",
+    "end exclusive 2024-01-01"
+  ],
+  "bars": 4682668,
+  "data_hash": "93fc8344a86603ea",
+  "manifest_hash": "c460e97f92492ce8",
+  "code_hash": "c7e2516387493d19",
+  "execution_version": "limit-close-tp-expiry-owner-swings-v2",
+  "swing_rule": "indicators/structure_swings.pine",
+  "swing_source_sha256": "77692c498f0d7f76bb91108840956563f8f4df71d40f7ad0769b5eda530745f5",
+  "properties": {
+    "initial_capital": 50000.0,
+    "qty": 1,
+    "commission_per_order": 2.01
+  },
+  "versions": {
+    "python": "3.12.3",
+    "numpy": "2.5.4",
+    "pandas": "3.1.0",
+    "optuna": "4.9.0"
+  }
+}

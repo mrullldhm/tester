@@ -332,12 +332,14 @@ def distinct_configs(mod, name: str, variants) -> int:
 
     keys = set()
     for v in variants:
-        for p in combos(mod.GRID):
+        for p in combos(getattr(mod, "GRIDS", {}).get(v, mod.GRID)):  # the variant's own grid when declared
             keys.add(search.key(search.canonical({**mod.VARIANTS[v], **p}, [])))
         for d in sorted((ROOT / "results" / name / "search").glob(f"{v}_*")):
             for f in ("trials.csv", "neighbours.csv"):
                 if (d / f).exists():
-                    keys |= {search.key(json.loads(x)) for x in pd.read_csv(d / f)["config"]}
+                    df = pd.read_csv(d / f)
+                    if "config" in df:  # a baseline winner has no neighbours: header-only neighbours.csv
+                        keys |= {search.key(json.loads(x)) for x in df["config"]}
     return len(keys)
 
 

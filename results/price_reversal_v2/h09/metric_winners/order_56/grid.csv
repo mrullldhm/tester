@@ -1,0 +1,2 @@
+window,atr_mult,swing,target,order,net_profit,total_closed_trades,percent_profitable,profit_factor,max_equity_drawdown,avg_trade,sharpe_ratio,sortino_ratio,expectancy,payoff_ratio,risk_of_ruin,risk_of_ruin_log,max_consecutive_losses,r_multiple,r_stddev,r_consistency,r_valid_trades,mae,mfe
+120,1.0,1,rr2,56,-28644.080000000016,4904,32.83034257748776,0.9261182844921979,40890.299999992625,-5.840962479608476,-0.18386095737686262,-0.19569989012415384,-5.840962479608476,1.894803496346149,100.0,0.0,20,,,,4897,91.32544861337684,121.73531810766721

@@ -1,0 +1,28 @@
+{
+  "strategy": "price_reversal_v2",
+  "variant": "h01",
+  "execution_version": "limit-close-tp-expiry-owner-swings-v2",
+  "filters": [],
+  "params": {
+    "anchor": "h01",
+    "atr_mult": 2.0,
+    "swing": 1,
+    "target": "rr2",
+    "window": 60
+  },
+  "interval": [
+    null,
+    "2024-01-01"
+  ],
+  "source": {
+    "search": "results/price_reversal_v2/search/h01_filters_random_net0_s1_n200",
+    "trial": 0,
+    "objective": "net0"
+  },
+  "expected": {
+    "net0": 31018.420000000013,
+    "open0": 0.0,
+    "trades0": 2279,
+    "objective": 31018.420000000013
+  }
+}

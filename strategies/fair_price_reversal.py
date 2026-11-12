@@ -49,16 +49,25 @@ def signals(bars: Bars, session: str, window: int, atr_mult: float, swing: int, 
     require_owner_swing(swing)
     s = SESSIONS[session]
     mod, day = _shared(bars, ("clock", s.tz), lambda: local_clock(bars.ts, s.tz))
-    move_atr = _shared(bars, ("atr1", atr_len), lambda: ta.shift(ta.atr(bars.h, bars.l, bars.c, atr_len), 1))
-    owner = minute_swing_series(bars)
-    ph, pl = owner["high"], owner["low"]
-    sh_before, sl_before = owner["prev_high"], owner["prev_low"]
 
     start, end = s.open_minute, s.open_minute + window
     in_win = (mod >= start) & (mod < end)
     after = mod >= end
+    return setup_signals(bars, anchor_bars(mod, day, s.anchor_minute), in_win, after, atr_mult, atr_len)
+
+
+def setup_signals(bars: Bars, anchors: np.ndarray, in_win: np.ndarray, after: np.ndarray, atr_mult: float,
+                  atr_len: int = 14) -> dict:
+    """The setup state machine shared with price_reversal_v2. `anchors`: bars whose body resets the day's setup
+    (one per day); `in_win`: setup-window bars; `after`: bars at or after the window end of the same day."""
+    move_atr = _shared(bars, ("atr1", atr_len), lambda: ta.shift(ta.atr(bars.h, bars.l, bars.c, atr_len), 1))
+    owner = minute_swing_series(bars)
+    ph, pl = owner["high"], owner["low"]
+    sh_before, sl_before = owner["prev_high"], owner["prev_low"]
+    is_anchor = np.zeros(len(bars), dtype=bool)
+    is_anchor[anchors] = True
     first_after = after & np.concatenate([[False], in_win[:-1]])
-    todo = np.flatnonzero((mod == s.anchor_minute) | in_win | first_after)
+    todo = np.flatnonzero(is_anchor | in_win | first_after)
 
     n = len(bars)
     sig = np.zeros(n, dtype=np.int8)
@@ -67,7 +76,6 @@ def signals(bars: Bars, session: str, window: int, atr_mult: float, swing: int, 
     body_lo = np.zeros(n, dtype=np.int64)
     o, h, l, c = bars.o, bars.h, bars.l, bars.c
 
-    last_day = None
     bu = bl = None
     up_seen = lo_seen = long_sent = short_sent = False
     up_t = lo_t = None  # bar index of the excursion (bar time order == index order)
@@ -77,14 +85,13 @@ def signals(bars: Bars, session: str, window: int, atr_mult: float, swing: int, 
     for i in todo.tolist():
         pivot_t = i - 1  # owner swing: confirmed at the right neighbour close
         piv_h, piv_l = ph[i], pl[i]
-        if mod[i] == s.anchor_minute and (last_day is None or day[i] != last_day):
+        if is_anchor[i]:
             bu, bl = max(o[i], c[i]), min(o[i], c[i])
             up_seen = lo_seen = long_sent = short_sent = False
             direction = 0
             up_t = lo_t = None
             long_ready = short_ready = False
             long_trig = short_trig = None
-            last_day = day[i]
         win = in_win[i]
         atr_i = move_atr[i]
         if win and atr_i == atr_i and atr_i > 0 and bu is not None:

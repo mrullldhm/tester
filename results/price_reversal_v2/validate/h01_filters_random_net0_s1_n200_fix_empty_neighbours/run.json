@@ -1,0 +1,59 @@
+{
+  "strategy": "price_reversal_v2",
+  "variant": "h01",
+  "config": "strategies/configs/price_reversal_v2_h01_filters_random_net0_s1_n200.json",
+  "candidate_trial": 0,
+  "universe": 200,
+  "scenarios": [
+    0
+  ],
+  "select_ticks": 0,
+  "fold_years": [
+    2014,
+    2015,
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023
+  ],
+  "rolling_years": 4,
+  "s_blocks": 16,
+  "rules": {
+    "min_positive_folds": 7,
+    "pbo_max": 0.5,
+    "dsr_min": 0.95
+  },
+  "started_utc": "2026-11-11 20:33",
+  "dev_interval": [
+    "2010-06-07 00:00:00+00:00",
+    "2023-12-29 21:59:00+00:00",
+    "end exclusive 2024-01-01"
+  ],
+  "bars": 4682668,
+  "data_hash": "93fc8344a86603ea",
+  "manifest_hash": "c460e97f92492ce8",
+  "code_hash": "2774535e97cf2374",
+  "execution_version": "limit-close-tp-expiry-owner-swings-v2",
+  "swing_rule": "indicators/structure_swings.pine",
+  "swing_source_sha256": "77692c498f0d7f76bb91108840956563f8f4df71d40f7ad0769b5eda530745f5",
+  "properties": {
+    "initial_capital": 50000.0,
+    "qty": 1,
+    "commission_per_order": 2.01
+  },
+  "versions": {
+    "python": "3.12.3",
+    "numpy": "2.5.4",
+    "pandas": "3.1.0",
+    "optuna": "4.9.0"
+  },
+  "hashes": {
+    "trials_csv": "d36ce8c19764cc51",
+    "config": "3705c0bc695ca3be",
+    "validate_md": "6e7147d02bc0a05d"
+  }
+}
