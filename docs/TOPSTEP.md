@@ -36,7 +36,8 @@ Reported per run:
 - **Rolling**: one attempt starting on every trading day. Gives the pass rate and days to pass/fail. Attempts overlap,
   so they are not independent samples.
 - **Sequential**: back-to-back attempts as lived: after a pass or fail, restart the next day. Gives passes, fails and
-  cost per pass (subscription months + resets).
+  cost per pass. Billing model (VERIFY): a subscription starts with the first attempt and again after every pass,
+  paid at the start and every 30 days until the pass; each fail inside it costs one reset.
 
 ## Not modelled yet
 

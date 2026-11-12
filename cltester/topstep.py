@@ -11,7 +11,7 @@ Pass at end of day: profit >= max(target, best_day / consistency).
 """
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 import numpy as np
 import pandas as pd
@@ -30,8 +30,13 @@ class Attempt:
     best_day: float
 
 
+ATTEMPT_COLUMNS = [f.name for f in fields(Attempt)]
+
+
 def _by_day(trades: pd.DataFrame, rules: Combine) -> dict:
-    if len(trades) and trades["qty"].max() > rules.max_contracts:
+    if trades.empty:
+        return {}
+    if trades["qty"].max() > rules.max_contracts:
         raise ValueError(f"trade size above {rules.max_contracts} contracts")
     out = defaultdict(list)
     paths = trades["path"] if "path" in trades else [(np.array([0.0]), np.array([m])) for m in trades["mae"]]
@@ -91,7 +96,8 @@ def trading_days(bars: pd.DataFrame) -> list[pd.Timestamp]:
 def rolling(trades: pd.DataFrame, days: list[pd.Timestamp], rules: Combine = COMBINE_50K) -> pd.DataFrame:
     """One attempt starting on every trading day. Attempts overlap, so they are not independent."""
     per_day = _by_day(trades, rules)
-    return pd.DataFrame([run_attempt(per_day, days, k, rules).__dict__ for k in range(len(days))])
+    return pd.DataFrame([run_attempt(per_day, days, k, rules).__dict__ for k in range(len(days))],
+                        columns=ATTEMPT_COLUMNS)
 
 
 def sequential(trades: pd.DataFrame, days: list[pd.Timestamp], rules: Combine = COMBINE_50K) -> pd.DataFrame:
@@ -104,7 +110,23 @@ def sequential(trades: pd.DataFrame, days: list[pd.Timestamp], rules: Combine = 
         if a.outcome == "open":
             break
         k += a.days
-    return pd.DataFrame(out)
+    return pd.DataFrame(out, columns=ATTEMPT_COLUMNS)
+
+
+def subscription_cost(seq: pd.DataFrame, last_day: pd.Timestamp, rules: Combine = COMBINE_50K) -> float:
+    """Billing as lived: a subscription starts with the first attempt and again after every pass. It is paid at
+    the start and every 30 days until the pass (or the end of data). Each fail inside it costs one reset."""
+    cost, sub_start = 0.0, None
+    for start, end, outcome in zip(seq["start"], seq["end"], seq["outcome"], strict=True):
+        if sub_start is None:
+            sub_start = start
+        if outcome == "fail":
+            cost += rules.reset_fee
+            continue
+        stop = end if outcome == "pass" else last_day
+        cost += rules.monthly_fee * ((stop - sub_start).days // 30 + 1)
+        sub_start = None
+    return cost
 
 
 def summary(roll: pd.DataFrame, seq: pd.DataFrame, days: list[pd.Timestamp], rules: Combine = COMBINE_50K) -> dict:
@@ -112,8 +134,7 @@ def summary(roll: pd.DataFrame, seq: pd.DataFrame, days: list[pd.Timestamp], rul
     passed = done[done["outcome"] == "pass"]
     s_pass = int((seq["outcome"] == "pass").sum()) if len(seq) else 0
     s_fail = int((seq["outcome"] == "fail").sum()) if len(seq) else 0
-    months = (days[-1] - days[0]).days / 30.44 if days else 0.0  # subscription runs the whole period
-    cost = rules.monthly_fee * months + rules.reset_fee * s_fail
+    cost = subscription_cost(seq, days[-1], rules) if days else 0.0
     return {
         "rolling_attempts": len(done),
         "pass_rate": round(len(passed) / len(done), 4) if len(done) else float("nan"),

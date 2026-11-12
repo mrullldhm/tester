@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from cltester.config import Combine
-from cltester.topstep import _by_day, run_attempt, sequential
+from cltester.topstep import _by_day, rolling, run_attempt, sequential, subscription_cost, summary
 
 DAYS = list(pd.date_range("2024-01-01", periods=10, freq="B"))
 
@@ -90,3 +90,26 @@ def test_intrabar_move_liquidates_at_dll_level():
     t = pd.DataFrame([path_trade(0, [0, -200], [-20, -2500], -2500)])
     a = run_attempt(_by_day(t, rules), DAYS, 0, rules)
     assert a.outcome == "open" and a.profit == pytest.approx(-1000)
+
+
+def test_short_pass_pays_a_full_month():
+    s = sequential(trades([(0, 1600, -10), (1, 1450, -10)]), DAYS)
+    assert subscription_cost(s.iloc[:1], DAYS[-1]) == 49.0  # a 2-day pass still pays one month
+    assert subscription_cost(s, DAYS[-1]) == 98.0  # the next account, still open at data end, is paid too
+
+
+def test_each_pass_starts_a_new_subscription_and_fails_cost_resets():
+    days = list(pd.date_range("2024-01-01", periods=80, freq="B"))
+    rows = [(0, -100, -2000), (1, 1600, -10), (2, 1450, -10), (40, 1600, -10), (41, 1450, -10)]
+    t = pd.DataFrame([{"trading_day": days[d], "net": n, "mae": m, "qty": 1} for d, n, m in rows])
+    s = sequential(t, days)
+    assert list(s["outcome"]) == ["fail", "pass", "pass", "open"]
+    # sub 1: day 0..2 -> 1 month + 1 reset; sub 2: day 3..41 (8 weeks) -> 2 months; sub 3: day 42..79 -> 2 months
+    assert subscription_cost(s, days[-1]) == 49 + 49 + 2 * 49 + 2 * 49
+
+
+def test_empty_period_has_stable_schema():
+    t = trades([])
+    r, s = rolling(t, []), sequential(t, [])
+    assert list(r.columns) == list(s.columns) and "outcome" in r.columns
+    assert summary(r, s, [])["rolling_attempts"] == 0

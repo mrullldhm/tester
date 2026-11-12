@@ -76,6 +76,8 @@ def cmd_test(a: argparse.Namespace) -> None:
         if any(r["strategy"] == a.name and r["period"] == "holdout" for r in _ledger_rows()):
             raise SystemExit("holdout already used for this strategy (docs/PROTOCOL.md); --unlock to override")
     df = load_period(a.period)
+    if df.empty:
+        raise SystemExit(f"no bars in period {a.period} yet; nothing tested, ledger unchanged")
     bars = Bars.from_frame(df)
     fills = Fills()
     trades = backtest(bars, strat.signals(df, p), fills)
