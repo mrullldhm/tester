@@ -38,6 +38,8 @@ class Candles:
     c: np.ndarray
     high_first: np.ndarray  # 1 high printed first, 0 low first, -1 unknown
     avail: np.ndarray  # 1m bar index at whose close the candle is complete
+    first: np.ndarray  # 1m bar index of the candle's first bar
+    last: np.ndarray  # 1m bar index of the candle's last bar (avail can be later when its last minute is missing)
 
     def __len__(self) -> int:
         return len(self.o)
@@ -55,9 +57,10 @@ def build_candles(df: pd.DataFrame, tf: str) -> Candles:
     o, h, l, c = (to_ticks(df[k]) for k in ("open", "high", "low", "close"))
     if n == 0:
         none = np.zeros(0, dtype=np.int64)
-        return Candles(pd.DatetimeIndex([], tz="UTC"), none, none, none, none, none, none)
+        return Candles(pd.DatetimeIndex([], tz="UTC"), none, none, none, none, none, none, none, none)
     if tf == "1m":
-        return Candles(pd.DatetimeIndex(df["ts"]), o, h, l, c, np.full(n, UNKNOWN), np.arange(n))
+        idx = np.arange(n)
+        return Candles(pd.DatetimeIndex(df["ts"]), o, h, l, c, np.full(n, UNKNOWN), idx, idx, idx)
     minutes = TIMEFRAMES[tf]
     sess = df["sess_minute"].to_numpy()
     day = pd.factorize(df["trading_day"])[0].astype(np.int64)
@@ -79,7 +82,7 @@ def build_candles(df: pd.DataFrame, tf: str) -> Candles:
     avail = np.where(last_minute[end], end, end + 1)
     done = avail < n  # the last candle is left out until it is complete: it may still print new prices
     return Candles(pd.DatetimeIndex(df["ts"].to_numpy()[start[done]]), o[start[done]], hi[done], lo[done],
-                   c[end[done]], order[done], avail[done])
+                   c[end[done]], order[done], avail[done], start[done], end[done])
 
 
 @dataclass
@@ -133,21 +136,25 @@ def _process(stack: list[Point], cd: Candles, k: int, high_first: int, is_low: b
 
 
 def _record(stack: list[Point], state: dict[str, np.ndarray], k: int) -> None:
-    """State after candle k: the newest swing high and swing low in the structure."""
-    for p in stack[-1:-3:-1]:
-        key = "sh" if p.kind == HIGH else "sl"
+    """State after candle k: the newest and the previous swing high and swing low in the structure
+    (points alternate, so they are the top four of the stack)."""
+    seen = {HIGH: 0, LOW: 0}
+    for p in stack[-1:-5:-1]:
+        key = ("sh" if p.kind == HIGH else "sl") + ("" if seen[p.kind] == 0 else "2")
+        seen[p.kind] += 1
         state[f"{key}_price"][k], state[f"{key}_candle"][k] = p.price, p.candle
 
 
 def detect(cd: Candles) -> tuple[list[Point], dict[str, np.ndarray]]:
     """Run the rule over all candles. Returns the final swing points and the state as known after each candle's
-    processing (candle k is processed when candle k+1 closes): last swing high / low price (ticks) and candle,
-    or -1 when none yet."""
+    processing (candle k is processed when candle k+1 closes): last swing high / low price (ticks) and candle
+    (sh, sl) and the ones before them (sh2, sl2), or -1 when none."""
     n = len(cd)
     ev_hi = np.full(2 * n, -np.inf)  # high of a high event; -inf on low events
     ev_lo = np.full(2 * n, np.inf)
     stack: list[Point] = []
-    state = {k: np.full(n, -1, dtype=np.int64) for k in ("sh_price", "sh_candle", "sl_price", "sl_candle")}
+    state = {f"{key}_{f}": np.full(n, -1, dtype=np.int64) for key in ("sh", "sl", "sh2", "sl2")
+             for f in ("price", "candle")}
     for k in range(n):
         is_low = 0 < k < n - 1 and cd.l[k - 1] >= cd.l[k] and cd.l[k + 1] > cd.l[k]
         is_high = 0 < k < n - 1 and cd.h[k - 1] <= cd.h[k] and cd.h[k + 1] < cd.h[k]
@@ -185,15 +192,16 @@ def swing_points(df: pd.DataFrame, tf: str = "1m") -> pd.DataFrame:
     })
 
 
-def swing_state(df: pd.DataFrame, tf: str = "1m") -> pd.DataFrame:
+def swing_state(df: pd.DataFrame, tf: str = "1m", prev: bool = False) -> pd.DataFrame:
     """Point-in-time swing state for every 1m bar of df: the last swing high and swing low as they were known at
     that bar's close. Safe for signals. NaN until a swing exists, and NaN again when rule 4 removes it. The newest
-    point can still be replaced (rule 5)."""
+    point can still be replaced (rule 5). prev=True adds the swing high and low before them ({tf}_sh2, {tf}_sl2)."""
+    cols = ("sh", "sl", "sh2", "sl2") if prev else ("sh", "sl")
     cd = build_candles(df, tf)
     n = len(df)
     out = pd.DataFrame(index=df.index)
     if len(cd) == 0:  # warm-up: no candle is complete yet
-        for col in ("sh", "sl"):
+        for col in cols:
             out[f"{tf}_{col}"] = np.nan
             out[f"{tf}_{col}_ts"] = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns, UTC]")
         return out
@@ -205,7 +213,7 @@ def swing_state(df: pd.DataFrame, tf: str = "1m") -> pd.DataFrame:
     src[when[updated]] = updated  # several candles on one bar: the last one wins
     src = np.maximum.accumulate(src)  # each bar shows the newest full snapshot, never a mix of old and new
     known = src >= 0
-    for col in ("sh", "sl"):
+    for col in cols:
         candle = np.where(known, st[f"{col}_candle"][np.maximum(src, 0)], -1)
         ok = candle >= 0
         price = np.where(ok, st[f"{col}_price"][np.maximum(src, 0)] * TICK, np.nan)

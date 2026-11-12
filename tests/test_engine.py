@@ -157,3 +157,178 @@ def test_path_records_open_and_worst_per_bar():
     opened, worst = t["path"].iat[0]
     assert list(np.round(opened + 4.04, 2)) == [0, 50, -3000]
     assert list(np.round(worst + 4.04, 2)) == [-20, -100, -3100]  # low 66.90 before the 67.00 close exit
+
+
+# --- trade management hook and partial exit ---
+
+def test_manage_moves_stop_from_next_bar():
+    # fill bar 1 at 70.00; bar 2 high 70.30; manage moves the stop to 70.10 once best >= 70.30 (seen from bar 3)
+    df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), (70.05, 70.30, 70.05, 70.25), (70.20, 70.22, 70.05, 70.08),
+                  FLAT])
+
+    def manage(ctx):
+        return (7010 if ctx.best >= 7030 else ctx.S), False
+
+    t = backtest(b, sig(0, target=np.nan), manage=manage)
+    assert (t["reason"].iat[0], t["exit"].iat[0], t["exit_bar"].iat[0]) == ("stop", 70.10, 3)
+
+
+def test_manage_sees_only_previous_bars():
+    seen = []
+    df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), (70.05, 70.30, 70.05, 70.25), (70.20, 70.35, 70.15, 70.30),
+                  FLAT])
+
+    def manage(ctx):
+        seen.append((ctx.m, ctx.best))
+        return ctx.S, False
+
+    backtest(b, sig(0, target=np.nan), manage=manage)
+    assert seen[:2] == [(2, 7002), (3, 7030)]  # best on bar m excludes bar m's own high
+
+
+def test_manage_close_now_exits_at_open():
+    df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), (70.05, 70.10, 70.01, 70.06), (70.04, 70.30, 70.00, 70.20)])
+    t = backtest(b, sig(0, target=np.nan), manage=lambda ctx: (ctx.S, ctx.m == 3))
+    assert (t["reason"].iat[0], t["exit"].iat[0]) == ("manage", 70.04)
+
+
+def test_manage_stop_for_short_is_in_side_space():
+    # short at 70.00, manage moves the stop down to 69.95 (side space: -6995)
+    df, b = make([FLAT, (69.98, 70.02, 69.98, 70.00), (69.95, 69.96, 69.80, 69.85), (69.85, 69.97, 69.84, 69.90)])
+    t = backtest(b, sig(0, side=-1, limit=70.00, stop=70.20, target=np.nan),
+                 manage=lambda ctx: (ctx.to_side(6995) if ctx.m >= 3 else ctx.S, False))
+    assert (t["reason"].iat[0], t["exit"].iat[0], t["net"].iat[0]) == ("stop", 69.95, pytest.approx(50 - 4.04))
+
+
+def test_partial_exit_then_target():
+    df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), (70.05, 70.21, 70.05, 70.15), (70.15, 70.40, 70.10, 70.35)])
+    t = backtest(b, sig(0, qty=2, part_qty=1, part_target=70.20))
+    r = t.iloc[0]
+    assert (r["reason"], r["exit"], r["part_exit"]) == ("target", 70.40, 70.20)
+    assert r["net"] == pytest.approx(200 + 400 - 2 * 4.04)
+
+
+def test_partial_exit_then_stop():
+    df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), (70.05, 70.21, 70.05, 70.15), (70.10, 70.12, 69.70, 69.75)])
+    t = backtest(b, sig(0, qty=2, part_qty=1, part_target=70.20))
+    r = t.iloc[0]
+    assert (r["reason"], r["exit"], r["part_exit"]) == ("stop", 69.80, 70.20)
+    assert r["net"] == pytest.approx(200 - 200 - 2 * 4.04)
+
+
+def test_stop_beats_partial_in_same_bar():
+    df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), (70.00, 70.25, 69.75, 70.00), FLAT])
+    t = backtest(b, sig(0, qty=2, part_qty=1, part_target=70.20))
+    r = t.iloc[0]
+    assert (r["reason"], r["exit"]) == ("stop", 69.80) and np.isnan(r["part_exit"])
+    assert r["net"] == pytest.approx(-400 - 2 * 4.04)
+
+
+def test_partial_needs_valid_size_and_price():
+    df, b = make([FLAT] * 3)
+    with pytest.raises(ValueError):
+        backtest(b, sig(0, qty=1, part_qty=1, part_target=70.2))
+    with pytest.raises(ValueError):
+        backtest(b, sig(0, qty=2, part_qty=1, part_target=70.6))  # beyond the target
+
+
+def test_partial_at_the_open_and_its_path():
+    df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), (70.25, 70.30, 70.01, 70.10), (70.15, 70.40, 70.10, 70.35)])
+    t = backtest(b, sig(0, qty=2, part_qty=1, part_target=70.20))
+    r = t.iloc[0]
+    assert (r["part_exit"], r["reason"], r["exit"]) == (70.25, "target", 70.40)
+    assert r["net"] == pytest.approx(250 + 400 - 2 * 4.04)
+    worst = r["path"][1]
+    assert worst[1] == pytest.approx(260 - 2 * 4.04)  # after the partial at the open, the low counts for 1 contract
+    assert r["mae"] == pytest.approx(-40 - 2 * 4.04)  # the fill bar low, both contracts
+
+
+def test_mfe_counts_the_partial_leg_at_its_exit_price():
+    df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), (70.05, 70.21, 70.05, 70.15), (70.15, 70.40, 70.10, 70.35)])
+    r = backtest(b, sig(0, qty=2, part_qty=1, part_target=70.20)).iloc[0]
+    assert r["mfe"] == pytest.approx(r["net"])  # the target was the best the trade could show
+
+
+def test_manage_sees_fewer_contracts_after_the_partial():
+    seen = []
+    df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), (70.05, 70.21, 70.05, 70.15), (70.15, 70.18, 70.10, 70.12),
+                  (70.12, 70.40, 70.10, 70.35)])
+
+    def manage(ctx):
+        seen.append(ctx.qty)
+        return ctx.S, False
+
+    backtest(b, sig(0, qty=2, part_qty=1, part_target=70.20), manage=manage)
+    assert seen == [2, 1, 1]
+
+
+def test_stop_moved_beyond_the_open_exits_at_the_open():
+    df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), (70.10, 70.20, 70.08, 70.15), (70.05, 70.30, 70.04, 70.25)])
+    t = backtest(b, sig(0, target=np.nan), manage=lambda ctx: (7006 if ctx.m == 3 else ctx.S, False))
+    assert (t["reason"].iat[0], t["exit"].iat[0], t["exit_bar"].iat[0]) == ("stop", 70.05, 3)
+
+
+def test_flatten_beats_manage_close():
+    df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), FLAT, FLAT], start="2024-03-05 15:07")
+    t = backtest(b, sig(0, target=np.nan), manage=lambda ctx: (ctx.S, True if ctx.m == 3 else False))
+    assert (t["reason"].iat[0], t["exit_bar"].iat[0]) == ("flatten", 3)
+
+
+@pytest.mark.parametrize("bad", [7010.5, float("nan")])
+def test_manage_must_return_whole_ticks(bad):
+    df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), FLAT, FLAT])
+    with pytest.raises(ValueError):
+        backtest(b, sig(0, target=np.nan), manage=lambda ctx: (bad, False))
+
+
+@pytest.mark.parametrize("side", [1, -1])
+def test_manage_accepts_stops_across_zero(side):
+    # entry at $0.10 with the stop on the other side of zero: valid, a no-op manager must not reject it
+    rows = [(0.12, 0.12, 0.08, 0.10), (0.10, 0.12, 0.08, 0.10), (0.10, 0.12, 0.08, 0.10), (0.10, 0.12, 0.08, 0.10)]
+    df, b = make(rows)
+    s = sig(0, side=side, limit=0.10, stop=0.10 - side * 0.20, target=np.nan)
+    plain = backtest(b, s)
+    managed = backtest(b, s, manage=lambda ctx: (ctx.S, False))
+    cols = ["entry", "exit", "reason", "net"]
+    assert managed[cols].equals(plain[cols])
+
+
+def test_manage_stop_at_zero_ticks_is_valid():
+    df, b = make([(0.12, 0.12, 0.08, 0.10), (0.10, 0.12, 0.08, 0.10), (0.05, 0.06, -0.02, 0.00), FLAT])
+    t = backtest(b, sig(0, limit=0.10, stop=-0.10, target=np.nan), manage=lambda ctx: (0, False))
+    assert (t["reason"].iat[0], t["exit"].iat[0]) == ("stop", 0.00)
+
+
+def make_at(minutes, rows, start="2024-03-05 08:00"):
+    """1m bars only at the given minutes after start (missing minutes)."""
+    ts = (pd.Timestamp(start, tz="America/Chicago") + pd.to_timedelta(minutes, unit="min")).tz_convert("UTC")
+    o, h, l, c = zip(*rows, strict=True)
+    df = add_session(pd.DataFrame({"ts": ts, "raw_symbol": "CLJ4", "open": o, "high": h, "low": l, "close": c,
+                                   "volume": 1, "vendor": "test"}))
+    return df, Bars.from_frame(df)
+
+
+def test_expire_min_counts_clock_time_not_bars():
+    # signal at 08:29, 15 minutes to work (until 08:44); the next bar is 09:00 and touches the limit: no fill
+    df, b = make_at([29, 60, 61], [FLAT, (70.02, 70.02, 69.98, 70.00), FLAT])
+    assert backtest(b, sig(0, expire_min=15)).empty
+    assert len(backtest(b, sig(0, expire=15))) == 1  # bar-count expiry would have filled it
+
+
+def test_expire_min_fills_inside_the_window_and_ignores_the_bar_limit():
+    df, b = make_at(list(range(40)), [FLAT] * 39 + [(70.02, 70.02, 69.98, 70.00)])
+    t = backtest(b, sig(0, expire_min=39))  # last working minute 08:39 = bar 39, past the 30-bar default
+    assert t["entry_bar"].iat[0] == 39
+    assert backtest(b, sig(0, expire_min=38)).empty
+
+
+def test_timed_order_blocks_signals_until_its_deadline_across_a_gap():
+    # Codex repro: order from 08:00 works until 08:15; bars 08:00-08:02 then 08:17. A signal at 08:02 is placed while
+    # the first order still works, so it is ignored even though the first order never fills.
+    above = (70.10, 70.12, 70.08, 70.10)
+    df, b = make_at([0, 1, 2, 17, 18], [above, above, above, (70.02, 70.02, 69.98, 70.00), FLAT])
+    first = sig(0, limit=70.00, stop=69.80, expire_min=15)
+    second = sig(2, limit=70.00, stop=69.80, expire_min=15)
+    assert backtest(b, pd.concat([first, second])).empty
+    third = sig(3, limit=70.10, stop=69.80, target=70.40, expire_min=15)  # 08:17: after the deadline, accepted
+    assert list(backtest(b, pd.concat([first, third]))["signal_bar"]) == [3]

@@ -6,6 +6,11 @@ A strategy is strategies/<name>.py defining class Strategy(Base):
     GRID              optional {param: [values]} for later optimisation
     signals(df, p)    vectorised over every bar of df (add_session columns present); returns the engine's
                       signal frame indexed by bar position (see cltester.engine)
+    manage(ctx)       optional trade management per held bar (cltester.engine.Ctx): returns (stop, close_now)
+    day_rules(t, p)   optional daily stop rules on the backtest's trades (e.g. stop after N trades or 2 losses).
+                      It may only cut off the REST of a day once a rule trips: a skipped trade would have blocked
+                      the signals after it, so skipping one and keeping later ones gives a trade list the engine
+                      could never produce.
 Signals must only use information up to and including bar i: the order works from bar i+1.
 Swing points: only cltester.swings.swing_state (owner rule, point-in-time). See docs/SWINGS.md.
 """
@@ -27,6 +32,11 @@ class Base:
 
     def signals(self, df: pd.DataFrame, p: dict) -> pd.DataFrame:
         raise NotImplementedError
+
+    manage = None  # optional: def manage(self, ctx) -> (stop_ticks_side_space, close_now)
+
+    def day_rules(self, trades: pd.DataFrame, p: dict) -> pd.DataFrame:
+        return trades
 
 
 def load(name: str) -> Base:

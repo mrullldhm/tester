@@ -35,7 +35,7 @@ adjustable swing settings. Tests: `tests/test_swings.py`.
 - The newest point can still be replaced (rule 5) or removed (rule 4) by later candles. Earlier points can be
   removed only through rule 4 (rare).
 - `swing_state(df, tf)`: per 1m bar, the last swing high and swing low **as known at that bar's close**. Use it for
-  signals. `swing_points(df, tf)` is the final structure after all data: charts and studies only.
+  signals; `prev=True` adds the swing high and low before them (`{tf}_sh2`, `{tf}_sl2`). `swing_points(df, tf)` is the final structure after all data: charts and studies only.
 - An unfinished candle is ignored until it is complete, so it can never act as a right candle.
 - Every update publishes the full state. A point removed by rule 4 shows as empty (NaN) from that bar on. An old
   level is never carried forward after it was removed.

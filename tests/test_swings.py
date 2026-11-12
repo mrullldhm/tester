@@ -154,3 +154,17 @@ def test_empty_frame_gives_empty_results(tf):
     assert swing_points(df, tf).empty
     st = swing_state(df, tf)
     assert st.empty and list(st.columns) == [f"{tf}_sh", f"{tf}_sh_ts", f"{tf}_sl", f"{tf}_sl_ts"]
+
+
+def test_state_prev_gives_the_points_before_the_last():
+    df = bars(ZIGZAG + [(70.40, 70.20), (70.70, 70.50), (70.60, 70.45)])
+    st = swing_state(df, "1m", prev=True)
+    pts = points(df)
+    last = st.iloc[-1]
+    highs = [p for k, p in pts if k == "SH"]
+    lows = [p for k, p in pts if k == "SL"]
+    assert (last["1m_sh"], last["1m_sh2"]) == (highs[-1], highs[-2])
+    assert (last["1m_sl"], last["1m_sl2"]) == (lows[-1], lows[-2])
+    plain = swing_state(df, "1m")
+    assert list(plain.columns) == ["1m_sh", "1m_sh_ts", "1m_sl", "1m_sl_ts"]
+    assert plain["1m_sh"].equals(st["1m_sh"]) and plain["1m_sl"].equals(st["1m_sl"])
