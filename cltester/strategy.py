@@ -7,6 +7,7 @@ A strategy is strategies/<name>.py defining class Strategy(Base):
     signals(df, p)    vectorised over every bar of df (add_session columns present); returns the engine's
                       signal frame indexed by bar position (see cltester.engine)
 Signals must only use information up to and including bar i: the order works from bar i+1.
+Swing points: only cltester.swings.swing_state (owner rule, point-in-time). See docs/SWINGS.md.
 """
 
 import hashlib

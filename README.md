@@ -26,9 +26,9 @@ results/ledger.csv       one row per run, never deleted
 
 | Path | What |
 |---|---|
-| `cltester/` | the toolkit: `config` (contract, costs, Topstep rules, periods), `data`, `update`, `engine`, `topstep`, `metrics`, `strategy`, `cli` |
+| `cltester/` | the toolkit: `config` (contract, costs, Topstep rules, periods), `data`, `update`, `engine`, `topstep`, `metrics`, `swings` (owner swing rule), `strategy`, `cli` |
 | `strategies/` | one file per strategy; `template.py` is a plumbing check only |
-| `docs/` | `PROTOCOL.md` (how research is done), `TOPSTEP.md` (rules + what to verify), `ENGINE.md` (fill rules), `DATA.md` |
+| `docs/` | `PROTOCOL.md` (how research is done), `TOPSTEP.md` (rules + what to verify), `ENGINE.md` (fill rules), `SWINGS.md` (mandatory swing rule), `DATA.md` |
 | `docs/strategies/<name>/` | hypothesis and results per strategy (`TEMPLATE.md`) |
 | `tests/` | one test per fill rule and Combine rule |
 | `data/` | paid bars, local only |
