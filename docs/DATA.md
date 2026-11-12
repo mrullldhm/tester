@@ -25,8 +25,9 @@
 .venv/bin/python -m cltester.cli update --source massive
 ```
 
-Databento costs money: show the owner the quote and get a yes before `--yes`. A Databento update replaces any Massive
-bars it now covers. Every update is checked: on the $0.01 tick, low ≤ open/close ≤ high, unique times, CL only.
+Databento costs money: show the owner the quote and get a yes before `--yes`. Only one update runs at a time
+(`data/.update.lock`), and files are written to a temp name then renamed, so a crash never leaves half a file.
+A Databento update replaces any Massive bars it now covers. Every update is checked: on the $0.01 tick, low ≤ open/close ≤ high, unique times, CL only.
 
 ## Known facts
 

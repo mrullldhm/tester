@@ -23,10 +23,12 @@ owner's Topstep dashboard or help.topstep.com, and this file and `config.py` upd
 
 ## How the simulator applies them
 
-1. Trades come from the engine with net P&L and MAE (worst open P&L, fees included).
-2. Within a day, for each trade in order: if the day's realized P&L plus the trade's MAE reaches −DLL and the DLL
-   level is above the MLL, the trade is closed at the DLL and the day ends. Otherwise, if balance + day's realized +
-   MAE ≤ MLL, the account **fails**.
+1. Trades come from the engine with net P&L and a per-bar path (open and worst P&L, fees included).
+2. Within a day, each trade is walked bar by bar:
+   - A bar that **opens** at or past a limit executes at the open: below the MLL the account **fails**; below only
+     the DLL the trade is liquidated at that open price (worse than the DLL) and the day ends.
+   - Inside a bar price moves continuously, so the higher limit is hit first: DLL first means liquidation at exactly
+     −DLL for the day; MLL first means the account **fails**.
 3. End of day: balance += day P&L; MLL = min(max(MLL, highest EOD balance − $2,000), $50,000).
 4. Pass at end of day when profit ≥ max($3,000, best day / 0.55).
 

@@ -93,7 +93,7 @@ def cmd_test(a: argparse.Namespace) -> None:
 
     out = RESULTS / a.name
     out.mkdir(parents=True, exist_ok=True)
-    trades.to_csv(out / f"{a.period}_{h}.csv", index=False)
+    trades.drop(columns="path").to_csv(out / f"{a.period}_{h}.csv", index=False)
     row = {"utc": datetime.now(UTC).isoformat(timespec="seconds"), "strategy": a.name, "hash": h,
            "period": a.period, "params": json.dumps(p, sort_keys=True),
            **{k: stats.get(k) for k in ("trades", "net", "profit_factor", "win_rate", "max_drawdown")},

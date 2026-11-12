@@ -1,9 +1,11 @@
 """Topstep Trading Combine pass/fail simulator over a backtest's trades. Rules: docs/TOPSTEP.md.
 
-Per trade the engine gives net P&L and MAE (worst open P&L incl. fees). Within a day:
-  - DLL (when enabled): day's realized + trade MAE <= -DLL -> trade closed at the DLL, no more trades that day.
-  - MLL: balance + day's realized + trade MAE <= MLL at any moment -> account fails.
-  When both are reached in one trade, the higher level is hit first.
+Per trade the engine gives net P&L and its path: open and worst P&L of every held bar (fees included).
+Within a day, walking each trade bar by bar:
+  - a bar that opens at or through a limit executes at the open (a gap does not stop at the limit);
+  - inside a bar, price moves continuously, so the higher of the two limits is hit first;
+  - MLL hit (balance + day realized + open P&L <= MLL) -> account fails;
+  - DLL hit (when enabled; day realized + open P&L <= -DLL) -> trade liquidated there, no more trades that day.
 End of day: balance += day P&L; MLL = min(max(MLL, highest EOD balance - max_loss), mll_lock).
 Pass at end of day: profit >= max(target, best_day / consistency).
 """
@@ -32,9 +34,25 @@ def _by_day(trades: pd.DataFrame, rules: Combine) -> dict:
     if len(trades) and trades["qty"].max() > rules.max_contracts:
         raise ValueError(f"trade size above {rules.max_contracts} contracts")
     out = defaultdict(list)
-    for d, net, mae in zip(trades["trading_day"], trades["net"], trades["mae"], strict=True):
-        out[pd.Timestamp(d)].append((float(net), float(mae)))
+    paths = trades["path"] if "path" in trades else [(np.array([0.0]), np.array([m])) for m in trades["mae"]]
+    for d, net, path in zip(trades["trading_day"], trades["net"], paths, strict=True):
+        out[pd.Timestamp(d)].append((float(net), path))
     return out
+
+
+def _walk(path: tuple, fail_at: float, dll_at: float | None) -> tuple[str, float]:
+    """Walk one trade's bars. fail_at / dll_at: trade P&L at which MLL / DLL is hit.
+    Returns ("fail", pnl) | ("dll", pnl at liquidation) | ("ok", 0.0)."""
+    for opened, worst in zip(path[0], path[1], strict=True):
+        if opened <= fail_at:
+            return "fail", float(opened)
+        if dll_at is not None and opened <= dll_at:
+            return "dll", float(opened)
+        if dll_at is not None and dll_at >= fail_at and worst <= dll_at:
+            return "dll", dll_at
+        if worst <= fail_at:
+            return "fail", fail_at
+    return "ok", 0.0
 
 
 def run_attempt(per_day: dict, days: list[pd.Timestamp], k0: int, rules: Combine = COMBINE_50K) -> Attempt:
@@ -46,14 +64,14 @@ def run_attempt(per_day: dict, days: list[pd.Timestamp], k0: int, rules: Combine
         trades = per_day.get(days[k], ())
         day = 0.0
         active += bool(trades)
-        for net, mae in trades:
-            # equity falls to bal + day + mae; whichever limit sits higher is hit first
-            if dll is not None and day + mae <= -dll and bal - dll > mll:
-                day = -dll
-                break
-            if bal + day + mae <= mll:
-                return Attempt(days[k0], days[k], "fail", k - k0 + 1, active, bal + day + mae - rules.start_balance,
+        for net, path in trades:
+            hit, pnl = _walk(path, mll - bal - day, None if dll is None else -dll - day)
+            if hit == "fail":
+                return Attempt(days[k0], days[k], "fail", k - k0 + 1, active, bal + day + pnl - rules.start_balance,
                                max(best, 0.0))
+            if hit == "dll":
+                day += pnl
+                break
             day += net
         bal += day
         if trades:

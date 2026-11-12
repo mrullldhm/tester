@@ -42,3 +42,14 @@ def test_holdout_guard_covers_overlapping_periods():
 
     assert _touches_holdout("holdout") and _touches_holdout("all")
     assert not any(_touches_holdout(p) for p in ("dev", "validation", "forward"))
+
+
+def test_second_update_is_refused_while_one_runs():
+    import fcntl
+
+    from cltester import update
+
+    with open(DATA_DIR.parent / ".update.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        with pytest.raises(SystemExit, match="another update"):
+            update.run("massive")

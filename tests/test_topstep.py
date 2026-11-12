@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -63,3 +64,29 @@ def test_contract_cap():
 def test_sequential_restarts_after_fail():
     s = sequential(trades([(0, -100, -2000), (1, 1600, -10), (2, 1450, -10)]), DAYS)
     assert list(s["outcome"]) == ["fail", "pass", "open"]
+
+
+def path_trade(day, opens, worsts, net):
+    return {"trading_day": DAYS[day], "net": net, "mae": min(worsts), "qty": 1,
+            "path": (np.array(opens, float), np.array(worsts, float))}
+
+
+def test_gap_through_both_limits_fails_even_with_dll():
+    rules = Combine(daily_loss=1000)
+    t = pd.DataFrame([path_trade(0, [0, 50, -3004], [-20, -100, -3004], -3004)])
+    a = run_attempt(_by_day(t, rules), DAYS, 0, rules)
+    assert a.outcome == "fail"
+
+
+def test_gap_past_dll_liquidates_at_open_price():
+    rules = Combine(daily_loss=1000)
+    t = pd.DataFrame([path_trade(0, [0, -1500], [-20, -1600], -1600), path_trade(0, [0], [0], 500)])
+    a = run_attempt(_by_day(t, rules), DAYS, 0, rules)
+    assert a.outcome == "open" and a.profit == pytest.approx(-1500)  # gap to -1,500, not the -1,000 limit
+
+
+def test_intrabar_move_liquidates_at_dll_level():
+    rules = Combine(daily_loss=1000)
+    t = pd.DataFrame([path_trade(0, [0, -200], [-20, -2500], -2500)])
+    a = run_attempt(_by_day(t, rules), DAYS, 0, rules)
+    assert a.outcome == "open" and a.profit == pytest.approx(-1000)

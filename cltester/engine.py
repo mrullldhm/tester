@@ -23,7 +23,9 @@ class Fills:
 
 
 TRADE_COLUMNS = ["signal_bar", "entry_bar", "exit_bar", "entry_ts", "exit_ts", "trading_day", "side", "qty",
-                 "entry", "exit", "reason", "ticks", "gross", "fee", "net", "mae", "mfe"]
+                 "entry", "exit", "reason", "ticks", "gross", "fee", "net", "mae", "mfe", "path"]
+# path: (open P&L per held bar, worst P&L per held bar) in $ incl. fee; first entry = the fill bar.
+# The Combine simulator walks it so a gap through a loss limit executes at the open, not at the limit.
 
 
 def _prepare(signals: pd.DataFrame, n: int) -> pd.DataFrame:
@@ -80,12 +82,14 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills()) -> pd.Da
         if entry_bar < 0:
             next_free = last_active
             continue
-        # --- position ---
-        j, worst, best = entry_bar, l[entry_bar], h[entry_bar]
-        X, reason, exit_bar = None, "", -1
+        # --- position: per held bar, the open and worst price feed the Combine path check ---
+        j = entry_bar
+        X, reason = None, ""
+        p_open, p_worst = [E], [l[j]]
+        best = h[j]
         if l[j] <= S:  # stop on the fill bar: assume it came after the fill
             X, reason = min(E, S), "stop"
-            worst = X  # the bar low before the fill is not part of the trade
+            p_worst[0] = X  # the bar low before the fill is not part of the trade
         m = j
         while X is None:
             if m > j:
@@ -93,15 +97,21 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills()) -> pd.Da
                     X, reason = o[m], "flatten"
                 elif o[m] <= S:
                     X, reason = o[m], "stop"
+                elif T is not None and o[m] >= T:
+                    X, reason = o[m], "target"
                 elif l[m] <= S:
-                    X, reason = S, "stop"
+                    X, reason = S, "stop"  # stop and target in one bar: stop first
                 elif T is not None and h[m] >= T:
-                    X, reason = max(o[m], T), "target"  # a gap beyond the target fills at the open
-                if reason == "target":
-                    worst, best = min(worst, l[m]), max(best, h[m])  # the low may have come before the target
+                    X, reason = T, "target"
+                p_open.append(o[m])
+                if X is not None and X == o[m]:
+                    p_worst.append(X)  # exit at the open: nothing after it counts
+                    best = max(best, X)
+                    break
+                p_worst.append(S if reason == "stop" else l[m])
+                best = max(best, h[m]) if X is None or reason == "target" else best
                 if X is not None:
                     break
-                worst, best = min(worst, l[m]), max(best, h[m])
             if m == n - 1:
                 X, reason = c[m], "data_end"
             elif hold is not None and m - j >= hold:
@@ -113,13 +123,15 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills()) -> pd.Da
             else:
                 m += 1
         exit_bar = m
-        worst, best = min(worst, X), max(best, X)
-        ticks = int(X - E)
+        p_worst[-1] = min(p_worst[-1], X)
+        best = max(best, X)
+        usd = TICK_VALUE * qty
         fee = fills.fee * qty
+        ticks = int(X - E)
+        path = ((np.array(p_open) - E) * usd - fee, (np.array(p_worst) - E) * usd - fee)
         rows.append((i, entry_bar, exit_bar, bars.ts[entry_bar], bars.ts[exit_bar], bars.trading_day[entry_bar], side,
-                     qty, side * E * TICK, side * X * TICK, reason, ticks, ticks * TICK_VALUE * qty, fee,
-                     ticks * TICK_VALUE * qty - fee, (worst - E) * TICK_VALUE * qty - fee,
-                     (best - E) * TICK_VALUE * qty - fee))
+                     qty, side * E * TICK, side * X * TICK, reason, ticks, ticks * usd, fee, ticks * usd - fee,
+                     float(path[1].min()), (best - E) * usd - fee, path))
         next_free = exit_bar
     out = pd.DataFrame(rows, columns=TRADE_COLUMNS)
     out["entry"] = out["entry"].round(2)

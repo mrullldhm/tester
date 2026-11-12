@@ -9,6 +9,7 @@ continuous symbol, so the same rule is rebuilt from its outrights. Databento is 
 update first replaces any Massive bars it now covers. Keys come from .env. CL only: every other root is refused.
 """
 
+import fcntl
 import hashlib
 import json
 import os
@@ -173,11 +174,24 @@ def store(new: pd.DataFrame, replace_from: pd.Timestamp, source: str) -> None:
         "utc": datetime.now(UTC).isoformat(timespec="seconds"), "source": source,
         "replaced_from": str(replace_from), "rows_added": len(new),
         "first": str(new["ts"].min()), "last": str(new["ts"].max())})
-    MANIFEST.write_text(json.dumps(man, indent=2))
+    tmp = MANIFEST.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(man, indent=2))
+    os.replace(tmp, MANIFEST)
     print(f"[update] stored {len(new):,} bars {new['ts'].min()} -> {new['ts'].max()}")
 
 
 def run(source: str = "databento", end: str | None = None, yes: bool = False) -> None:
+    """One update at a time: the lock covers reading the last bar through writing the files, so a second
+    update cannot overwrite newer bars with an older download."""
+    with open(DATA_DIR.parent / ".update.lock", "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit("another update is running; try again when it finishes") from None
+        _run(source, end, yes)
+
+
+def _run(source: str, end: str | None, yes: bool) -> None:
     stop = pd.Timestamp(end, tz="UTC") if end else None
     last_year = max(int(p.stem[5:]) for p in DATA_DIR.glob("year=*.parquet"))
     tail = load_bars(f"{last_year - 1}-01-01")

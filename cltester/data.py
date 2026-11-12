@@ -5,6 +5,7 @@ Front month (raw_symbol) = Databento CL.v.0: highest previous-UTC-day volume, sw
 Prices are not back-adjusted: a raw_symbol change is a price jump, so the engine never holds across it.
 """
 
+import os
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -26,7 +27,9 @@ def write_year(df: pd.DataFrame, year: int) -> Path:
     if not out["ts"].is_unique:
         raise ValueError(f"duplicate bar times in {year}")
     path = year_path(year)
-    out.to_parquet(path, index=False)
+    tmp = path.with_suffix(".parquet.tmp")
+    out.to_parquet(tmp, index=False)
+    os.replace(tmp, path)  # readers never see a half-written file
     return path
 
 

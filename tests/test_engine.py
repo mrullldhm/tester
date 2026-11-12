@@ -141,3 +141,19 @@ def test_open_trade_at_end_of_data_is_data_end():
     df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), (70.05, 70.10, 70.01, 70.09)])
     t = backtest(b, sig(0))
     assert (t["reason"].iat[0], t["exit"].iat[0]) == ("data_end", 70.09)
+
+
+def test_target_at_open_beats_later_stop_in_same_bar():
+    df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), (70.50, 70.55, 69.70, 69.75), FLAT])
+    t = backtest(b, sig(0))
+    r = t.iloc[0]
+    assert (r["reason"], r["exit"]) == ("target", 70.50)
+    assert r["mae"] == pytest.approx(-20 - 4.04)  # fill bar low 69.98; the later 69.70 is after the exit
+
+
+def test_path_records_open_and_worst_per_bar():
+    df, b = make([FLAT, (70.02, 70.02, 69.98, 70.00), (70.05, 70.10, 69.90, 70.00), (67.00, 67.10, 66.90, 67.00)])
+    t = backtest(b, sig(0, stop=60.0, target=80.0))
+    opened, worst = t["path"].iat[0]
+    assert list(np.round(opened + 4.04, 2)) == [0, 50, -3000]
+    assert list(np.round(worst + 4.04, 2)) == [-20, -100, -3100]  # low 66.90 before the 67.00 close exit

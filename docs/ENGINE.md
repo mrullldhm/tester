@@ -22,24 +22,29 @@ traded price, so the stop fills there.
 | Limit entry | low ≤ limit (a touch fills) | min(open, limit) |
 | Stop on the fill bar | low of the fill bar ≤ stop (assume the low came after the fill) | min(entry, stop) |
 | Flatten | first bar at or after 3:10 PM CT | open |
-| Stop | open ≤ stop | open (gap) |
+| Stop at the open | open ≤ stop | open (gap) |
+| Target at the open | open ≥ target | open (gap in our favour) |
 | Stop | low ≤ stop | stop |
-| Target (limit) | high ≥ target (a touch fills) | max(open, target) |
-| Stop and target in one bar | stop first (worst case) | stop |
+| Target (limit) | high ≥ target (a touch fills) | target |
+| Stop and target both inside one bar | stop first (worst case) | stop |
 | Target on the fill bar | not allowed (unknown order inside the bar) | — |
 | Time exit (`hold`) | `hold` bars after the fill bar | close |
 | Contract change | last bar before `raw_symbol` changes | close |
 | Day end | last bar of the trading day (early-close holidays end before 3:10 PM) | close |
 | End of data | last bar loaded, position still open | close |
 
-Check order per bar after the fill bar: flatten, stop, target, then end of data / time / roll / day end at the close.
+Check order per bar after the fill bar: flatten, stop at open, target at open, stop inside the bar, target inside
+the bar, then end of data / time / roll / day end at the close. The open is the first price of the bar, so an exit
+there happens before anything else in that bar.
 
 ## Money
 
 - CL: tick $0.01 = $10 per contract. Prices are compared as integer ticks.
 - Fee $4.04 per contract round turn, charged in `net`, `mae` and `mfe`.
 - `mae`: worst open P&L during the trade from bar lows (longs) incl. fee, used by the Combine MLL check.
-  On a stop or flatten bar the exit price is the worst point; on other exit bars the whole bar counts.
+  An exit at the open counts only the open; a stop inside the bar counts the stop; other exit bars count the whole bar.
+- `path`: per held bar, (open P&L, worst P&L) incl. fee. The Combine simulator walks it so a gap through a loss
+  limit executes at the open price. Not written to the trade CSV.
   The exit price always counts, so MAE is never better than the realized result.
 
 ## Why these rules
