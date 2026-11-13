@@ -35,8 +35,9 @@ predicts the next 2R move. The source shows only screenshots of its own backtest
   6.7e-6 × CL price (≈ 0.05 tick at $70): 20 pts ≈ 1 tick, 400 pts ≈ 19 ticks, 100 pts ≈ 5 ticks. Assumption.
 
 ## Parameters and trial budget
-Source defaults only, 1 combination on dev, plus 1 check of the point-scaling assumption (3× wider,
-pt_frac 2.0e-5) because that mapping is mine, not the source's. Total 2. Validation only if it passes the dev gates.
+Source defaults, 1 combination on dev, plus 1 owner variant: every score component must agree (`min_conf` 7 =
+trend + BOS/CISD + discount/premium + FVG + order block + 2× daily bias; the maximum score, so the other side is 0).
+Total 2. Validation only if it passes the dev gates.
 
 ## Pass criteria
 PROTOCOL.md dev gates and beating the ~$5/trade touch-fill bias.
@@ -45,10 +46,9 @@ PROTOCOL.md dev gates and beating the ~$5/trade touch-fill bias.
 | Date | Period | Fills | Trades | Net | PF | Pass rate | Cost/pass | Note |
 |---|---|---|---|---|---|---|---|---|
 | 2026-11-13 | dev | touch | 8507 | -115,902 | 0.783 | 0.2% | — | source defaults, pt_frac 6.7e-6 |
-| 2026-11-13 | dev | touch | 8289 | -95,019 | 0.843 | 5.5% | — | assumption check: points 3× wider |
 
-All in-sample, 2 tried. Loses even before fees (gross −$3.15 per contract per trade); win rate 57% comes from
-tiny trailed wins, the losses are full stops. Years positive 0/12 and 2/12. Spot check: 400 trades vs raw bars,
+All in-sample. Loses even before fees (gross −$3.15 per contract per trade); win rate 57% comes from
+tiny trailed wins, the losses are full stops. Years positive 0/12. Spot check: 400 trades vs raw bars,
 0 problems. Validation not run.
 
 Re-run 2026-11-13 after the review removed a look-ahead (the daily-bias tolerance used the median price of the
@@ -60,7 +60,6 @@ before, missing minutes stretched them). These rows replace the ones above; the 
 | Period | Trades | Net | PF | Years + | Pass rate | Note |
 |---|---|---|---|---|---|---|
 | dev | 8502 | -115,133 | 0.783 | 0/12 | 0.4% | source defaults |
-| dev | 8281 | -89,984 | 0.848 | 1/12 | 3.9% | points 3× wider |
 
 Re-run 2026-11-13 after Codex review round 5: (a) a timed order now blocks new signals until its deadline even
 across a data gap; (b) candles belong to their own trading day, signals from a candle that only completes in the next
@@ -69,7 +68,6 @@ session are dropped, and day levels come from raw bars. These rows replace all e
 | Period | Trades | Net | PF | Years + | Pass rate | Note |
 |---|---|---|---|---|---|---|
 | dev | 8496 | -117,656 | 0.779 | 0/12 | 0.4% | source defaults |
-| dev | 8283 | -91,674 | 0.845 | 1/12 | 4.0% | points 3× wider |
 
 Re-run 2026-11-13 after Codex review round 6: a profitable partial exit now resets the 2-losses-in-a-row count
 (as the source counts closing deals). Replaces the rows above.
@@ -77,4 +75,14 @@ Re-run 2026-11-13 after Codex review round 6: a profitable partial exit now rese
 | Period | Trades | Net | PF | Years + | Pass rate | Note |
 |---|---|---|---|---|---|---|
 | dev | 8499 | -117,599 | 0.779 | 0/12 | 0.4% | source defaults |
-| dev | 8288 | -91,017 | 0.846 | 2/12 | 4.0% | points 3× wider |
+
+Owner variant 2026-11-13: trade only when every score component agrees (`min_conf` 7, the maximum score). Run after
+the rows above, same code. Spot check: 400 trades vs raw bars, 0 problems; all 12,746 signals score 7 against 0.
+
+| Period | Trades | Net | PF | Years + | Pass rate | Note |
+|---|---|---|---|---|---|---|
+| dev | 3190 | -54,915 | 0.771 | 0/12 | 0.0% | all components (score 7) |
+
+Fewer trades, so it loses less in total, but per trade it is worse (PF 0.771 against 0.779; −$17.21 per trade, gross
+−$6.60 per trade before fees). Requiring full confluence does not add edge. Status stays dropped.
+
