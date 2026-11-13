@@ -40,7 +40,8 @@ def test_day_rules_default_keeps_every_trade():
     assert s.day_rules(t, s.PARAMS).equals(t)
 
 
-NEW = ["xtley_gap", "swapnil_momentum", "swapnil_hm", "ict_ea", "scribd_supertrend", "purple_pa"]
+NEW = ["xtley_gap", "swapnil_momentum", "swapnil_hm", "ict_ea", "scribd_supertrend", "purple_pa",
+       "swing_point_failure"]
 
 
 @pytest.mark.parametrize("name", NEW)
@@ -54,7 +55,7 @@ def test_warm_up_without_a_complete_candle_gives_no_trades(name, n_bars):
     s = load(name)
     sig = s.signals(df, s.PARAMS)
     assert len(sig) == 0
-    assert len(s.day_rules(backtest(Bars.from_frame(df), sig, manage=s.manage), s.PARAMS)) == 0
+    assert len(s.day_rules(backtest(Bars.from_frame(df), sig, manage=s.manage, overlap=s.OVERLAP), s.PARAMS)) == 0
 
 
 def sparse_frame(minutes, closes, opens, day="2024-03-05"):
@@ -87,7 +88,7 @@ def test_sparse_random_data_runs_end_to_end(name):
         p = s.PARAMS if tf_value is None else {**s.PARAMS, "tf": tf_value}
         sig = s.signals(df, p)
         assert sig.index.is_unique
-        s.day_rules(backtest(Bars.from_frame(df), sig, manage=s.manage), p)
+        s.day_rules(backtest(Bars.from_frame(df), sig, manage=s.manage, overlap=s.OVERLAP), p)
 
 
 def test_momentum_order_expires_after_one_candle_of_clock_time():

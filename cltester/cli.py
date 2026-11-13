@@ -80,7 +80,7 @@ def cmd_test(a: argparse.Namespace) -> None:
         raise SystemExit(f"no bars in period {a.period} yet; nothing tested, ledger unchanged")
     bars = Bars.from_frame(df)
     fills = Fills()
-    trades = strat.day_rules(backtest(bars, strat.signals(df, p), fills, strat.manage), p)
+    trades = strat.day_rules(backtest(bars, strat.signals(df, p), fills, strat.manage, overlap=strat.OVERLAP), p)
     days = topstep.trading_days(df)
     stats = metrics.summary(trades, days)
     combine = topstep.summary(topstep.rolling(trades, days), topstep.sequential(trades, days), days)

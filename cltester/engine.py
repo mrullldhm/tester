@@ -52,8 +52,10 @@ class Ctx:
 
 
 TRADE_COLUMNS = ["signal_bar", "entry_bar", "exit_bar", "entry_ts", "exit_ts", "trading_day", "side", "qty",
-                 "entry", "exit", "reason", "ticks", "part_exit", "gross", "fee", "net", "mae", "mfe", "path"]
-# ticks: exit - entry of the final leg per contract (side-adjusted). part_exit: price of the partial exit or NaN.
+                 "entry", "exit", "reason", "ticks", "part_exit", "part_bar", "part_qty", "gross", "fee", "net", "mae",
+                 "mfe", "path"]
+# ticks: exit - entry of the final leg per contract (side-adjusted). part_exit: price of the partial exit or NaN;
+# part_bar / part_qty: its bar and contracts (-1 / 0 without a partial).
 # path: (open P&L per held bar, worst P&L per held bar) in $ incl. fee; first entry = the fill bar.
 # The Combine simulator walks it so a gap through a loss limit executes at the open, not at the limit.
 
@@ -73,6 +75,8 @@ def _prepare(signals: pd.DataFrame, n: int) -> pd.DataFrame:
         raise ValueError("side must be +1 or -1")
     if not np.isfinite(s[["limit", "stop"]].to_numpy(float)).all():
         raise ValueError("limit and stop must be finite prices")
+    if not np.isfinite(s[["qty", "expire", "part_qty"]].to_numpy(float)).all():
+        raise ValueError("qty, expire and part_qty must be finite")
     if (s["qty"] < 1).any() or (s["expire"] < 1).any() or (s["hold"] < 0).any() or (s["expire_min"] < 1).any():
         raise ValueError("qty, expire and expire_min must be >= 1, hold >= 0")
     pq, q = s["part_qty"].to_numpy(np.int64), s["qty"].to_numpy(np.int64)
@@ -96,8 +100,17 @@ def _check_stop(stop, signal_bar: int) -> int:
     return int(stop)
 
 
+def _open_qty(held: list[tuple[int, int, int, int, int]], bar: int) -> int:
+    """Contracts still open at the close of `bar` (held: entry bar, exit bar, contracts, partial bar, partial
+    contracts; partial bar -1 when none)."""
+    return sum(q - (pq if 0 <= pb <= bar else 0) for e, x, q, pb, pq in held if e <= bar < x)
+
+
 def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
-             manage: Callable[[Ctx], tuple[int, bool]] | None = None) -> pd.DataFrame:
+             manage: Callable[[Ctx], tuple[int, bool]] | None = None, overlap: bool = False,
+             max_contracts: int = COMBINE_50K.max_contracts) -> pd.DataFrame:
+    """overlap=False: one order or position at a time. overlap=True: a new signal cancels an unfilled order but
+    open positions keep running, up to max_contracts open at once (a signal that would exceed it is ignored)."""
     n = len(bars)
     sig = _prepare(signals, n)
     flat = fills.flatten
@@ -112,10 +125,23 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
     minute = bars.ts.as_unit("ns").asi8 // 60_000_000_000  # bar open, minutes since epoch
     rows = []
     next_free = -1
-    for r, i in enumerate(sig.index.to_numpy()):
-        if i < next_free or i + 1 >= n:
+    sig_bars = sig.index.to_numpy()
+    held: list[tuple[int, int, int, int, int]] = []  # overlap: trades that may be open (see _open_qty)
+    for r, i in enumerate(sig_bars):
+        if i + 1 >= n:
             continue
         side, qty, pq = int(sides[r]), int(qtys[r]), int(pqtys[r])
+        cancel_at = n  # overlap: the next accepted signal's bar; this order works through it at most
+        if overlap:
+            held = [t for t in held if t[1] > i]
+            if _open_qty(held, i) + qty > max_contracts:
+                continue
+            for r2 in range(r + 1, len(sig_bars)):
+                if sig_bars[r2] + 1 < n and _open_qty(held, sig_bars[r2]) + qtys[r2] <= max_contracts:
+                    cancel_at = int(sig_bars[r2])
+                    break
+        elif i < next_free:
+            continue
         o, h, l, c = views[side]
         L, S = side * lim[r], side * stp[r]
         T = None if np.isnan(tgt[r]) else side * tgt_t[r]
@@ -131,7 +157,7 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
         for j in range(i + 1, n if timed else min(n, i + 1 + int(expires[r]))):
             if bars.day_id[j] != day or bars.sym_id[j] != sym or bars.sess_minute[j] >= flat:
                 break
-            if timed and minute[j] >= deadline:
+            if (timed and minute[j] >= deadline) or j > cancel_at:
                 break
             if l[j] <= L:  # a touch fills (owner rule)
                 entry_bar, E = j, min(o[j], L)
@@ -146,7 +172,7 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
         # --- position: per held bar, the open and worst price feed the Combine path check ---
         j = entry_bar
         X, reason = None, ""
-        rem, realized, PX = qty, 0, None  # contracts open, side-space ticks*contracts booked by the partial
+        rem, realized, PX, PB = qty, 0, None, -1  # contracts open, side-space ticks*contracts booked by the partial
         p_open, p_worst = [0], [(l[j] - E) * qty]
         best = h[j]
         best_pnl = (h[j] - E) * qty  # best open P&L (ticks x contracts) for mfe
@@ -175,13 +201,13 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
                     X, reason = o[m], "target"
                 else:
                     if P is not None and PX is None and o[m] >= P:  # partial at the open (gap in our favour)
-                        PX, realized, rem = o[m], realized + (o[m] - E) * pq, rem - pq
+                        PX, PB, realized, rem = o[m], m, realized + (o[m] - E) * pq, rem - pq
                         part_at_open = True
                     if l[m] <= S:
                         X, reason = S, "stop"  # stop and any target in one bar: stop first
                     else:
                         if P is not None and PX is None and h[m] >= P:
-                            PX, realized, rem = P, realized + (P - E) * pq, rem - pq
+                            PX, PB, realized, rem = P, m, realized + (P - E) * pq, rem - pq
                             best_pnl = max(best_pnl, realized + (P - E) * rem)
                         if T is not None and h[m] >= T:
                             X, reason = T, "target"
@@ -220,9 +246,12 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
         path = (np.array(p_open, dtype=float) * TICK_VALUE - fee, np.array(p_worst, dtype=float) * TICK_VALUE - fee)
         rows.append((i, entry_bar, exit_bar, bars.ts[entry_bar], bars.ts[exit_bar], bars.trading_day[entry_bar], side,
                      qty, side * E * TICK, side * X * TICK, reason, int(X - E),
-                     np.nan if PX is None else side * PX * TICK, total * TICK_VALUE, fee, total * TICK_VALUE - fee,
+                     np.nan if PX is None else side * PX * TICK, PB, 0 if PX is None else pq,
+                     total * TICK_VALUE, fee, total * TICK_VALUE - fee,
                      float(path[1].min()), best_pnl * TICK_VALUE - fee, path))
         next_free = exit_bar
+        if overlap:
+            held.append((entry_bar, exit_bar, qty, PB, 0 if PX is None else pq))
     out = pd.DataFrame(rows, columns=TRADE_COLUMNS)
     for col in ("entry", "exit", "part_exit"):
         out[col] = out[col].astype(float).round(2)

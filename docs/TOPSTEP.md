@@ -24,7 +24,10 @@ owner's Topstep dashboard or help.topstep.com, and this file and `config.py` upd
 ## How the simulator applies them
 
 1. Trades come from the engine with net P&L and a per-bar path (open and worst P&L, fees included).
-2. Within a day, each trade is walked bar by bar:
+2. Within a day, each trade is walked bar by bar. Trades open at the same time (overlap mode) are merged into one:
+   per bar, open and worst P&L are summed over the open trades, and a trade that already closed counts with its
+   net. Summing each trade's worst P&L assumes they all hit their worst in the same bar (conservative). More than
+   5 contracts held in one bar (partial exits release theirs after their bar) is refused.
    - A bar that **opens** at or past a limit executes at the open: below the MLL the account **fails**; below only
      the DLL the trade is liquidated at that open price (worse than the DLL) and the day ends.
    - Inside a bar price moves continuously, so the higher limit is hit first: DLL first means liquidation at exactly

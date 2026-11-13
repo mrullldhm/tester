@@ -105,9 +105,9 @@ def test_state_never_uses_future_bars(tf):
     rng = np.random.default_rng(7)
     mid = 70 + np.cumsum(rng.integers(-3, 4, 900)) * 0.01
     hl = [(round(m + 0.03, 2), round(m - 0.03, 2)) for m in mid]
-    full = swing_state(bars(hl), tf)
+    full = swing_state(bars(hl), tf, prev=True, newest=True)
     for cut in (100, 252, 431, 777, 899):  # cuts inside higher-timeframe candles; the last row is compared too
-        part = swing_state(bars(hl[:cut]), tf)
+        part = swing_state(bars(hl[:cut]), tf, prev=True, newest=True)
         pd.testing.assert_frame_equal(full.iloc[:cut], part)
 
 
@@ -168,3 +168,12 @@ def test_state_prev_gives_the_points_before_the_last():
     plain = swing_state(df, "1m")
     assert list(plain.columns) == ["1m_sh", "1m_sh_ts", "1m_sl", "1m_sl_ts"]
     assert plain["1m_sh"].equals(st["1m_sh"]) and plain["1m_sl"].equals(st["1m_sl"])
+
+
+def test_newest_settles_order_when_one_candle_is_both_points():
+    # owner example: bar 4 is swing low, then swing high (confirmed at bar 5's close)
+    df = bars([(70.0, 69.8), (70.5, 70.0), (70.3, 69.5), (69.8, 69.0), (70.6, 69.0), (70.4, 69.3), (70.45, 69.4)])
+    st = swing_state(df, "1m", newest=True)
+    assert st["1m_sh_ts"].iloc[5] == st["1m_sl_ts"].iloc[5] == df["ts"].iloc[4]
+    assert st["1m_newest"].iloc[5] == 1
+    assert list(swing_state(bars(ZIGZAG), "1m", newest=True)["1m_newest"]) == [0, 0, 0, 1, 1, -1, -1, 1, -1]

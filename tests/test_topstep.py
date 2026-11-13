@@ -132,3 +132,30 @@ def test_pass_then_final_day_fail_bills_both_subscriptions():
     assert list(s["outcome"]) == ["pass", "fail"]
     # sub 1: one month; sub 2: day 2 (Jan 3) .. day 49 (Mar 8) = 65 days -> 3 periods; plus one reset
     assert subscription_cost(s, days[-1]) == 49 + 3 * 49 + 49
+
+
+def test_overlapping_trades_are_walked_together():
+    # two trades open on bars 10-12 of one day, each down 1,100 at bar 11: alone each survives, together they
+    # touch the 2,000 MLL
+    def trade(entry, exit_, worst):
+        return {"trading_day": DAYS[0], "net": -100.0, "mae": worst, "qty": 1, "entry_bar": entry,
+                "exit_bar": exit_, "path": (np.array([0.0, -500.0, -100.0]), np.array([-10.0, worst, -100.0]))}
+
+    rules = Combine()
+    both = pd.DataFrame([trade(10, 12, -1100.0), trade(10, 12, -1100.0)])
+    assert run_attempt(_by_day(both, rules), DAYS, 0, rules).outcome == "fail"
+    apart = pd.DataFrame([trade(10, 12, -1100.0), trade(13, 15, -1100.0)])
+    assert run_attempt(_by_day(apart, rules), DAYS, 0, rules).outcome == "open"
+    merged = _by_day(both, rules)[DAYS[0]]
+    assert len(merged) == 1 and merged[0][0] == -200.0
+
+
+def test_more_than_the_contract_limit_open_at_once_is_refused():
+    def trade(entry, exit_, qty):
+        return {"trading_day": DAYS[0], "net": 0.0, "mae": 0.0, "qty": qty, "entry_bar": entry, "exit_bar": exit_,
+                "path": (np.zeros(exit_ - entry + 1), np.zeros(exit_ - entry + 1))}
+
+    rules = Combine()
+    _by_day(pd.DataFrame([trade(0, 5, 3), trade(6, 9, 3), trade(4, 7, 2)]), rules)  # peak 5
+    with pytest.raises(ValueError, match="contracts open at once"):
+        _by_day(pd.DataFrame([trade(0, 5, 3), trade(5, 9, 3)]), rules)  # both held in bar 5

@@ -13,6 +13,7 @@ traded price, so the stop fills there.
 | Signal | Computed on bar *i* using data up to bar *i* close. The order works from bar *i+1*. Rows with a missing or non-finite limit/stop are refused. |
 | Working | Up to `expire` bars (default 30), or with `expire_min` until that many minutes after the signal bar's close (clock time: missing minutes do not stretch it). Cancelled at the trading-day change, contract change or 3:10 PM CT. |
 | One at a time | A signal is ignored while an order works or a position is open. A signal on the exit bar is accepted. |
+| Overlap mode | Strategy `OVERLAP = True` (`backtest(..., overlap=True)`): a new signal cancels an order that has not filled (it still works through the new signal's bar); open positions keep running. A signal is ignored when its contracts plus those open at its close would exceed 5 (Combine max); an ignored signal cancels nothing. Contracts that left at a partial exit no longer count after that bar (trades record `part_bar`, `part_qty`). |
 | Size | `qty` contracts (default 1); the Combine simulator refuses more than 5. |
 | Partial exit | Optional `part_qty` contracts leave at `part_target` (a limit between entry and target); the rest runs on. |
 | Daily rules | Optional strategy `day_rules(trades, p)` after the backtest: may only drop the rest of a day once a rule trips (trades are one at a time and flat each day, so that equals stopping live). |

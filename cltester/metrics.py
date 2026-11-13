@@ -10,13 +10,21 @@ def daily_pnl(trades: pd.DataFrame, days: list[pd.Timestamp]) -> pd.Series:
     return s.reindex(pd.DatetimeIndex(days), fill_value=0.0)
 
 
+def realized_equity(trades: pd.DataFrame) -> pd.Series:
+    """Cumulative net P&L in exit order. Overlapping trades can exit out of signal order; trades that exit on the
+    same bar are booked together."""
+    if "exit_bar" not in trades:
+        return trades["net"].cumsum()
+    return trades.groupby("exit_bar", sort=True)["net"].sum().cumsum()
+
+
 def summary(trades: pd.DataFrame, days: list[pd.Timestamp]) -> dict:
     n = len(trades)
     if n == 0:
         return {"trades": 0, "net": 0.0}
     net = trades["net"]
     wins, losses = net[net > 0], net[net <= 0]
-    eq = net.cumsum()
+    eq = realized_equity(trades)
     day = daily_pnl(trades, days)
     sd = day.std()
     by_year = trades.groupby(pd.to_datetime(trades["trading_day"]).dt.year)["net"].sum()

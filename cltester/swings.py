@@ -138,6 +138,7 @@ def _process(stack: list[Point], cd: Candles, k: int, high_first: int, is_low: b
 def _record(stack: list[Point], state: dict[str, np.ndarray], k: int) -> None:
     """State after candle k: the newest and the previous swing high and swing low in the structure
     (points alternate, so they are the top four of the stack)."""
+    state["newest"][k] = stack[-1].kind if stack else 0
     seen = {HIGH: 0, LOW: 0}
     for p in stack[-1:-5:-1]:
         key = ("sh" if p.kind == HIGH else "sl") + ("" if seen[p.kind] == 0 else "2")
@@ -148,13 +149,14 @@ def _record(stack: list[Point], state: dict[str, np.ndarray], k: int) -> None:
 def detect(cd: Candles) -> tuple[list[Point], dict[str, np.ndarray]]:
     """Run the rule over all candles. Returns the final swing points and the state as known after each candle's
     processing (candle k is processed when candle k+1 closes): last swing high / low price (ticks) and candle
-    (sh, sl) and the ones before them (sh2, sl2), or -1 when none."""
+    (sh, sl) and the ones before them (sh2, sl2), or -1 when none; newest: kind of the newest point (0 when none)."""
     n = len(cd)
     ev_hi = np.full(2 * n, -np.inf)  # high of a high event; -inf on low events
     ev_lo = np.full(2 * n, np.inf)
     stack: list[Point] = []
     state = {f"{key}_{f}": np.full(n, -1, dtype=np.int64) for key in ("sh", "sl", "sh2", "sl2")
              for f in ("price", "candle")}
+    state["newest"] = np.zeros(n, dtype=np.int64)
     for k in range(n):
         is_low = 0 < k < n - 1 and cd.l[k - 1] >= cd.l[k] and cd.l[k + 1] > cd.l[k]
         is_high = 0 < k < n - 1 and cd.h[k - 1] <= cd.h[k] and cd.h[k + 1] < cd.h[k]
@@ -192,10 +194,12 @@ def swing_points(df: pd.DataFrame, tf: str = "1m") -> pd.DataFrame:
     })
 
 
-def swing_state(df: pd.DataFrame, tf: str = "1m", prev: bool = False) -> pd.DataFrame:
+def swing_state(df: pd.DataFrame, tf: str = "1m", prev: bool = False, newest: bool = False) -> pd.DataFrame:
     """Point-in-time swing state for every 1m bar of df: the last swing high and swing low as they were known at
     that bar's close. Safe for signals. NaN until a swing exists, and NaN again when rule 4 removes it. The newest
-    point can still be replaced (rule 5). prev=True adds the swing high and low before them ({tf}_sh2, {tf}_sl2)."""
+    point can still be replaced (rule 5). prev=True adds the swing high and low before them ({tf}_sh2, {tf}_sl2).
+    newest=True adds {tf}_newest: 1 when the newest point is the swing high, -1 the swing low, 0 none. It settles
+    which came last when one candle is both (same _ts)."""
     cols = ("sh", "sl", "sh2", "sl2") if prev else ("sh", "sl")
     cd = build_candles(df, tf)
     n = len(df)
@@ -204,6 +208,8 @@ def swing_state(df: pd.DataFrame, tf: str = "1m", prev: bool = False) -> pd.Data
         for col in cols:
             out[f"{tf}_{col}"] = np.nan
             out[f"{tf}_{col}_ts"] = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns, UTC]")
+        if newest:
+            out[f"{tf}_newest"] = 0
         return out
     _, st = detect(cd)
     when = np.full(len(cd), n, dtype=np.int64)  # candle k is processed when candle k+1 is complete
@@ -221,4 +227,6 @@ def swing_state(df: pd.DataFrame, tf: str = "1m", prev: bool = False) -> pd.Data
         ts = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns, UTC]")
         ts.iloc[np.flatnonzero(ok)] = cd.ts[candle[ok]]
         out[f"{tf}_{col}_ts"] = ts
+    if newest:
+        out[f"{tf}_newest"] = np.where(known, st["newest"][np.maximum(src, 0)], 0)
     return out

@@ -332,3 +332,63 @@ def test_timed_order_blocks_signals_until_its_deadline_across_a_gap():
     assert backtest(b, pd.concat([first, second])).empty
     third = sig(3, limit=70.10, stop=69.80, target=70.40, expire_min=15)  # 08:17: after the deadline, accepted
     assert list(backtest(b, pd.concat([first, third]))["signal_bar"]) == [3]
+
+
+def two_signals(first=0, second=2, **kw):
+    return pd.concat([sig(first, **kw), sig(second, **kw)])
+
+
+def test_overlap_new_signal_cancels_an_unfilled_order():
+    # order from bar 0 never fills before the signal at bar 2; the bar-2 order fills at bar 3
+    df, b = make([FLAT, FLAT, FLAT, (70.02, 70.03, 69.99, 70.00), *[FLAT] * 3])
+    t = backtest(b, two_signals(), overlap=True)
+    assert list(t["signal_bar"]) == [2]
+
+
+def test_overlap_order_still_fills_on_the_new_signal_bar():
+    # the bar-0 order fills inside bar 2, before the signal at bar 2's close: both trades run
+    df, b = make([FLAT, FLAT, (70.02, 70.03, 69.99, 70.00), (70.02, 70.03, 69.99, 70.00), *[FLAT] * 3])
+    t = backtest(b, two_signals(), overlap=True)
+    assert list(t["signal_bar"]) == [0, 2]
+    assert t["entry_bar"].iat[1] == 3 and t["entry_bar"].iat[1] < t["exit_bar"].iat[0]  # open together
+
+
+def test_without_overlap_the_open_position_blocks_the_new_signal():
+    df, b = make([FLAT, (70.02, 70.03, 69.99, 70.00), FLAT, (70.02, 70.03, 69.99, 70.00), *[FLAT] * 3])
+    assert list(backtest(b, two_signals())["signal_bar"]) == [0]
+    assert list(backtest(b, two_signals(), overlap=True)["signal_bar"]) == [0, 2]
+
+
+def test_overlap_respects_the_contract_limit():
+    df, b = make([FLAT, (70.02, 70.03, 69.99, 70.00), FLAT, (70.02, 70.03, 69.99, 70.00), *[FLAT] * 3])
+    t = backtest(b, pd.concat([sig(0, qty=3), sig(2, qty=3)]), overlap=True)
+    assert list(t["signal_bar"]) == [0]  # 3 open + 3 more would be 6 > 5: the second signal is ignored
+
+
+def test_overlap_ignored_signal_cancels_nothing():
+    # 4 contracts open from bar 1; bar-2 order (1 contract) waits; bar-3 signal (2 contracts) would make 6 and is
+    # ignored, so the bar-2 order is still working and fills at bar 4
+    fill = (70.02, 70.03, 69.99, 70.00)
+    df, b = make([FLAT, fill, FLAT, FLAT, fill, *[FLAT] * 3])
+    t = backtest(b, pd.concat([sig(0, qty=4), sig(2, qty=1), sig(3, qty=2)]), overlap=True)
+    assert list(t["signal_bar"]) == [0, 2] and t["entry_bar"].iat[1] == 4
+
+
+def test_missing_qty_is_refused():
+    df, b = make([FLAT] * 4)
+    with pytest.raises(ValueError, match="finite"):
+        backtest(b, pd.concat([sig(0, qty=2), sig(2)]))
+
+
+def test_overlap_partial_exit_releases_contracts():
+    # 5 contracts fill at bar 1, 4 leave at the bar-2 open (partial 70.10); 1 is left, so a 4-contract signal fits
+    from cltester.topstep import COMBINE_50K, _by_day
+
+    fill = (70.02, 70.03, 69.99, 70.00)
+    df, b = make([FLAT, fill, FLAT, FLAT, fill, *[FLAT] * 3])
+    first = sig(0, qty=5, part_qty=4, part_target=70.10)
+    t = backtest(b, pd.concat([first, sig(3, qty=4, part_qty=0, part_target=np.nan)]), overlap=True)
+    assert list(t["signal_bar"]) == [0, 3]
+    assert (t["part_bar"].iat[0], t["part_qty"].iat[0]) == (2, 4)
+    assert t["entry_bar"].iat[1] < t["exit_bar"].iat[0]  # held together: 1 + 4 contracts
+    _by_day(t, COMBINE_50K)  # peak 5: accepted by the Combine check too

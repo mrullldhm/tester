@@ -6,6 +6,7 @@ A strategy is strategies/<name>.py defining class Strategy(Base):
     GRID              optional {param: [values]} for later optimisation
     signals(df, p)    vectorised over every bar of df (add_session columns present); returns the engine's
                       signal frame indexed by bar position (see cltester.engine)
+    OVERLAP           optional: True lets positions overlap (cltester.engine.backtest overlap mode)
     manage(ctx)       optional trade management per held bar (cltester.engine.Ctx): returns (stop, close_now)
     day_rules(t, p)   optional daily stop rules on the backtest's trades (e.g. stop after N trades or 2 losses).
                       It may only cut off the REST of a day once a rule trips: a skipped trade would have blocked
@@ -29,6 +30,7 @@ class Base:
     ABOUT: str = ""
     PARAMS: dict = {}
     GRID: dict = {}
+    OVERLAP: bool = False  # True: a new signal cancels an unfilled order; open positions keep running (engine)
 
     def signals(self, df: pd.DataFrame, p: dict) -> pd.DataFrame:
         raise NotImplementedError

@@ -1,7 +1,7 @@
 """Topstep Trading Combine pass/fail simulator over a backtest's trades. Rules: docs/TOPSTEP.md.
 
 Per trade the engine gives net P&L and its path: open and worst P&L of every held bar (fees included).
-Within a day, walking each trade bar by bar:
+Within a day, walking each trade bar by bar (trades open at the same time are merged into one, P&L summed per bar):
   - a bar that opens at or through a limit executes at the open (a gap does not stop at the limit);
   - inside a bar, price moves continuously, so the higher of the two limits is hit first;
   - MLL hit (balance + day realized + open P&L <= MLL) -> account fails;
@@ -39,9 +39,67 @@ def _by_day(trades: pd.DataFrame, rules: Combine) -> dict:
     if trades["qty"].max() > rules.max_contracts:
         raise ValueError(f"trade size above {rules.max_contracts} contracts")
     out = defaultdict(list)
+    spans = defaultdict(list)
     paths = trades["path"] if "path" in trades else [(np.array([0.0]), np.array([m])) for m in trades["mae"]]
-    for d, net, path in zip(trades["trading_day"], trades["net"], paths, strict=True):
+    # Without bar spans (hand-made trade lists) trades are walked one after another, never merged.
+    has_bars = {"entry_bar", "exit_bar", "path"} <= set(trades.columns)
+    entries = trades["entry_bar"] if has_bars else [0] * len(trades)
+    exits = trades["exit_bar"] if has_bars else [0] * len(trades)
+    for d, net, path, e, x in zip(trades["trading_day"], trades["net"], paths, entries, exits, strict=True):
         out[pd.Timestamp(d)].append((float(net), path))
+        spans[pd.Timestamp(d)].append((int(e), int(x)))
+    if has_bars:
+        if _peak_open_qty(trades) > rules.max_contracts:
+            raise ValueError(f"more than {rules.max_contracts} contracts open at once")
+        for d in out:
+            out[d] = _merge_overlaps(out[d], spans[d])
+    return out
+
+
+def _peak_open_qty(trades: pd.DataFrame) -> int:
+    """Most contracts held in any one bar (a trade holds from its entry bar through its exit bar; a partial exit
+    releases its contracts after its bar)."""
+    qty = trades["qty"].to_numpy()
+    part_bar = trades["part_bar"].to_numpy() if "part_bar" in trades else np.full(len(trades), -1)
+    part_qty = trades["part_qty"].to_numpy() if "part_qty" in trades else np.zeros(len(trades), dtype=int)
+    has_part = part_bar >= 0
+    bar = np.r_[trades["entry_bar"].to_numpy(), trades["exit_bar"].to_numpy() + 1, part_bar[has_part] + 1]
+    change = np.r_[qty, -(qty - np.where(has_part, part_qty, 0)), -part_qty[has_part]]
+    order = np.lexsort((change, bar))  # same bar: exits (negative) before entries
+    return int(np.cumsum(change[order]).max())
+
+
+def _merge_overlaps(day: list, spans: list[tuple[int, int]]) -> list:
+    """Trades open at the same time become one combined trade, so the loss limits see their summed P&L per bar.
+    A trade that closed earlier in the group counts with its net from the bar after its exit."""
+    order = sorted(range(len(day)), key=lambda k: spans[k][0])
+    groups: list[list[int]] = []
+    group_end = -1
+    for k in order:
+        if groups and spans[k][0] <= group_end:
+            groups[-1].append(k)
+            group_end = max(group_end, spans[k][1])
+        else:
+            groups.append([k])
+            group_end = spans[k][1]
+    out = []
+    for g in groups:
+        if len(g) == 1:
+            out.append(day[g[0]])
+            continue
+        start = min(spans[k][0] for k in g)
+        size = max(spans[k][1] for k in g) - start + 1
+        opened, worst = np.zeros(size), np.zeros(size)
+        for k in g:
+            net, (po, pw) = day[k]
+            a, b = spans[k][0] - start, spans[k][1] - start
+            if len(po) != b - a + 1:
+                raise ValueError("trade path length does not match its entry and exit bars")
+            opened[a:b + 1] += po
+            worst[a:b + 1] += pw
+            opened[b + 1:] += net
+            worst[b + 1:] += net
+        out.append((sum(day[k][0] for k in g), (opened, worst)))
     return out
 
 
