@@ -246,3 +246,32 @@ def test_a_candle_completed_by_the_next_session_gives_no_order(confirm):
     rows = scan(hi, lo, cl, frame(hi[:N], lo[:N], 4), c3(), m15, np.r_[np.arange(N) // 2, -1], st, last, 15,
                 confirm=confirm)
     assert next(r for r in rows if r["c3"] == 3)["why"] == SIGNAL_AFTER_SESSION
+
+
+def run_tp(hi, lo, cl, st, tp_ticks):
+    rows = scan(hi, lo, cl, frame(hi, lo, 4), c3(), frame(hi, lo, 2), np.arange(N) // 2, st, np.full(N, N - 1), 15,
+                tp_ticks=tp_ticks)
+    return next(r for r in rows if r["c3"] == 3)
+
+
+def test_fixed_tp_targets_ticks_above_the_limit():
+    r = run_tp(*base(), tp_ticks=30)
+    assert (r["why"], r["limit"], r["target"]) == ("trigger", 110, 140)
+
+
+def test_fixed_tp_ignores_the_swing_target_before_the_order():
+    hi, lo, cl, st = base()
+    st.tp[:] = 113  # the break reaches the swing high: no trade with the swing target, a trade with a fixed one
+    assert run(hi, lo, cl, st)["why"] == "TP touched before the order"
+    assert run_tp(hi, lo, cl, st, tp_ticks=15)["target"] == 125
+
+
+def test_fixed_tp_touch_cancels_the_unfilled_order():
+    hi, lo, cl, st = base()
+    hi[15] = 125
+    assert run_tp(hi, lo, cl, st, tp_ticks=15)["expire"] == 1
+
+
+def test_tp_must_be_swing_or_positive_ticks():
+    with pytest.raises(ValueError):
+        Strategy().setups(pd.DataFrame(), {**Strategy.PARAMS, "tp": 0})

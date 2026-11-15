@@ -80,13 +80,14 @@ def _frame(cd, side: int) -> Frame:
 
 
 def scan(hi, lo, cl, h1: Frame, c3_bars: tuple[np.ndarray, np.ndarray], m15: Frame, m15_of: np.ndarray, st: State,
-         last: np.ndarray, risk: int, confirm: bool = False) -> list[dict]:
+         last: np.ndarray, risk: int, confirm: bool = False, tp_ticks: int = 0) -> list[dict]:
     """Every candle 3 in side space (long). Returns setup records; limit is NaN when there is no trade.
     c3_bars: per complete 1H candle (as candle 2), first and last 1m bar of the next clock hour in the data (-1: none).
     That hour may be unfinished: its signals must exist before the hour closes (live, forward data).
     m15_of: per 1m bar, the 15m candle holding it (-1: candle not complete in the data).
     last: per 1m bar, the last bar of its trading day and contract.
-    confirm: place the order at the close of the next 15m candle, only if it stayed above the break candle's low."""
+    confirm: place the order at the close of the next 15m candle, only if it stayed above the break candle's low.
+    tp_ticks: 0 = target the latest 1H swing high; otherwise a fixed target that many ticks above the limit."""
     rows = []
     for k in range(2, len(h1.h) + 1):  # k = candle 3; len(h1.h) is the unfinished last hour
         a = int(h1.avail[k - 1])  # candle 2 complete at this bar's close
@@ -130,13 +131,16 @@ def scan(hi, lo, cl, h1: Frame, c3_bars: tuple[np.ndarray, np.ndarray], m15: Fra
         if sig > session_end:
             rec["why"] = SIGNAL_AFTER_SESSION
             continue
-        if hi[th:sig + 1].max() >= tp:
+        if not tp_ticks and hi[th:sig + 1].max() >= tp:
             rec["why"] = "TP touched before the order"
             continue
         if close <= stop:
             rec["why"] = "no risk (close at the low)"
             continue
-        limit = close if close - stop <= risk else stop + risk  # <= close < TP (TP not touched through sig)
+        limit = close if close - stop <= risk else stop + risk  # swing TP: <= close < TP (not touched through sig)
+        if tp_ticks:
+            tp = limit + tp_ticks
+            rec["target"] = tp
         end = int(last[sig])
         hit = np.flatnonzero(hi[sig + 1:end + 1] >= tp)
         expire = int(hit[0]) if len(hit) else NO_EXPIRY  # works bars sig+1 .. the bar before the TP touch
@@ -152,7 +156,7 @@ class Strategy(Base):
     ABOUT = ("Owner: 1H swing high then swing low; candle 2 high >= candle 1 high; candle 3 takes candle 2's low then "
              "its high. Buy limit at the 15m break candle close (max risk ticks above its low), target the latest "
              "1H swing high. Short is the mirror.")
-    PARAMS = {"risk": 15, "outside": "skip", "confirm": 0, "swing_tf": "1h", "entry_tf": "15m"}
+    PARAMS = {"risk": 15, "outside": "skip", "confirm": 0, "tp": "swing", "swing_tf": "1h", "entry_tf": "15m"}
     GRID = {"risk": [15, 20, 25], "outside": list(OUTSIDE)}  # confirm 1 with outside strict only: README
 
     def setups(self, df: pd.DataFrame, p: dict) -> pd.DataFrame:
@@ -163,6 +167,8 @@ class Strategy(Base):
             raise ValueError(f"outside must be one of {OUTSIDE}")
         if p["confirm"] not in (0, 1):
             raise ValueError("confirm must be 0 or 1")
+        if p["tp"] != "swing" and not (isinstance(p["tp"], int) and p["tp"] > 0):
+            raise ValueError("tp must be 'swing' or a positive whole number of ticks")
         n = len(df)
         h1c, m15c = build_candles(df, "1h"), build_candles(df, "15m")
         if n < 2 or len(h1c) < 2 or len(m15c) == 0:
@@ -187,7 +193,8 @@ class Strategy(Base):
         for side in (1, -1):
             h_, l_, c_ = space[side]
             for rec in scan(h_, l_, c_, _frame(h1c, side), c3_bars, _frame(m15c, side), m15_of, states[side],
-                            last, int(p["risk"]), bool(p["confirm"])):
+                            last, int(p["risk"]), bool(p["confirm"]),
+                            0 if p["tp"] == "swing" else int(p["tp"])):
                 for key in ("limit", "stop", "target"):
                     if not np.isnan(rec[key]):
                         rec[key] = round(side * rec[key] * TICK, 2)

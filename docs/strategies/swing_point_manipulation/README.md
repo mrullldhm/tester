@@ -1,6 +1,6 @@
 # swing_point_manipulation (Swing Point Manipulation)
 
-Status: dev (2026-11-15: 9 dev combinations; best PF 1.044, fails every gate)
+Status: dev (2026-11-16: 14 dev combinations; best PF 1.044, fails every gate)
 Code: `strategies/swing_point_manipulation.py`
 Source: owner, 2026-11-15 (charts of CL 13 Nov 2026). Swing points: owner rule only (`cltester/swings.py`,
 docs/SWINGS.md).
@@ -48,6 +48,10 @@ point-in-time.
    candle missing its last minute can complete at the next session's first bar); otherwise no trade.
    Owner example with `confirm` 1: the 13:45 MYT 15m candle stays above 88.17, order 88.32 placed at the 13:59 close.
 6. **Target** = TP (latest 1H swing high). No breakeven, no trailing, 1 contract.
+   `tp` (owner 2026-11-16, added after the first 9 dev runs): `swing` (default) as above; a number N = fixed target
+   N ticks from the limit (15, 30, 45, 60, 75 tested). With a fixed target the swing high plays no part after the setup:
+   rule 5's "TP touched between the break and the signal" check is skipped (the order does not exist yet), and rule 7
+   cancels the unfilled order at the first touch of the fixed target.
 7. **Unfilled order** is cancelled (owner 2026-11-15) at the first 1m bar that touches TP (the order does not work in
    that bar) or at the next setup signal (either side; the order works through that bar), and by the engine at the
    trading-day change, contract change and 3:10 PM CT.
@@ -61,12 +65,14 @@ Open (owner): a second entry version with a 5m stop is not final and is not test
 | `risk` (max entry-to-stop, ticks) | 15 | 15, 20, 25 |
 | `outside` | skip | skip, strict |
 | `confirm` (wait for the next 15m candle) | 0 | 0; 1 with `outside` strict only |
+| `tp` (target) | swing | swing; 15, 30, 45, 60, 75 ticks with risk 15, strict, confirm 1 only |
 | `swing_tf` | 1h | fixed |
 | `entry_tf` | 15m | fixed |
 
-Total combinations on dev: **9**. 6 (3 `risk` × 2 `outside`, `confirm` 0) declared 2026-11-15 before the first run;
-3 (`confirm` 1, `outside` strict, `risk` 15/20/25) added the same day by the owner after seeing them. Every tuned
-number reports best of 9.
+Total combinations on dev: **13**. 6 (3 `risk` × 2 `outside`, `confirm` 0) declared 2026-11-15 before the first run;
+3 (`confirm` 1, `outside` strict, `risk` 15/20/25) added the same day by the owner after seeing them; 4 (`tp` 15, 30,
+45, 60 on risk 15, strict, confirm 1) added 2026-11-16 after seeing those; 1 (`tp` 75) added the same day after
+seeing them. Every tuned number reports best of 14.
 Validation: the best one, frozen, only if it passes the dev gates.
 
 ## Pass criteria
@@ -85,6 +91,11 @@ pass ≤ $500), plus: the neighbouring `risk` values also profitable.
 | 2026-11-15 | dev | touch, no exit slip | 715 | +$2,301 | 1.044 | 24.1% | $7,105 | risk 15, strict, confirm; best of 9 (gross +$5,190) |
 | 2026-11-15 | dev | touch, no exit slip | 735 | −$279 | 0.995 | 20.1% | $7,252 | risk 20, strict, confirm |
 | 2026-11-15 | dev | touch, no exit slip | 750 | −$1,870 | 0.970 | 10.0% | $7,350 | risk 25, strict, confirm |
+| 2026-11-16 | dev | touch, no exit slip | 983 | −$1,551 | 0.973 | 1.3% | no pass | risk 15, strict, confirm, TP 15 ticks |
+| 2026-11-16 | dev | touch, no exit slip | 1,235 | −$6,049 | 0.936 | 0.0% | no pass | risk 15, strict, confirm, TP 30 ticks |
+| 2026-11-16 | dev | touch, no exit slip | 1,362 | −$992 | 0.991 | 17.6% | $1,923 | risk 15, strict, confirm, TP 45 ticks |
+| 2026-11-16 | dev | touch, no exit slip | 1,437 | +$5,385 | 1.042 | 32.4% | $1,127 | risk 15, strict, confirm, TP 60 ticks; best net and pass rate of 14 (gross +$11,190) |
+| 2026-11-16 | dev | touch, no exit slip | 1,477 | +$4,663 | 1.034 | 21.7% | $1,323 | risk 15, strict, confirm, TP 75 ticks (gross +$10,630) |
 
 Dev, in-sample, best of 6. Years positive 4–6/12. Win rate 24–27%; avg win ~$270, avg loss ~$93–110. Gross is
 about zero (−$3,460 to +$390); fees (~$4,900) decide the sign. `outside` barely matters (skip adds ~35 trades).
@@ -119,6 +130,19 @@ be the first bar of the next session or contract; the old setup then placed its 
 candle 2's high; otherwise no order. Dev: 0 such setups with `confirm` 0, 3 with `confirm` 1; all 9 re-runs
 identical. Current hashes: skip 15/20/25 94a11d96ebce, 90a9f802eb54, f2d0d64ca5a8; strict 8e0b071e38ac,
 444aefd3c17b, ae99557b7ae3; strict confirm 758b83b5d21c, d220f4edc7aa, e0dbb5b0e436.
+Fixed TP (2026-11-16, best of 13, in-sample): TP 15 / 30 / 45 / 60 ticks give PF 0.973 / 0.936 / 0.991 / 1.042,
+years positive 5 / 4 / 6 / 7 of 12, win rate 36% / 24% / 20% / 18%. More trades than the swing target (983–1,437 vs
+715): shorter trades free the one-position slot, the pre-order swing check is gone, and fewer orders are cancelled
+by an early target touch. Results are not monotonic in TP (30 is the worst), so the TP 60 edge looks like noise,
+not a trend. TP 60 is the best pass rate of all 13 (32.4%) and PF matches the swing target (1.042 vs 1.044); both
+stay far under the gates. Swing-target re-run with the `tp` code: identical (715 trades, +$2,301). Spot-checked
+TP 60: every target exit is 60 ticks from the entry or more (up to 68 when price opened through the limit); short
+2013-08-02 entry 107.93, target 107.33 hit at 12:31 UTC, highest high 107.99 stays under the stop. Hashes: TP 15
+411dff8ab2ff, 30 5bbe555edea7, 45 08607e3721f8, 60 8cf495b86d35; swing re-run 31949a423a66.
+TP 75 (2026-11-16, best of 14, in-sample): PF 1.034, win rate 16%, years positive 8/12 (the most of any version),
+pass rate 21.7%, drawdown −$7,655. Slightly below TP 60 on net, PF and pass rate, so the curve flattens past 60.
+Target exits are 75–83 ticks from entry; spot-checked long 2016-10-19 (entry 50.78, target 51.53; high 51.52 before
+the exit bar, low 50.77 stays above the stop). Hash 74f373c054d0.
 Note from the first check: c1 to c3 may span the weekend or the daily halt (candles are consecutive in the
 candle list, as in the swing rule); the owner confirmed this is intended (2026-11-16).
 
