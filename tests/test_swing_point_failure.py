@@ -18,7 +18,8 @@ LOW_ID = -10 * MIN_NS  # the failed swing low's candle, before the data
 
 def ltf(name, minutes):
     step = minutes * MIN_NS
-    return Ltf(name, np.full(N, np.nan), np.full(N, np.nan), np.full(N, NAT), TS // step * step, np.full(N, np.nan))
+    return Ltf(name, np.full(N, np.nan), np.full(N, np.nan), np.full(N, NAT), TS // step * step, np.full(N, np.nan),
+               np.arange(N))
 
 
 def base():
@@ -160,8 +161,8 @@ def test_two_candles_completing_on_one_bar_keep_the_lowest_low():
 
     idx = pd.DatetimeIndex([], tz="UTC")
     cd = Candles(idx, *(np.array(v) for v in ([1, 1], [9, 8], [3, 5], [1, 1], [0, 0], [2, 2], [0, 1], [1, 2])))
-    lows, highs = _completed_extremes(cd, 4)
-    assert lows[2] == 3 and highs[2] == 9
+    lows, highs, ends = _completed_extremes(cd, 4)
+    assert lows[2] == 3 and highs[2] == 9 and ends[2] == 2
     assert np.isnan(lows[[0, 1, 3]]).all()
 
 
@@ -176,11 +177,34 @@ def test_stop_window_starts_at_the_next_candle_when_the_hl_candle_misses_its_fir
     lo[at[2]] = 99
     hi[at[10]] = 140
     step = 5 * MIN_NS
-    m1 = Ltf("1m", np.full(n, np.nan), np.full(n, np.nan), np.full(n, NAT), ts, lo)
-    m5 = Ltf("5m", np.full(n, np.nan), np.full(n, np.nan), np.full(n, NAT), ts // step * step, np.full(n, np.nan))
+    m1 = Ltf("1m", np.full(n, np.nan), np.full(n, np.nan), np.full(n, NAT), ts, lo, np.arange(n))
+    m5 = Ltf("5m", np.full(n, np.nan), np.full(n, np.nan), np.full(n, NAT), ts // step * step, np.full(n, np.nan),
+             np.arange(n))
     m5.sl[at[14]:], m5.sl2[at[14]:], m5.sl_ts[at[14]:] = 105, 98, 6 * MIN_NS  # confirmed when 10-14 completes
     m5.done_lo[at[19]], cl[at[19]] = 104, 106  # candle 15-19 breaks the HL
     sd = Side(lo, hi, cl, np.full(n, 100.0), np.full(n, LOW_ID), np.full(n, True), np.full(n, NAT),
               np.full(n, 150.0), [m1, m5])
     (r,) = scan(sd, ts, np.zeros(n, dtype=np.int64), 25, 2, "5m")
     assert (r["tf"], r["why"], r["stop"], r["limit"]) == ("5m", "trigger", 140, 115)
+
+
+def test_trigger_candle_missing_its_last_minute_uses_its_own_close_and_highs():
+    # minute 19 has no bar: candle 15-19 completes at the close of minute 20, whose prices are the next candle's
+    minutes = np.r_[np.arange(19), np.arange(20, 25)]
+    ts = minutes.astype(np.int64) * MIN_NS
+    n = len(ts)
+    at = {int(m): k for k, m in enumerate(minutes)}
+    lo, hi, cl = np.full(n, 110.0), np.full(n, 115.0), np.full(n, 112.0)
+    lo[at[2]] = 99
+    hi[at[11]] = 130
+    cl[at[18]], cl[at[20]], hi[at[20]] = 108, 90, 160
+    step = 5 * MIN_NS
+    m1 = Ltf("1m", np.full(n, np.nan), np.full(n, np.nan), np.full(n, NAT), ts, np.full(n, np.nan), np.arange(n))
+    m5 = Ltf("5m", np.full(n, np.nan), np.full(n, np.nan), np.full(n, NAT), ts // step * step, np.full(n, np.nan),
+             np.full(n, -1))
+    m5.sl[at[14]:], m5.sl2[at[14]:], m5.sl_ts[at[14]:] = 105, 98, 5 * MIN_NS
+    m5.done_lo[at[20]], m5.done_end[at[20]] = 104, at[18]
+    sd = Side(lo, hi, cl, np.full(n, 100.0), np.full(n, LOW_ID), np.full(n, True), np.full(n, NAT),
+              np.full(n, 200.0), [m1, m5])
+    (r,) = scan(sd, ts, np.zeros(n, dtype=np.int64), 25, 2, "5m")
+    assert (r["end"], r["stop"], r["limit"]) == (at[20], 130, 108)  # not minute 20's high 160 or close 90

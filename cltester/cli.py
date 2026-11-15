@@ -69,7 +69,7 @@ def cmd_test(a: argparse.Namespace) -> None:
     unknown = set(p) - set(strat.PARAMS)
     if unknown:
         raise SystemExit(f"unknown params {sorted(unknown)}")
-    h = params_hash(a.name, p)
+    h = params_hash(a.name, p, strat.DEPENDS)
     if _touches_holdout(a.period) and not a.unlock:
         if a.period != "holdout":
             raise SystemExit(f"period {a.period} includes holdout bars; use --period holdout (once) or --unlock")

@@ -33,6 +33,7 @@ class Ltf:
     sl_ts: np.ndarray  # newest swing low candle open (ns)
     start: np.ndarray  # open (ns) of this timeframe's candle that holds the bar
     done_lo: np.ndarray  # low of the candle that completes at this bar's close, NaN if none
+    done_end: np.ndarray  # last 1m bar of that candle (newest one if two), -1 if none; can precede this bar
 
 
 @dataclass
@@ -65,13 +66,15 @@ def _first_touches(sd: Side) -> np.ndarray:
     return np.sort(touch[first])
 
 
-def _completed_extremes(cd: Candles, n: int) -> tuple[np.ndarray, np.ndarray]:
+def _completed_extremes(cd: Candles, n: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Per 1m bar: lowest low and highest high of the candles that complete at its close (NaN if none).
     Two candles can complete on one bar when the first one misses its last minute."""
     lows, highs = np.full(n, np.inf), np.full(n, -np.inf)
     np.minimum.at(lows, cd.avail, cd.l)
     np.maximum.at(highs, cd.avail, cd.h)
-    return np.where(np.isinf(lows), np.nan, lows), np.where(np.isinf(highs), np.nan, highs)
+    ends = np.full(n, -1, dtype=np.int64)
+    np.maximum.at(ends, cd.avail, cd.last)
+    return np.where(np.isinf(lows), np.nan, lows), np.where(np.isinf(highs), np.nan, highs), ends
 
 
 def scan(sd: Side, ts: np.ndarray, day: np.ndarray, risk: int, rr: float, tie: str) -> list[dict]:
@@ -110,7 +113,8 @@ def scan(sd: Side, ts: np.ndarray, day: np.ndarray, risk: int, rr: float, tie: s
                 step = TIMEFRAMES[k.name] * MIN_NS
                 # hl_ts is the HL candle's first traded minute; the clock-aligned boundary is the next candle's open
                 a = int(np.searchsorted(ts, hl_ts // step * step + step))
-                close, stop = sd.cl[t], sd.hi[a:t + 1].max()
+                e = int(k.done_end[t])  # a candle missing its last minute completes on the next candle's bar
+                close, stop = sd.cl[e], sd.hi[a:e + 1].max()
                 if stop <= close:
                     rec["why"] = "no risk (stop at the close)"
                     break
@@ -162,11 +166,11 @@ class Strategy(Base):
             step = TIMEFRAMES[name] * MIN_NS
             start = ts // step * step
             if name == "1m":
-                done_lo, done_hi = lo, hi
+                done_lo, done_hi, done_end = lo, hi, np.arange(n)
             else:
-                done_lo, done_hi = _completed_extremes(build_candles(df, name), n)
-            short_ltfs.append(Ltf(name, low1, low2, _ns(s[f"{name}_sl_ts"]), start, done_lo))
-            long_ltfs.append(Ltf(name, -high1, -high2, _ns(s[f"{name}_sh_ts"]), start, -done_hi))
+                done_lo, done_hi, done_end = _completed_extremes(build_candles(df, name), n)
+            short_ltfs.append(Ltf(name, low1, low2, _ns(s[f"{name}_sl_ts"]), start, done_lo, done_end))
+            long_ltfs.append(Ltf(name, -high1, -high2, _ns(s[f"{name}_sh_ts"]), start, -done_hi, done_end))
         short = Side(lo, hi, cl, sl, sl_id, newest == -1, sh_id, p_hi, short_ltfs)
         long = Side(-hi, -lo, -cl, -sh, sh_id, newest == 1, sl_id, -p_lo, long_ltfs)
         return {-1: short, 1: long}

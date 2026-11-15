@@ -41,7 +41,7 @@ def test_day_rules_default_keeps_every_trade():
 
 
 NEW = ["xtley_gap", "swapnil_momentum", "swapnil_hm", "ict_ea", "scribd_supertrend", "purple_pa",
-       "swing_point_failure"]
+       "swing_point_failure", "swing_point_failure_reversal"]
 
 
 @pytest.mark.parametrize("name", NEW)
@@ -124,3 +124,26 @@ def test_ict_profitable_partial_resets_the_loss_streak():
     assert len(out) == 3  # the streak is 1 after trade 2, not 2
     out = s.day_rules(trades(rows), s.PARAMS)
     assert len(out) == 2  # without the partial, two losing legs in a row end the day
+
+
+def test_run_hash_covers_declared_dependencies(tmp_path, monkeypatch):
+    import cltester.strategy as strategy_module
+    from cltester.strategy import params_hash
+
+    (tmp_path / "strategies").mkdir()
+    (tmp_path / "strategies" / "child.py").write_text("x = 1\n")
+    (tmp_path / "strategies" / "parent.py").write_text("y = 1\n")
+    monkeypatch.setattr(strategy_module, "ROOT", tmp_path)
+    p = {"risk": 25}
+    alone, with_parent = params_hash("child", p), params_hash("child", p, ("parent",))
+    assert alone != with_parent
+    (tmp_path / "strategies" / "parent.py").write_text("y = 2\n")
+    assert params_hash("child", p) == alone  # no DEPENDS: the hash ignores other files, as before
+    assert params_hash("child", p, ("parent",)) != with_parent
+
+
+def test_strategies_declare_existing_dependencies():
+    assert load("swing_point_failure_reversal").DEPENDS == ("swing_point_failure",)
+    for name in NEW:
+        for dep in load(name).DEPENDS:
+            load(dep)

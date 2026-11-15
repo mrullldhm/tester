@@ -1,6 +1,6 @@
 # swing_point_failure (Swing Point Failure)
 
-Status: dev (2026-11-14: all 12 dev combinations lose; fails every gate)
+Status: dev (2026-11-15: all 15 dev combinations lose; fails every gate)
 Code: `strategies/swing_point_failure.py`
 Source: owner model, 2026-11-13. Swing points: owner rule only (`cltester/swings.py`, docs/SWINGS.md).
 
@@ -28,7 +28,9 @@ Swing timeframe `swing_tf` (default 1h). Execution timeframes 1m and 5m. Times a
    The swing low before it may be from before the touch. Both on the same bar close: `tie` decides (default 5m;
    version 2: 1m). The timeframe is then locked for the setup.
 5. **Trigger.** The trigger level trails to the newest HL on the locked timeframe. The trigger candle is the first
-   candle of that timeframe whose low ≤ the trigger level (a touch counts). Act at its close.
+   candle of that timeframe whose low ≤ the trigger level (a touch counts). Act at its close. When the candle has no bar
+   for its last minute, it is known complete (and acted on) at the close of the next bar, but its close and the stop
+   window use the trigger candle's own bars only.
 6. **Stop** = the swing high after the HL: the highest high from the candle after the HL candle (its clock-aligned
    open, also when the HL candle's first minute has no bar) through the trigger candle. When the trigger candle holds that high, it is assumed to become the swing high (owner); a later higher
    high stops the trade out.
@@ -54,10 +56,11 @@ Interpretations to confirm with the owner:
 |---|---|---|
 | `swing_tf` | 1h | 1h, 4h |
 | `risk` (max entry-to-stop, ticks) | 25 | 25, 20, 15 |
-| `rr` (target = rr × risk) | 2 | fixed |
+| `rr` (target = rr × risk) | 2 | 2; 1 only for 1h, tie 5m, risk 25/20/15 (TP 25/20/15) |
 | `tie` (1m and 5m HL on the same bar) | 5m | 5m, 1m |
 
-Total combinations on dev: **12**, declared 2026-11-14 before the first run. Every tuned number reports best of 12.
+Total combinations on dev: **15**. 12 declared 2026-11-14 before the first run; 3 added 2026-11-15 by the owner
+after seeing those results (rr 1 on 1h, risk 25/20/15, tie 5m). Every tuned number reports best of 15.
 Validation: the best combination only, frozen, if it passes the dev gates.
 
 ## Pass criteria
@@ -73,10 +76,17 @@ pass ≤ $500), plus: the neighbours of the chosen combination (other `risk` val
 | 2026-11-14 | dev | touch, no exit slip | 2,404 | −$34,092 | 0.784 | 1.3% | — | 4h, risk 25 (tie 1m: −$33,992) |
 | 2026-11-14 | dev | touch, no exit slip | 2,399 | −$27,502 | 0.814 | 0.5% | — | 4h, risk 20; best net of 12 (tie 1m: −$27,402) |
 | 2026-11-14 | dev | touch, no exit slip | 2,383 | −$28,217 | 0.790 | 2.2% | $7,987 | 4h, risk 15 (tie 1m: −$28,117) |
+| 2026-11-15 | dev | touch, no exit slip | 7,310 | −$44,182 | 0.852 | 4.6% | $4,263 | 1h, risk 15, rr 1 (TP 15); best PF of 15 |
+| 2026-11-15 | dev | touch, no exit slip | 7,352 | −$55,922 | 0.834 | 0.5% | $9,065 | 1h, risk 20, rr 1 (TP 20) |
+| 2026-11-15 | dev | touch, no exit slip | 7,364 | −$60,391 | 0.832 | 2.4% | $9,163 | 1h, risk 25, rr 1 (TP 25) |
 
-Dev, in-sample, best of 12. Years positive: 0/12 (1h), 1–3/12 (4h). Win rate 10–15%.
+Dev, in-sample, best of 15. Years positive: 0/12 (1h), 1–3/12 (4h). Win rate 10–15%.
+rr 1 (target = max stop, 2026-11-15): win rate 17–23%, 1/12 years positive each, still gross negative
+(−$14,650 to −$30,640 before fees). A closer target wins more often but not enough: the stop is still tiny.
 Figures from the run after two bug fixes (stop window on a 5m HL candle missing its first minute; partial-exit
-contract count); the pre-fix run gave identical figures and was removed from the ledger (owner).
+contract count); the pre-fix run gave identical figures and was removed from the ledger (owner). 2026-11-15: a third fix (a trigger candle
+missing its last minute took the next bar's close and high) re-run on all 12: identical figures; the new rows are
+added, the old ones stay.
 
 Why it loses (default run, spot-checked against raw bars): the stop is the 1m pullback swing high, so it is
 usually tiny (stopped trades: median −4 ticks, 19% stopped on the fill bar) while the target stays 50 ticks away.

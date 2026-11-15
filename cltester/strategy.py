@@ -7,6 +7,8 @@ A strategy is strategies/<name>.py defining class Strategy(Base):
     signals(df, p)    vectorised over every bar of df (add_session columns present); returns the engine's
                       signal frame indexed by bar position (see cltester.engine)
     OVERLAP           optional: True lets positions overlap (cltester.engine.backtest overlap mode)
+    DEPENDS           optional: names of other strategy files whose code feeds this one's signals; their code is
+                      part of the run hash, so a change there gives new result files instead of overwriting old ones
     manage(ctx)       optional trade management per held bar (cltester.engine.Ctx): returns (stop, close_now)
     day_rules(t, p)   optional daily stop rules on the backtest's trades (e.g. stop after N trades or 2 losses).
                       It may only cut off the REST of a day once a rule trips: a skipped trade would have blocked
@@ -31,6 +33,7 @@ class Base:
     PARAMS: dict = {}
     GRID: dict = {}
     OVERLAP: bool = False  # True: a new signal cancels an unfilled order; open positions keep running (engine)
+    DEPENDS: tuple[str, ...] = ()
 
     def signals(self, df: pd.DataFrame, p: dict) -> pd.DataFrame:
         raise NotImplementedError
@@ -56,7 +59,7 @@ def load(name: str) -> Base:
     return strategy
 
 
-def params_hash(name: str, p: dict) -> str:
-    code = (ROOT / "strategies" / f"{name}.py").read_bytes()
+def params_hash(name: str, p: dict, depends: tuple[str, ...] = ()) -> str:
+    code = b"".join((ROOT / "strategies" / f"{n}.py").read_bytes() for n in (name, *depends))
     blob = json.dumps(p, sort_keys=True).encode() + code
     return hashlib.sha256(blob).hexdigest()[:12]
