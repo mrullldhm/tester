@@ -41,7 +41,7 @@ def test_day_rules_default_keeps_every_trade():
 
 
 NEW = ["xtley_gap", "swapnil_momentum", "swapnil_hm", "ict_ea", "scribd_supertrend", "purple_pa",
-       "swing_point_failure", "swing_point_failure_reversal"]
+       "swing_point_failure", "swing_point_failure_reversal", "swing_point_manipulation"]
 
 
 @pytest.mark.parametrize("name", NEW)
