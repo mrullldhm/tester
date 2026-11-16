@@ -58,8 +58,9 @@ def load_period(name: str) -> pd.DataFrame:
     """Bars whose trading_day lies in [start, end). Periods cut on whole CME trading days, never mid-session."""
     start, end = PERIODS[name]
     pad = pd.Timedelta(days=1)
-    df = add_session(load_bars(str(pd.Timestamp(start) - pad) if start else None,
-                               str(pd.Timestamp(end) + pad) if end else None))
+    # trading day D runs 17:00 CT D-1 to 16:59 CT D, i.e. before 00:00 UTC D+1: only the start needs padding,
+    # so a period never reads the next period's year file (dev does not load 2022)
+    df = add_session(load_bars(str(pd.Timestamp(start) - pad) if start else None, end))
     keep = np.ones(len(df), dtype=bool)
     if start:
         keep &= df["trading_day"] >= pd.Timestamp(start)

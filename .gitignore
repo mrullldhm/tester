@@ -19,3 +19,8 @@ data/cl1/
 results/*/
 data/.update.lock
 *.tmp
+data/studies/
+studies/swing_confluence/codex/*.parquet
+studies/swing_confluence/codex/cells.csv
+studies/swing_confluence/codex/mining_summary.json
+studies/swing_confluence/codex3/*.parquet

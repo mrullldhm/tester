@@ -1,0 +1,25 @@
+{
+  "source_sha256": {
+    "CLAUDE.md": "061a363439caccf33513a0d6e2317ecaf69e8bcbd20264560196b6e949329877",
+    "README.md": "d9c04606f605c969aba31af97ae5ca2995d8e40aa56de1f98b866292552887f0",
+    "docs/PROTOCOL.md": "830d8c8d94ab6e0a483304909f3e53da47674523246aa2159e9df9852e0531b8",
+    "docs/SWINGS.md": "23268d2d129195813d0af8863b1591740823585409cab4b4b2b2c877148b2bb0",
+    "docs/studies/swing_confluence/README.md": "e016d6c841864e74cb8c0af697bb84ec46db2b94d18a5e070a207c98a8a0e259",
+    "studies/swing_confluence/build.py": "41efc65496f6ea23ad48c5c4b83f8874ba7ecab37a43312bd3f9a4a4b6cb1365",
+    "studies/swing_confluence/scan.py": "a6a928d1b0dbdcf88b587fcc1593389df076fd027dd4b7290dfb4d0fdc0957fc",
+    "cltester/swings.py": "b2a3e9da849bf9a61a7ff112a15a543e780c7bcf5fd2fc04fbbece089f45efa5"
+  },
+  "events_sha256": "0d867040905f37453b8e04a9f7232a4fb8706e9e965f5347eb5a6cd76f355643",
+  "pandas": "3.1.0",
+  "numpy": "2.5.4",
+  "final_budget": {
+    "main_tests": 15608,
+    "stress_tests": 35,
+    "stress_sparse_not_tested": 5,
+    "total": 15643,
+    "bh_valid": 2417,
+    "main_qualified": 27,
+    "tick_qualified": 8
+  },
+  "integrity_checks": "passed"
+}

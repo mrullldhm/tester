@@ -1,0 +1,220 @@
+<title>Manipulation Blind Test</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* layout: one setup at a time, three stacked charts (1h > 5m > 1m), answer bar under them */
+:root {
+  --bg: #f4f5f3; --panel: #ffffff; --fg: #1c211e; --muted: #545d58; --line: #d9ddd9;
+  --up: #2f7d5b; --down: #b04a3c; --level: #1f5fa8; --target: #765a0c; --far: #6c438f;
+  --accent: #1f5fa8; --accent-fg: #ffffff;
+  --sans: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121513; --panel: #1a1e1b; --fg: #e3e8e4; --muted: #8e9a93; --line: #2c322e;
+  --up: #4fae84; --down: #d86b5c; --level: #6ea4e6; --target: #d4b04a; --far: #b48ad8;
+  --accent: #6ea4e6; --accent-fg: #0d1117; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121513; --panel: #1a1e1b; --fg: #e3e8e4; --muted: #8e9a93; --line: #2c322e;
+  --up: #4fae84; --down: #d86b5c; --level: #6ea4e6; --target: #d4b04a; --far: #b48ad8;
+  --accent: #6ea4e6; --accent-fg: #0d1117; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 20px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 16px; }
+h1 { font-size: 22px; font-weight: 600; margin: 0; text-wrap: balance; }
+.intro { color: var(--muted); margin: 0; max-width: 68ch; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
+.meta { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+.meta b { color: var(--fg); font-weight: 500; }
+.progress { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.progress > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+.dots { display: flex; flex-wrap: wrap; gap: 4px; }
+.dots button { width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel);
+  color: var(--muted); font: 500 10px var(--mono); cursor: pointer; padding: 0; }
+.dots button.done { background: var(--line); color: var(--fg); }
+.dots button.cur { outline: 2px solid var(--accent); outline-offset: 1px; }
+.charts { display: grid; gap: 10px; }
+.chart { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 8px 4px; min-width: 0; }
+.chart h2 { margin: 0 0 4px 4px; font: 500 12px var(--mono); color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+.chart svg { display: block; width: 100%; height: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font: 13px var(--mono); color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 18px; height: 0; border-top: 2px dashed currentColor;
+  vertical-align: middle; margin-right: 6px; }
+.lv { color: var(--level); } .tg { color: var(--target); } .fr { color: var(--far); }
+.question { font-weight: 600; margin: 0; }
+.answers { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 560px) { .answers { grid-template-columns: 1fr; } }
+.answers button { text-align: left; padding: 12px 14px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--fg); font: 15px var(--sans); cursor: pointer; display: grid; gap: 2px; }
+.answers button small { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.answers button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.answers button:focus-visible, .nav button:focus-visible, .dots button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+label { font-size: 13px; color: var(--muted); display: grid; gap: 4px; }
+input[type=text] { font: 15px var(--sans); padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel); color: var(--fg); }
+.nav { display: flex; gap: 8px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+.nav button { padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+  font: 500 14px var(--sans); cursor: pointer; }
+.status { font: 13px var(--mono); color: var(--muted); }
+.done-msg { background: var(--panel); border: 1px solid var(--accent); border-radius: 6px; padding: 12px 14px; }
+</style>
+
+<div class="wrap">
+  <header style="display:grid;gap:6px">
+    <h1>Manipulation or real break?</h1>
+    <p class="intro">Each chart stops at the 1m candle that just broke the last higher low in a 1m uptrend (short setups: the lower high in a downtrend). Real CL moments from 2021. The outcome is hidden. Judge from the picture only: does price go back to the swing point first, or fall a full leg past the broken level first? About half went each way.</p>
+  </header>
+  <div class="progress" aria-hidden="true"><i id="prog"></i></div>
+  <div class="bar">
+    <div class="meta" id="meta"></div>
+    <div class="status" id="status">Connecting…</div>
+  </div>
+  <div class="dots" id="dots" aria-label="Jump to setup"></div>
+  <div class="legend">
+    <span class="lv" id="lgLevel">broken level</span>
+    <span class="tg" id="lgTarget">swing point (A)</span>
+    <span class="fr" id="lgFar">one leg past (B)</span>
+  </div>
+  <div class="charts">
+    <div class="chart"><h2>1h · last 36</h2><svg id="h1" viewBox="0 0 960 200" role="img" aria-label="1 hour chart"></svg></div>
+    <div class="chart"><h2>5m · last 60</h2><svg id="m5" viewBox="0 0 960 220" role="img" aria-label="5 minute chart"></svg></div>
+    <div class="chart"><h2>1m · last 90 · ends at the break</h2><svg id="m1" viewBox="0 0 960 260" role="img" aria-label="1 minute chart"></svg></div>
+  </div>
+  <p class="question" id="question"></p>
+  <div class="answers">
+    <button id="pickA" type="button" aria-pressed="false"><span id="aText"></span><small id="aSub"></small></button>
+    <button id="pickB" type="button" aria-pressed="false"><span id="bText"></span><small id="bSub"></small></button>
+  </div>
+  <label for="note">Why, in one word (optional)<input type="text" id="note" maxlength="80" placeholder="e.g. wick, 5m HL, speed, level"></label>
+  <div class="nav">
+    <button type="button" id="prev">← Previous</button>
+    <button type="button" id="next">Next →</button>
+  </div>
+  <div class="done-msg" id="doneMsg" hidden>All setups answered. Tell Claude "blind test done" and it will reveal the outcomes and score your picks.</div>
+</div>
+
+<script>
+const SETUPS = __SETUPS__;
+const answers = {};
+let db = null, cur = 0;
+const $ = id => document.getElementById(id);
+
+function draw(svg, rows, s, opts) {
+  const W = 960, H = +svg.getAttribute("viewBox").split(" ")[3], padL = 8, padR = 58, padT = 10, padB = 22;
+  const lines = [[s.level, "--level"], [s.target, "--target"], [s.far, "--far"]];
+  let lo = Math.min(...rows.map(r => r[3])), hi = Math.max(...rows.map(r => r[2]));
+  if (opts.lines) for (const [v] of lines) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  const span = Math.max(hi - lo, 0.05); lo -= span * 0.04; hi += span * 0.04;
+  const y = v => padT + (hi - v) / (hi - lo) * (H - padT - padB);
+  const n = rows.length, step = (W - padL - padR) / n, bw = Math.max(1.5, step * 0.62);
+  const ns = "http://www.w3.org/2000/svg";
+  svg.replaceChildren();
+  const el = (tag, a) => { const e = document.createElementNS(ns, tag); for (const k in a) e.setAttribute(k, a[k]); svg.appendChild(e); return e; };
+  const ticks = 4;
+  for (let i = 0; i <= ticks; i++) {
+    const v = lo + (hi - lo) * i / ticks;
+    el("line", { x1: padL, x2: W - padR, y1: y(v), y2: y(v), stroke: "var(--line)", "stroke-width": 1 });
+    const t = el("text", { x: W - padR + 6, y: y(v) + 4, fill: "var(--muted)", "font-size": 11, "font-family": "var(--mono)" });
+    t.textContent = v.toFixed(2);
+  }
+  rows.forEach((r, i) => {
+    const [label, o, h, l, c] = r, x = padL + step * i + step / 2, up = c >= o, col = up ? "var(--up)" : "var(--down)";
+    el("line", { x1: x, x2: x, y1: y(h), y2: y(l), stroke: col, "stroke-width": 1 });
+    const top = y(Math.max(o, c)), bot = y(Math.min(o, c));
+    el("rect", { x: x - bw / 2, y: top, width: bw, height: Math.max(1, bot - top), fill: col });
+    if (i % Math.ceil(n / 8) === 0) {
+      const t = el("text", { x, y: H - 6, fill: "var(--muted)", "font-size": 11, "font-family": "var(--mono)", "text-anchor": "middle" });
+      t.textContent = label;
+    }
+  });
+  if (opts.lines) for (const [v, tok] of lines) {
+    if (v < lo || v > hi) continue;
+    el("line", { x1: padL, x2: W - padR, y1: y(v), y2: y(v), stroke: `var(${tok})`, "stroke-width": 1.5, "stroke-dasharray": "5 4" });
+  }
+}
+
+function render() {
+  const s = SETUPS[cur], a = answers[s.id] || {};
+  const long = s.side === "long";
+  $("meta").innerHTML = `<b>${cur + 1}</b> / ${SETUPS.length} · ${s.when} · ${long ? "1m uptrend, higher low broken" : "1m downtrend, lower high broken"}`;
+  $("lgLevel").textContent = `broken ${long ? "higher low" : "lower high"} ${s.level.toFixed(2)}`;
+  $("lgTarget").textContent = `${long ? "swing high" : "swing low"} ${s.target.toFixed(2)} (A)`;
+  $("lgFar").textContent = `one leg past ${s.far.toFixed(2)} (B)`;
+  draw($("h1"), s.h1, s, { lines: false });
+  draw($("m5"), s.m5, s, { lines: true });
+  draw($("m1"), s.m1, s, { lines: true });
+  $("question").textContent = `Which comes first after this candle?`;
+  $("aText").textContent = `A · Manipulation: back to ${s.target.toFixed(2)}`;
+  $("aSub").textContent = `the break was a stop run`;
+  $("bText").textContent = `B · Real break: ${long ? "down" : "up"} to ${s.far.toFixed(2)}`;
+  $("bSub").textContent = `structure really changed`;
+  $("pickA").setAttribute("aria-pressed", a.pick === "A");
+  $("pickB").setAttribute("aria-pressed", a.pick === "B");
+  $("note").value = a.note || "";
+  $("prev").disabled = cur === 0;
+  $("next").textContent = cur === SETUPS.length - 1 ? "Finish" : "Next →";
+  const done = SETUPS.filter(x => answers[x.id]?.pick).length;
+  $("prog").style.width = `${done / SETUPS.length * 100}%`;
+  $("dots").replaceChildren(...SETUPS.map((x, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = i + 1; b.setAttribute("aria-label", `Setup ${i + 1}`);
+    if (answers[x.id]?.pick) b.classList.add("done");
+    if (i === cur) b.classList.add("cur");
+    b.onclick = () => { cur = i; render(); };
+    return b;
+  }));
+  $("doneMsg").hidden = done < SETUPS.length;
+}
+
+async function save(id) {
+  const a = answers[id];
+  if (!db) { $("status").textContent = "Not saved: sign in to claude.ai to save picks"; return; }
+  try {
+    await db.doc("labels/" + id).set({ pick: a.pick, note: a.note || "", at: new Date().toISOString() });
+    $("status").textContent = `Saved ${id}`;
+  } catch (e) { $("status").textContent = `Save failed (${e?.code || "error"}): pick again to retry`; }
+}
+
+function pick(p) {
+  const s = SETUPS[cur];
+  answers[s.id] = { ...(answers[s.id] || {}), pick: p, note: $("note").value.trim() };
+  render(); save(s.id);
+}
+$("pickA").onclick = () => pick("A");
+$("pickB").onclick = () => pick("B");
+$("note").addEventListener("change", () => {
+  const s = SETUPS[cur]; if (!answers[s.id]?.pick) return;
+  answers[s.id].note = $("note").value.trim(); save(s.id);
+});
+$("prev").onclick = () => { if (cur > 0) { cur--; render(); } };
+$("next").onclick = () => {
+  const nextOpen = SETUPS.findIndex((x, i) => i > cur && !answers[x.id]?.pick);
+  cur = nextOpen >= 0 ? nextOpen : Math.min(cur + 1, SETUPS.length - 1); render();
+};
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "a" || e.key === "A") pick("A");
+  if (e.key === "b" || e.key === "B") pick("B");
+  if (e.key === "ArrowRight") $("next").click();
+  if (e.key === "ArrowLeft") $("prev").click();
+});
+render();
+
+(async () => {
+  const timer = setTimeout(() => { if (!db) $("status").textContent = "Saving unavailable here: picks stay on this screen only"; }, 10000);
+  try {
+    db = window.claude ? await window.claude.use("db") : null;
+  } catch { db = null; }
+  clearTimeout(timer);
+  if (!db) { $("status").textContent = "Saving unavailable here: picks stay on this screen only"; return; }
+  try {
+    const snap = await db.collection("labels").get();
+    for (const d of snap.docs) { const v = d.data(); if (v) answers[d.id] = v; }
+    const first = SETUPS.findIndex(x => !answers[x.id]?.pick);
+    cur = first >= 0 ? first : 0;
+    $("status").textContent = "Picks save automatically";
+    render();
+  } catch (e) { $("status").textContent = `Could not load saved picks (${e?.code || "error"})`; }
+})();
+</script>

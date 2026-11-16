@@ -1,0 +1,211 @@
+/home/mrullldhm/personal/tradingview-tester/studies/swing_confluence/round3.py:46: RuntimeWarning: invalid value encountered in scalar divide
+  return {"n": len(d), "edge": r.mean(), "z": r.sum() / np.sqrt((d["fair"] * (1 - d["fair"])).sum()),
+/home/mrullldhm/personal/tradingview-tester/studies/swing_confluence/round3.py:46: RuntimeWarning: invalid value encountered in scalar divide
+  return {"n": len(d), "edge": r.mean(), "z": r.sum() / np.sqrt((d["fair"] * (1 - d["fair"])).sum()),
+/home/mrullldhm/personal/tradingview-tester/studies/swing_confluence/round3.py:46: RuntimeWarning: invalid value encountered in scalar divide
+  return {"n": len(d), "edge": r.mean(), "z": r.sum() / np.sqrt((d["fair"] * (1 - d["fair"])).sum()),
+cells tested: 141  bh: 50  pass: 0
+
+== H1
+                                        cell      n   edge     e1     e2  yrs   long  short      z  pass
+   1m HH-HL-HH-LL, 5m sweep=0, 5m trend with  26702 -0.017 -0.023 -0.011   12 -0.016 -0.018 -6.156 False
+  1m HH-HL-HH-LL, 5m sweep=0, 5m trend other  56615 -0.009 -0.008 -0.011   11 -0.008 -0.011 -4.949 False
+   1m HH-HL-HH-LL, 5m sweep=1, 5m trend with  16456 -0.009 -0.013 -0.005   10 -0.012 -0.007 -2.705 False
+  1m HH-HL-HH-LL, 5m sweep=1, 5m trend other  43687  0.003  0.005  0.001    8  0.004  0.002  1.399 False
+  1m HH-HL-HH-LL, 5m low intact, 5m leg with  41349 -0.012 -0.015 -0.009   12 -0.009 -0.014 -5.260 False
+ 1m HH-HL-HH-LL, 15m sweep=0, 15m trend with  32935 -0.008 -0.013 -0.003   10 -0.006 -0.011 -3.364 False
+1m HH-HL-HH-LL, 15m sweep=0, 15m trend other  71176 -0.011 -0.011 -0.011   12 -0.011 -0.011 -6.584 False
+ 1m HH-HL-HH-LL, 15m sweep=1, 15m trend with  10080 -0.001  0.001 -0.003    7 -0.001 -0.000 -0.225 False
+1m HH-HL-HH-LL, 15m sweep=1, 15m trend other  29268  0.002  0.005 -0.000    6  0.003  0.001  0.843 False
+1m HH-HL-HH-LL, 15m low intact, 15m leg with  58553 -0.014 -0.017 -0.011   12 -0.014 -0.015 -7.666 False
+   1m HH-HL-HH-LL, 1h sweep=0, 1h trend with  32564 -0.009 -0.011 -0.008   11 -0.009 -0.010 -3.780 False
+  1m HH-HL-HH-LL, 1h sweep=0, 1h trend other  76591 -0.008 -0.010 -0.006   12 -0.007 -0.009 -5.023 False
+   1m HH-HL-HH-LL, 1h sweep=1, 1h trend with   9123 -0.000  0.005 -0.006    6 -0.004  0.003 -0.075 False
+  1m HH-HL-HH-LL, 1h sweep=1, 1h trend other  25172 -0.003 -0.001 -0.006    8 -0.001 -0.005 -1.098 False
+  1m HH-HL-HH-LL, 1h low intact, 1h leg with  60153 -0.011 -0.016 -0.006   11 -0.010 -0.013 -6.180 False
+   1m HH-HL-HH-LL, 4h sweep=0, 4h trend with  37418 -0.006 -0.002 -0.010   11 -0.004 -0.007 -2.517 False
+  1m HH-HL-HH-LL, 4h sweep=0, 4h trend other  77699 -0.009 -0.012 -0.005   11 -0.009 -0.009 -5.408 False
+   1m HH-HL-HH-LL, 4h sweep=1, 4h trend with   7529  0.008  0.012  0.003    7  0.016  0.000  1.512 False
+  1m HH-HL-HH-LL, 4h sweep=1, 4h trend other  20736 -0.008 -0.009 -0.008    8 -0.010 -0.007 -2.725 False
+  1m HH-HL-HH-LL, 4h low intact, 4h leg with  59159 -0.006 -0.006 -0.006   12 -0.004 -0.008 -3.337 False
+   1m HH-HL-HH-LL, 1d sweep=0, 1d trend with  40154 -0.005 -0.008 -0.002    9 -0.003 -0.008 -2.331 False
+  1m HH-HL-HH-LL, 1d sweep=0, 1d trend other  73233 -0.006 -0.005 -0.007   11 -0.007 -0.005 -3.594 False
+   1m HH-HL-HH-LL, 1d sweep=1, 1d trend with   6139 -0.006 -0.010 -0.002    7 -0.006 -0.007 -1.115 False
+  1m HH-HL-HH-LL, 1d sweep=1, 1d trend other  23564 -0.014 -0.015 -0.014   11 -0.012 -0.016 -4.921 False
+  1m HH-HL-HH-LL, 1d low intact, 1d leg with  62742 -0.007 -0.007 -0.008   12 -0.007 -0.008 -4.169 False
+                        1m HH-HL-HH-LL (all) 143461 -0.007 -0.008 -0.006   12 -0.006 -0.008 -5.961 False
+ 5m HH-HL-HH-LL, 15m sweep=0, 15m trend with   6714 -0.011 -0.017 -0.005    7 -0.010 -0.012 -1.990 False
+5m HH-HL-HH-LL, 15m sweep=0, 15m trend other  13701 -0.000  0.001 -0.001    4  0.010 -0.011 -0.101 False
+ 5m HH-HL-HH-LL, 15m sweep=1, 15m trend with   6506 -0.018 -0.022 -0.013   10 -0.020 -0.015 -3.270 False
+5m HH-HL-HH-LL, 15m sweep=1, 15m trend other  15326 -0.005 -0.003 -0.008    7 -0.009 -0.002 -1.485 False
+5m HH-HL-HH-LL, 15m low intact, 15m leg with   6119  0.006 -0.003  0.015    7  0.007  0.004  0.957 False
+   5m HH-HL-HH-LL, 1h sweep=0, 1h trend with   8917 -0.003 -0.012  0.005    8  0.000 -0.007 -0.721 False
+  5m HH-HL-HH-LL, 1h sweep=0, 1h trend other  20899 -0.006 -0.005 -0.007    8 -0.004 -0.008 -1.967 False
+   5m HH-HL-HH-LL, 1h sweep=1, 1h trend with   3197  0.002  0.007 -0.004    6  0.006 -0.003  0.207 False
+  5m HH-HL-HH-LL, 1h sweep=1, 1h trend other   9230 -0.013 -0.010 -0.016   12 -0.015 -0.011 -2.907 False
+  5m HH-HL-HH-LL, 1h low intact, 1h leg with  16472 -0.004 -0.006 -0.002    7  0.002 -0.010 -1.106 False
+   5m HH-HL-HH-LL, 4h sweep=0, 4h trend with  10889 -0.013 -0.009 -0.017   11 -0.013 -0.014 -3.119 False
+  5m HH-HL-HH-LL, 4h sweep=0, 4h trend other  22520 -0.005 -0.007 -0.003   10 -0.002 -0.009 -1.762 False
+   5m HH-HL-HH-LL, 4h sweep=1, 4h trend with   2406 -0.006 -0.012 -0.001    6 -0.005 -0.007 -0.709 False
+  5m HH-HL-HH-LL, 4h sweep=1, 4h trend other   6412  0.000 -0.000  0.001    8 -0.001  0.002  0.072 False
+  5m HH-HL-HH-LL, 4h low intact, 4h leg with  17038 -0.004 -0.005 -0.002    8 -0.005 -0.002 -1.090 False
+   5m HH-HL-HH-LL, 1d sweep=0, 1d trend with  11914 -0.005 -0.004 -0.006    8 -0.001 -0.010 -1.229 False
+  5m HH-HL-HH-LL, 1d sweep=0, 1d trend other  21379 -0.009 -0.011 -0.007   10 -0.009 -0.009 -3.051 False
+   5m HH-HL-HH-LL, 1d sweep=1, 1d trend with   1937  0.008  0.004  0.012    6  0.017 -0.000  0.805 False
+  5m HH-HL-HH-LL, 1d sweep=1, 1d trend other   6922 -0.005 -0.001 -0.008    8 -0.003 -0.006 -0.884 False
+  5m HH-HL-HH-LL, 1d low intact, 1d leg with  18454 -0.010 -0.012 -0.007    9 -0.007 -0.012 -3.022 False
+                        5m HH-HL-HH-LL (all)  42247 -0.006 -0.007 -0.006   10 -0.005 -0.008 -2.999 False
+  15m HH-HL-HH-LL, 1h sweep=0, 1h trend with   2501 -0.013 -0.026  0.000    9 -0.015 -0.010 -1.444 False
+ 15m HH-HL-HH-LL, 1h sweep=0, 1h trend other   5594 -0.006 -0.009 -0.002    5 -0.005 -0.006 -0.938 False
+  15m HH-HL-HH-LL, 1h sweep=1, 1h trend with   2131 -0.012 -0.014 -0.010    7 -0.019 -0.005 -1.304 False
+ 15m HH-HL-HH-LL, 1h sweep=1, 1h trend other   5521 -0.013 -0.012 -0.015    9 -0.013 -0.014 -2.281 False
+ 15m HH-HL-HH-LL, 1h low intact, 1h leg with   3514  0.000 -0.006  0.007    3  0.005 -0.005  0.039 False
+  15m HH-HL-HH-LL, 4h sweep=0, 4h trend with   3970 -0.018 -0.027 -0.010    9 -0.022 -0.014 -2.643 False
+ 15m HH-HL-HH-LL, 4h sweep=0, 4h trend other   7757 -0.009 -0.011 -0.007    8 -0.015 -0.004 -1.856 False
+  15m HH-HL-HH-LL, 4h sweep=1, 4h trend with   1071 -0.009 -0.009 -0.010    9 -0.002 -0.017 -0.717 False
+ 15m HH-HL-HH-LL, 4h sweep=1, 4h trend other   2941 -0.002 -0.002 -0.003    6  0.013 -0.015 -0.299 False
+ 15m HH-HL-HH-LL, 4h low intact, 4h leg with   5767 -0.010 -0.006 -0.014    9 -0.012 -0.008 -1.752 False
+  15m HH-HL-HH-LL, 1d sweep=0, 1d trend with   4369 -0.017 -0.023 -0.011   10 -0.018 -0.015 -2.524 False
+ 15m HH-HL-HH-LL, 1d sweep=0, 1d trend other   7871 -0.010 -0.020 -0.001    8 -0.015 -0.005 -2.111 False
+  15m HH-HL-HH-LL, 1d sweep=1, 1d trend with    775  0.014  0.010  0.020    8  0.028  0.003  0.908 False
+ 15m HH-HL-HH-LL, 1d sweep=1, 1d trend other   2696 -0.007  0.015 -0.026    8  0.002 -0.014 -0.830 False
+ 15m HH-HL-HH-LL, 1d low intact, 1d leg with   6740 -0.017 -0.025 -0.009   10 -0.024 -0.010 -3.212 False
+                       15m HH-HL-HH-LL (all)  15748 -0.010 -0.014 -0.007   10 -0.011 -0.009 -2.945 False
+   1h HH-HL-HH-LL, 4h sweep=0, 4h trend with    815 -0.021 -0.010 -0.031    7 -0.037 -0.001 -1.391 False
+  1h HH-HL-HH-LL, 4h sweep=0, 4h trend other   1574  0.008  0.000  0.015    7  0.005  0.011  0.732 False
+   1h HH-HL-HH-LL, 4h sweep=1, 4h trend with    634 -0.024 -0.018 -0.029    8 -0.005 -0.043 -1.435 False
+  1h HH-HL-HH-LL, 4h sweep=1, 4h trend other   1530  0.011  0.008  0.015    7  0.009  0.014  1.076 False
+  1h HH-HL-HH-LL, 4h low intact, 4h leg with    884  0.017  0.024  0.010    8  0.004  0.031  1.130 False
+   1h HH-HL-HH-LL, 1d sweep=0, 1d trend with   1242 -0.010 -0.000 -0.018    8 -0.023  0.005 -0.827 False
+  1h HH-HL-HH-LL, 1d sweep=0, 1d trend other   2058  0.001 -0.001  0.004    8 -0.002  0.005  0.156 False
+  1h HH-HL-HH-LL, 1d sweep=1, 1d trend other    970  0.008 -0.011  0.026    9  0.014  0.004  0.603 False
+  1h HH-HL-HH-LL, 1d low intact, 1d leg with   1836 -0.004 -0.000 -0.008    8 -0.005 -0.004 -0.436 False
+                        1h HH-HL-HH-LL (all)   4553 -0.001 -0.002  0.000    6 -0.004  0.003 -0.081 False
+
+== H2
+                                                             cell      n   edge     e1     e2  yrs   long  short      z  pass
+1m event, forming 15m took prev=0, event is forming 15m extreme=0 228954 -0.007 -0.012  0.001    9 -0.006 -0.008 -7.099 False
+1m event, forming 15m took prev=0, event is forming 15m extreme=1 282197 -0.006 -0.008 -0.003   11 -0.005 -0.007 -6.658 False
+1m event, forming 15m took prev=1, event is forming 15m extreme=0  71815 -0.001  0.003 -0.006    6  0.001 -0.002 -0.362 False
+1m event, forming 15m took prev=1, event is forming 15m extreme=1 273664  0.004  0.007  0.000    9  0.004  0.003  4.214 False
+5m event, forming 15m took prev=0, event is forming 15m extreme=0  84263 -0.002 -0.001 -0.002    7  0.000 -0.003 -0.985 False
+5m event, forming 15m took prev=0, event is forming 15m extreme=1  67947 -0.003 -0.005 -0.000   10 -0.002 -0.003 -1.528 False
+5m event, forming 15m took prev=1, event is forming 15m extreme=1 113345  0.001  0.001  0.001    7  0.003 -0.001  0.820 False
+  1m event, forming 1h took prev=0, event is forming 1h extreme=0 353520 -0.006 -0.012  0.000    9 -0.004 -0.009 -8.430 False
+  1m event, forming 1h took prev=0, event is forming 1h extreme=1 187673 -0.003 -0.002 -0.004   10 -0.004 -0.001 -2.539 False
+  1m event, forming 1h took prev=1, event is forming 1h extreme=0 171040 -0.003  0.000 -0.006    8 -0.002 -0.003 -2.477 False
+  1m event, forming 1h took prev=1, event is forming 1h extreme=1 144397  0.007  0.011  0.004   12  0.009  0.006  6.085 False
+  5m event, forming 1h took prev=0, event is forming 1h extreme=0  75695 -0.003 -0.007  0.002    7 -0.001 -0.004 -1.612 False
+  5m event, forming 1h took prev=0, event is forming 1h extreme=1  86766 -0.004 -0.006 -0.003    8 -0.001 -0.008 -2.890 False
+  5m event, forming 1h took prev=1, event is forming 1h extreme=0  23372 -0.000  0.002 -0.003    6 -0.005  0.004 -0.125 False
+  5m event, forming 1h took prev=1, event is forming 1h extreme=1  79853  0.005  0.009  0.001   10  0.005  0.005  3.248 False
+ 15m event, forming 1h took prev=0, event is forming 1h extreme=0  24573 -0.001 -0.000 -0.001    4  0.003 -0.005 -0.244 False
+ 15m event, forming 1h took prev=0, event is forming 1h extreme=1  28938 -0.001 -0.005  0.002    7  0.004 -0.007 -0.471 False
+ 15m event, forming 1h took prev=1, event is forming 1h extreme=0    726  0.016  0.038 -0.007    7  0.018  0.015  0.980 False
+ 15m event, forming 1h took prev=1, event is forming 1h extreme=1  42103 -0.000  0.003 -0.004    7 -0.002  0.001 -0.188 False
+  1m event, forming 4h took prev=0, event is forming 4h extreme=0 426031 -0.004 -0.007  0.000    9 -0.003 -0.005 -5.685 False
+  1m event, forming 4h took prev=0, event is forming 4h extreme=1 101032  0.004  0.008  0.000   10  0.004  0.005  2.997 False
+  1m event, forming 4h took prev=1, event is forming 4h extreme=0 254641 -0.005 -0.005 -0.005   12 -0.003 -0.006 -5.297 False
+  1m event, forming 4h took prev=1, event is forming 4h extreme=1  74926  0.003  0.008 -0.001    7  0.004  0.003  2.120 False
+  5m event, forming 4h took prev=0, event is forming 4h extreme=0 113931 -0.004 -0.008  0.001    9 -0.001 -0.007 -2.653 False
+  5m event, forming 4h took prev=0, event is forming 4h extreme=1  54459  0.002  0.005 -0.002    8  0.001  0.002  0.811 False
+  5m event, forming 4h took prev=1, event is forming 4h extreme=0  55692 -0.002 -0.001 -0.002    8 -0.000 -0.003 -0.819 False
+  5m event, forming 4h took prev=1, event is forming 4h extreme=1  41604  0.005  0.010  0.001    8  0.004  0.006  2.457 False
+ 15m event, forming 4h took prev=0, event is forming 4h extreme=0  31791 -0.005 -0.009 -0.000   11  0.006 -0.015 -1.892 False
+ 15m event, forming 4h took prev=0, event is forming 4h extreme=1  27806 -0.002 -0.001 -0.003    8 -0.006  0.002 -0.754 False
+ 15m event, forming 4h took prev=1, event is forming 4h extreme=0  11399  0.005  0.007  0.002    9  0.012 -0.002  1.064 False
+ 15m event, forming 4h took prev=1, event is forming 4h extreme=1  25344  0.004  0.010 -0.002    8 -0.000  0.008  1.418 False
+  1h event, forming 4h took prev=0, event is forming 4h extreme=0   6963 -0.004 -0.010  0.003    5 -0.010  0.003 -0.686 False
+  1h event, forming 4h took prev=0, event is forming 4h extreme=1   6491  0.005  0.004  0.007    8  0.005  0.005  0.983 False
+  1h event, forming 4h took prev=1, event is forming 4h extreme=1  10167  0.009  0.008  0.010   10  0.004  0.013  2.036 False
+  1m event, forming 1d took prev=0, event is forming 1d extreme=0 530471 -0.004 -0.005 -0.002   10 -0.004 -0.004 -6.419 False
+  1m event, forming 1d took prev=0, event is forming 1d extreme=1  51386  0.010  0.015  0.004   11  0.011  0.009  4.860 False
+  1m event, forming 1d took prev=1, event is forming 1d extreme=0 248087 -0.002 -0.004  0.000    7  0.001 -0.005 -2.003 False
+  1m event, forming 1d took prev=1, event is forming 1d extreme=1  26686 -0.005 -0.003 -0.007    8 -0.008 -0.003 -1.852 False
+  5m event, forming 1d took prev=0, event is forming 1d extreme=0 157709 -0.003 -0.005 -0.001    9 -0.003 -0.003 -2.664 False
+  5m event, forming 1d took prev=0, event is forming 1d extreme=1  31497  0.008  0.011  0.004   10  0.008  0.008  3.157 False
+  5m event, forming 1d took prev=1, event is forming 1d extreme=0  62007  0.001  0.003 -0.001    4  0.007 -0.005  0.468 False
+  5m event, forming 1d took prev=1, event is forming 1d extreme=1  14473 -0.001  0.003 -0.004    6 -0.002  0.000 -0.200 False
+ 15m event, forming 1d took prev=0, event is forming 1d extreme=0  49790 -0.004 -0.005 -0.002    6 -0.003 -0.004 -1.763 False
+ 15m event, forming 1d took prev=0, event is forming 1d extreme=1  19492  0.002  0.003  0.001    7  0.001  0.003  0.625 False
+ 15m event, forming 1d took prev=1, event is forming 1d extreme=0  17751 -0.001  0.006 -0.006    7  0.012 -0.011 -0.170 False
+ 15m event, forming 1d took prev=1, event is forming 1d extreme=1   9307  0.010  0.015  0.005    8  0.008  0.011  2.164 False
+  1h event, forming 1d took prev=0, event is forming 1d extreme=0   7952 -0.006 -0.007 -0.004    9 -0.013  0.002 -1.112 False
+  1h event, forming 1d took prev=0, event is forming 1d extreme=1   8511  0.008  0.004  0.012    8  0.003  0.014  1.665 False
+  1h event, forming 1d took prev=1, event is forming 1d extreme=0   2340  0.001  0.002 -0.000    7  0.009 -0.006  0.077 False
+  1h event, forming 1d took prev=1, event is forming 1d extreme=1   4986  0.015  0.011  0.017   11  0.013  0.016  2.441 False
+  4h event, forming 1d took prev=0, event is forming 1d extreme=0   2003 -0.000  0.014 -0.029    6 -0.017  0.018 -0.011 False
+  4h event, forming 1d took prev=0, event is forming 1d extreme=1   1710 -0.002 -0.006  0.001    7 -0.002 -0.002 -0.191 False
+  4h event, forming 1d took prev=1, event is forming 1d extreme=1   1979  0.000 -0.008  0.004    7  0.007 -0.006  0.010 False
+
+== H3
+                                     cell      n   edge     e1     e2  yrs   long  short      z  pass
+ 1m event, previous-day level: first take   1638  0.004  0.017 -0.007    7 -0.008  0.015  0.398 False
+     1m event, previous-day level: retake 154065 -0.003 -0.003 -0.003   10 -0.001 -0.005 -2.479 False
+    1m event, previous-day level: no take 700000 -0.003 -0.004 -0.001    9 -0.002 -0.003 -4.762 False
+ 5m event, previous-day level: first take   1516  0.027  0.030  0.024    8  0.016  0.036  2.382 False
+     5m event, previous-day level: retake  45248 -0.004 -0.001 -0.006    9 -0.001 -0.006 -1.757 False
+    5m event, previous-day level: no take 218115 -0.000 -0.001  0.001    7  0.001 -0.002 -0.385 False
+15m event, previous-day level: first take   1526  0.024  0.030  0.019    9  0.025  0.023  2.154 False
+    15m event, previous-day level: retake  17042  0.003  0.009 -0.002    8  0.005  0.001  0.808 False
+   15m event, previous-day level: no take  76838 -0.002 -0.003 -0.002    7 -0.000 -0.004 -1.318 False
+ 1h event, previous-day level: first take   1397  0.020  0.009  0.029   10  0.011  0.028  1.742 False
+     1h event, previous-day level: retake   4773  0.011  0.014  0.008    9  0.014  0.008  1.759 False
+    1h event, previous-day level: no take  16370  0.005  0.001  0.009    8  0.000  0.010  1.411 False
+ 4h event, previous-day level: first take   1109  0.009 -0.009  0.020    8  0.018  0.000  0.702 False
+     4h event, previous-day level: retake    895 -0.008 -0.006 -0.008    7 -0.003 -0.011 -0.533 False
+    4h event, previous-day level: no take   1893 -0.001 -0.008  0.003    7  0.004 -0.007 -0.143 False
+{
+  "saved_cells": 141,
+  "source_enumerated_cells": 148,
+  "reproduced_cells": 141,
+  "max_abs_diff": {
+    "n": 0.0,
+    "edge": 0.0,
+    "e1": 0.0,
+    "e2": 0.0,
+    "z": 0.0
+  },
+  "negative_level_events": 0,
+  "negative_first_take": 0,
+  "closed_H2": {
+    "15m": {
+      "events": 1122316,
+      "already_complete": 138128
+    },
+    "1h": {
+      "events": 1218656,
+      "already_complete": 58441
+    },
+    "4h": {
+      "events": 1242445,
+      "already_complete": 19943
+    },
+    "1d": {
+      "events": 1248187,
+      "already_complete": 2328
+    }
+  },
+  "H1_orders": {
+    "1m": {
+      "n": 143461,
+      "opposite_not_earlier": 9818,
+      "replacement": 29003
+    },
+    "5m": {
+      "n": 42247,
+      "opposite_not_earlier": 2342,
+      "replacement": 7832
+    },
+    "15m": {
+      "n": 15748,
+      "opposite_not_earlier": 814,
+      "replacement": 3106
+    },
+    "1h": {
+      "n": 4553,
+      "opposite_not_earlier": 204,
+      "replacement": 936
+    }
+  }
+}

@@ -26,7 +26,8 @@ HIGH, LOW = 1, -1
 UNKNOWN = -1
 SESSION_LAST_MINUTE = 1379  # 15:59 CT, minutes since the 17:00 CT open: the last minute of a CME trading day
 UNDO_DEPTH = 64  # points an outside-candle trial may rewrite; a deeper cascade raises
-TIMEFRAMES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440}
+# 1w, 1mo: trading-day groups (minutes are nominal); "1mo", never "1M", so it cannot be misread as 1m
+TIMEFRAMES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440, "1w": 7200, "1mo": 30000}
 
 
 @dataclass
@@ -47,6 +48,7 @@ class Candles:
 
 def build_candles(df: pd.DataFrame, tf: str) -> Candles:
     """Candles from 1m bars. 5m-1h: clock aligned. 4h: blocks from the 17:00 CT session open. 1d: trading day.
+    1w: trading days Monday-Friday. 1mo: trading days of one calendar month.
     A candle is complete at the close of its last minute (the 15:59 CT bar for the day's last 4h block and the daily
     candle); when that minute has no bar (early closes, quiet minutes), at the close of the next bar."""
     if tf not in TIMEFRAMES:
@@ -67,6 +69,20 @@ def build_candles(df: pd.DataFrame, tf: str) -> Candles:
     day_close = sess == SESSION_LAST_MINUTE
     if tf == "1d":
         gid, last_minute = day, day_close
+    elif tf in ("1w", "1mo"):
+        tday = pd.DatetimeIndex(df["trading_day"])
+        if tf == "1w":  # Monday-to-Friday trading days (Sunday evening belongs to Monday)
+            gid = ((tday.as_unit("ns").asi8 // 86_400_000_000_000) + 3) // 7  # 1970-01-01 was a Thursday
+        else:
+            gid = (tday.year * 12 + tday.month).to_numpy()
+        gid = np.asarray(gid, dtype=np.int64)
+        # complete at 15:59 CT of the scheduled last day (Friday / last weekday of the month), from the bar's own
+        # date only, so a live prefix agrees with full history. A holiday on that day: complete at the next bar.
+        if tf == "1w":
+            sched = tday.day_of_week == 4
+        else:
+            sched = tday == tday + pd.offsets.BMonthEnd(0)
+        last_minute = day_close & np.asarray(sched)
     elif tf == "4h":
         gid, last_minute = day * 10 + sess // 240, ((sess + 1) % 240 == 0) | day_close
     else:

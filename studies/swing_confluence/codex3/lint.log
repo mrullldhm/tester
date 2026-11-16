@@ -1,0 +1,1451 @@
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/audit.py:19:51
+   |
+17 | r3.main()
+18 | r3.pd.read_parquet=original_read
+19 | saved=pd.read_csv('data/studies/round3_cells.csv');new=pd.read_csv(O/'round3_cells.csv')
+   |                                                   ^
+20 | diff={k:float((saved[k]-new[k]).abs().max()) for k in ['n','edge','e1','e2','z']}
+21 | df=load_period('dev');e=original_read('data/studies/swing_confluence_dev.parquet')
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/audit.py:21:22
+   |
+19 | saved=pd.read_csv('data/studies/round3_cells.csv');new=pd.read_csv(O/'round3_cells.csv')
+20 | diff={k:float((saved[k]-new[k]).abs().max()) for k in ['n','edge','e1','e2','z']}
+21 | df=load_period('dev');e=original_read('data/studies/swing_confluence_dev.parquet')
+   |                      ^
+22 | e=e[(e.outcome>=0)&(~e['roll'])&e.fair.notna()&(e.leg>=6)].reset_index(drop=True)
+23 | f=r3.bar_features(df)
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/audit.py:26:19
+   |
+24 | ts=pd.DatetimeIndex(df.ts).as_unit('ns').asi8
+25 | first=np.searchsorted(ts,pd.DatetimeIndex(e.pt_ts).as_unit('ns').asi8)
+26 | i=e.bar.to_numpy();before=np.maximum(first-1,0);side=e.side.to_numpy();ev=e.price.to_numpy()
+   |                   ^
+27 | lvl=np.where(side==1,f['pdl'][first],f['pdh'][first]);prior=np.where(side==1,f['day_lo'][before]<lvl,f['day_hi'][before]>lvl)
+28 | prior &= f['day'][before]==f['day'][first]
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/audit.py:26:48
+   |
+24 | ts=pd.DatetimeIndex(df.ts).as_unit('ns').asi8
+25 | first=np.searchsorted(ts,pd.DatetimeIndex(e.pt_ts).as_unit('ns').asi8)
+26 | i=e.bar.to_numpy();before=np.maximum(first-1,0);side=e.side.to_numpy();ev=e.price.to_numpy()
+   |                                                ^
+27 | lvl=np.where(side==1,f['pdl'][first],f['pdh'][first]);prior=np.where(side==1,f['day_lo'][before]<lvl,f['day_hi'][before]>lvl)
+28 | prior &= f['day'][before]==f['day'][first]
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/audit.py:26:71
+   |
+24 | ts=pd.DatetimeIndex(df.ts).as_unit('ns').asi8
+25 | first=np.searchsorted(ts,pd.DatetimeIndex(e.pt_ts).as_unit('ns').asi8)
+26 | i=e.bar.to_numpy();before=np.maximum(first-1,0);side=e.side.to_numpy();ev=e.price.to_numpy()
+   |                                                                       ^
+27 | lvl=np.where(side==1,f['pdl'][first],f['pdh'][first]);prior=np.where(side==1,f['day_lo'][before]<lvl,f['day_hi'][before]>lvl)
+28 | prior &= f['day'][before]==f['day'][first]
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/audit.py:27:54
+   |
+25 | first=np.searchsorted(ts,pd.DatetimeIndex(e.pt_ts).as_unit('ns').asi8)
+26 | i=e.bar.to_numpy();before=np.maximum(first-1,0);side=e.side.to_numpy();ev=e.price.to_numpy()
+27 | lvl=np.where(side==1,f['pdl'][first],f['pdh'][first]);prior=np.where(side==1,f['day_lo'][before]<lvl,f['day_hi'][before]>lvl)
+   |                                                      ^
+28 | prior &= f['day'][before]==f['day'][first]
+29 | now=np.where(side==1,ev<lvl,ev>lvl)
+   |
+
+E402 Module level import not at top of file
+  --> studies/swing_confluence/codex3/audit.py:35:1
+   |
+33 | neg[['base','side','bar','ts','price','level','first_take']].to_csv(O/'negative_pdh_pdl.csv',index=False)
+34 | # Quantify completed bars included as 'forming' in H2, using source feature groups.
+35 | from cltester.swings import build_candles
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+36 |
+37 | closed={}
+   |
+help: Move module level imports to top of file
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/audit.py:39:27
+   |
+37 | closed={}
+38 | for t in ['15m','1h','4h','1d']:
+39 |     cd=build_candles(df,t);cid=np.searchsorted(cd.first,i,side='right')-1
+   |                           ^
+40 |     mask=e.base.map(r3.ORDER.index).to_numpy()<r3.ORDER.index(t)
+41 |     closed[t]=dict(events=int(mask.sum()),already_complete=int(((cd.avail[cid]<=i)&mask).sum()))
+   |
+
+E701 Multiple statements on one line (colon)
+  --> studies/swing_confluence/codex3/economics.py:16:9
+   |
+14 |         a=a[a.params.map(lambda x: json.loads(x)==dict(swing_tf='1h',risk=25,rr=2,tie='5m'))].iloc[-1]
+15 |         hash_=a['hash']
+16 |     else: a=ledger[(ledger.strategy==name)&(ledger['hash']==hash_)].iloc[-1]
+   |         ^
+17 |     d=pd.read_csv(f'results/{name}/dev_{hash_}.csv')
+18 |     w=d[d.net>0];loss=d[d.net<0];st=d[d.reason=='stop'];tar=d[d.reason=='target']
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/economics.py:18:17
+   |
+16 |     else: a=ledger[(ledger.strategy==name)&(ledger['hash']==hash_)].iloc[-1]
+17 |     d=pd.read_csv(f'results/{name}/dev_{hash_}.csv')
+18 |     w=d[d.net>0];loss=d[d.net<0];st=d[d.reason=='stop'];tar=d[d.reason=='target']
+   |                 ^
+19 |     row=dict(strategy=name,hash=hash_,best_of=budget,params=a.params,trades=len(d),net=d.net.sum(),gross=d.gross.sum(),fees=d.fee.sum(…
+20 |     gross_per=d.gross.mean(),net_per=d.net.mean(),pf_net=w.net.sum()/-loss.net.sum(),pf_gross=d.loc[d.gross>0,'gross'].sum()/-d.loc[d.…
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/economics.py:18:33
+   |
+16 |     else: a=ledger[(ledger.strategy==name)&(ledger['hash']==hash_)].iloc[-1]
+17 |     d=pd.read_csv(f'results/{name}/dev_{hash_}.csv')
+18 |     w=d[d.net>0];loss=d[d.net<0];st=d[d.reason=='stop'];tar=d[d.reason=='target']
+   |                                 ^
+19 |     row=dict(strategy=name,hash=hash_,best_of=budget,params=a.params,trades=len(d),net=d.net.sum(),gross=d.gross.sum(),fees=d.fee.sum(…
+20 |     gross_per=d.gross.mean(),net_per=d.net.mean(),pf_net=w.net.sum()/-loss.net.sum(),pf_gross=d.loc[d.gross>0,'gross'].sum()/-d.loc[d.…
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/economics.py:18:56
+   |
+16 |     else: a=ledger[(ledger.strategy==name)&(ledger['hash']==hash_)].iloc[-1]
+17 |     d=pd.read_csv(f'results/{name}/dev_{hash_}.csv')
+18 |     w=d[d.net>0];loss=d[d.net<0];st=d[d.reason=='stop'];tar=d[d.reason=='target']
+   |                                                        ^
+19 |     row=dict(strategy=name,hash=hash_,best_of=budget,params=a.params,trades=len(d),net=d.net.sum(),gross=d.gross.sum(),fees=d.fee.sum(…
+20 |     gross_per=d.gross.mean(),net_per=d.net.mean(),pf_net=w.net.sum()/-loss.net.sum(),pf_gross=d.loc[d.gross>0,'gross'].sum()/-d.loc[d.…
+   |
+
+E701 Multiple statements on one line (colon)
+  --> studies/swing_confluence/codex3/run.py:29:25
+   |
+27 |     for tf in ('1m','5m','15m','1h','4h'):
+28 |         path = OUT / f'state_{tf}.parquet'
+29 |         if path.exists(): s = pd.read_parquet(path)
+   |                         ^
+30 |         else:
+31 |             s = swing_state(df,tf,prev=True,newest=True)
+   |
+
+E701 Multiple statements on one line (colon)
+  --> studies/swing_confluence/codex3/run.py:39:16
+   |
+37 |     counts={}
+38 |     def passage(start, upper, lower, d):
+39 |         if d==1: return rx.first_above(start,upper),rx.first_below(start,lower)
+   |                ^
+40 |         return rx.first_below(start,-upper),rx.first_above(start,-lower)
+41 |     def sample(phase,b,t,d,start,upper,lower,up,down,trend,**extra):
+   |
+
+E701 Multiple statements on one line (colon)
+  --> studies/swing_confluence/codex3/run.py:43:58
+   |
+41 |     def sample(phase,b,t,d,start,upper,lower,up,down,trend,**extra):
+42 |         end=min(up,down)
+43 |         if end>=n or up==down or start>=n or upper<=lower: return
+   |                                                          ^
+44 |         if rolls[end]!=rolls[start]: return
+45 |         cc=d*c[start]
+   |
+
+E701 Multiple statements on one line (colon)
+  --> studies/swing_confluence/codex3/run.py:44:36
+   |
+42 |         end=min(up,down)
+43 |         if end>=n or up==down or start>=n or upper<=lower: return
+44 |         if rolls[end]!=rolls[start]: return
+   |                                    ^
+45 |         cc=d*c[start]
+46 |         if not lower<=cc<=upper: return
+   |
+
+E701 Multiple statements on one line (colon)
+  --> studies/swing_confluence/codex3/run.py:46:32
+   |
+44 |         if rolls[end]!=rolls[start]: return
+45 |         cc=d*c[start]
+46 |         if not lower<=cc<=upper: return
+   |                                ^
+47 |         rows.append(dict(family=phase,base=b,htf=t,side=d,bar=int(start),end=int(end),
+48 |                          year=int(yr[start]),day=str(day[start]),fair=(cc-lower+1)/(upper-lower+2),
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/run.py:84:34
+   |
+82 |             hit,fail=passage(br+1,top,lower,d)
+83 |             lh=events[(events.base==b)&(events.side==-d)].sort_values('bar')
+84 |             lhb=lh.bar.to_numpy(); lhp=d*lh.price.to_numpy()
+   |                                  ^
+85 |             lht=pd.DatetimeIndex(lh.pt_ts).as_unit('ns').asi8
+86 |             occupied=-1
+   |
+
+B905 `zip()` without an explicit `strict=` parameter
+  --> studies/swing_confluence/codex3/run.py:88:38
+   |
+86 |             occupied=-1
+87 |             ct=0
+88 |             for aa,bb,uu,ll,hh,ff in zip(a,br,top,lower,hit,fail):
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+89 |                 if bb<=occupied: continue
+90 |                 # Reserve the seed before seeing whether its decision close is usable.
+   |
+help: Add explicit value for parameter `strict=`
+   |
+87 |             ct=0
+   -             for aa,bb,uu,ll,hh,ff in zip(a,br,top,lower,hit,fail):
+88 +             for aa,bb,uu,ll,hh,ff in zip(a,br,top,lower,hit,fail, strict=False):
+89 |                 if bb<=occupied: continue
+   |
+note: This is an unsafe fix and may change runtime behavior
+
+E701 Multiple statements on one line (colon)
+  --> studies/swing_confluence/codex3/run.py:89:32
+   |
+87 |             ct=0
+88 |             for aa,bb,uu,ll,hh,ff in zip(a,br,top,lower,hit,fail):
+89 |                 if bb<=occupied: continue
+   |                                ^
+90 |                 # Reserve the seed before seeing whether its decision close is usable.
+91 |                 occupied=min(hh,ff)
+   |
+
+E701 Multiple statements on one line (colon)
+  --> studies/swing_confluence/codex3/run.py:92:40
+   |
+90 |                 # Reserve the seed before seeing whether its decision close is usable.
+91 |                 occupied=min(hh,ff)
+92 |                 if rolls[bb]!=rolls[aa]: continue
+   |                                        ^
+93 |                 ct+=1
+94 |                 tr=(htlo[bb]>htlo2[bb]) and (hthi[bb]>hthi2[bb])
+   |
+
+E702 Multiple statements on one line (semicolon)
+   --> studies/swing_confluence/codex3/run.py:101:38
+    |
+ 99 |                     if lht[p]>ts[bb] and lhp[p]<uu:
+100 |                         # First confirmed lower high after the break; one chance only.
+101 |                         j=int(lhb[p]); level=int(lhp[p]); break
+    |                                      ^
+102 |                     p+=1
+103 |                 else: continue
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> studies/swing_confluence/codex3/run.py:101:57
+    |
+ 99 |                     if lht[p]>ts[bb] and lhp[p]<uu:
+100 |                         # First confirmed lower high after the break; one chance only.
+101 |                         j=int(lhb[p]); level=int(lhp[p]); break
+    |                                                         ^
+102 |                     p+=1
+103 |                 else: continue
+    |
+
+E701 Multiple statements on one line (colon)
+   --> studies/swing_confluence/codex3/run.py:103:21
+    |
+101 |                         j=int(lhb[p]); level=int(lhp[p]); break
+102 |                     p+=1
+103 |                 else: continue
+    |                     ^
+104 |                 r,_=passage(np.array([j+1]),np.array([level]),np.array([ll]),d)
+105 |                 r=int(r[0])
+    |
+
+E701 Multiple statements on one line (colon)
+   --> studies/swing_confluence/codex3/run.py:106:26
+    |
+104 |                 r,_=passage(np.array([j+1]),np.array([level]),np.array([ll]),d)
+105 |                 r=int(r[0])
+106 |                 if r>=end: continue  # includes same-minute barrier/reclaim ambiguity
+    |                          ^
+107 |                 # Reclaim's bar must not also cross the frozen HTF low.
+108 |                 if (d*l[r] if d==1 else -h[r])<ll: continue
+    |
+
+E701 Multiple statements on one line (colon)
+   --> studies/swing_confluence/codex3/run.py:108:50
+    |
+106 |                 if r>=end: continue  # includes same-minute barrier/reclaim ambiguity
+107 |                 # Reclaim's bar must not also cross the frozen HTF low.
+108 |                 if (d*l[r] if d==1 else -h[r])<ll: continue
+    |                                                  ^
+109 |                 nh,nf=passage(np.array([r+1]),np.array([uu]),np.array([ll]),d)
+110 |                 sample('N_reclaim_htf',b,t,d,r,uu,ll,int(nh[0]),int(nf[0]),tr,seed=int(aa),break_bar=int(bb),lh_bar=j)
+    |
+
+E501 Line too long (137 > 120)
+   --> studies/swing_confluence/codex3/run.py:111:121
+    |
+109 | …     nh,nf=passage(np.array([r+1]),np.array([uu]),np.array([ll]),d)
+110 | …     sample('N_reclaim_htf',b,t,d,r,uu,ll,int(nh[0]),int(nf[0]),tr,seed=int(aa),break_bar=int(bb),lh_bar=j)
+111 | …     local=int(rx.range_min(np.array([bb]),np.array([r]))[0]) if d==1 else -int(rx.range_max(np.array([bb]),np.array([r]))[0])
+    |                                                                                                               ^^^^^^^^^^^^^^^^^
+112 | …     nh,nf=passage(np.array([r+1]),np.array([uu]),np.array([local]),d)
+113 | …     sample('N_reclaim_local',b,t,d,r,uu,local,int(nh[0]),int(nf[0]),tr,seed=int(aa),break_bar=int(bb),lh_bar=j)
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> studies/swing_confluence/codex3/run.py:121:29
+    |
+119 |         s=states[b]
+120 |         k=np.arange(1,len(cd)-1)
+121 |         before=cd.first[k]-1; decision=cd.avail[k+1]
+    |                             ^
+122 |         for d in (1,-1):
+123 |             key='sh' if d==1 else 'sl'
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> studies/swing_confluence/codex3/run.py:135:20
+    |
+133 |             nextlow=d*(cd.l[k+1] if d==1 else cd.h[k+1])
+134 |             m=valid&(prior<=level)&(top>level)&(nextlow<bottom)&(pt[decision]==pd.DatetimeIndex(cd.ts[k]).as_unit('ns').asi8)
+135 |             kk=k[m]; dd=decision[m]; uu=top[m]; ll=nextlow[m]
+    |                    ^
+136 |             up,dn=passage(dd+1,uu,ll,d)
+137 |             for q,j,u,v,hu,hdn in zip(kk,dd,uu,ll,up,dn):
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> studies/swing_confluence/codex3/run.py:135:36
+    |
+133 |             nextlow=d*(cd.l[k+1] if d==1 else cd.h[k+1])
+134 |             m=valid&(prior<=level)&(top>level)&(nextlow<bottom)&(pt[decision]==pd.DatetimeIndex(cd.ts[k]).as_unit('ns').asi8)
+135 |             kk=k[m]; dd=decision[m]; uu=top[m]; ll=nextlow[m]
+    |                                    ^
+136 |             up,dn=passage(dd+1,uu,ll,d)
+137 |             for q,j,u,v,hu,hdn in zip(kk,dd,uu,ll,up,dn):
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> studies/swing_confluence/codex3/run.py:135:47
+    |
+133 |             nextlow=d*(cd.l[k+1] if d==1 else cd.h[k+1])
+134 |             m=valid&(prior<=level)&(top>level)&(nextlow<bottom)&(pt[decision]==pd.DatetimeIndex(cd.ts[k]).as_unit('ns').asi8)
+135 |             kk=k[m]; dd=decision[m]; uu=top[m]; ll=nextlow[m]
+    |                                               ^
+136 |             up,dn=passage(dd+1,uu,ll,d)
+137 |             for q,j,u,v,hu,hdn in zip(kk,dd,uu,ll,up,dn):
+    |
+
+B905 `zip()` without an explicit `strict=` parameter
+   --> studies/swing_confluence/codex3/run.py:137:35
+    |
+135 |             kk=k[m]; dd=decision[m]; uu=top[m]; ll=nextlow[m]
+136 |             up,dn=passage(dd+1,uu,ll,d)
+137 |             for q,j,u,v,hu,hdn in zip(kk,dd,uu,ll,up,dn):
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^
+138 |                 if rolls[j]!=rolls[cd.first[q]]: continue
+139 |                 cid=int(np.searchsorted(hd.first,cd.first[q],side='right')-1)
+    |
+help: Add explicit value for parameter `strict=`
+    |
+136 |             up,dn=passage(dd+1,uu,ll,d)
+    -             for q,j,u,v,hu,hdn in zip(kk,dd,uu,ll,up,dn):
+137 +             for q,j,u,v,hu,hdn in zip(kk,dd,uu,ll,up,dn, strict=False):
+138 |                 if rolls[j]!=rolls[cd.first[q]]: continue
+    |
+note: This is an unsafe fix and may change runtime behavior
+
+E701 Multiple statements on one line (colon)
+   --> studies/swing_confluence/codex3/run.py:138:48
+    |
+136 |             up,dn=passage(dd+1,uu,ll,d)
+137 |             for q,j,u,v,hu,hdn in zip(kk,dd,uu,ll,up,dn):
+138 |                 if rolls[j]!=rolls[cd.first[q]]: continue
+    |                                                ^
+139 |                 cid=int(np.searchsorted(hd.first,cd.first[q],side='right')-1)
+140 |                 if cid<1: continue
+    |
+
+E701 Multiple statements on one line (colon)
+   --> studies/swing_confluence/codex3/run.py:140:25
+    |
+138 |                 if rolls[j]!=rolls[cd.first[q]]: continue
+139 |                 cid=int(np.searchsorted(hd.first,cd.first[q],side='right')-1)
+140 |                 if cid<1: continue
+    |                         ^
+141 |                 parent_forming=bool(hd.avail[cid]>j)
+142 |                 forming=bool(cid+1>=len(hd) or hd.avail[cid+1]>j)  # right candle not yet complete
+    |
+
+E501 Line too long (153 > 120)
+   --> studies/swing_confluence/codex3/run.py:145:121
+    |
+143 | …
+144 | …high on bearish.
+145 | …y([j]))[0] if d==1 else -rx.range_max(np.array([hd.first[cid]]),np.array([j]))[0])
+    |                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+146 | …
+147 | …False,
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> studies/swing_confluence/codex3/run.py:152:13
+    |
+150 |     r=pd.DataFrame(rows)
+151 |     r.to_parquet(OUT/'sequences.parquet',index=False)
+152 |     cells=[]; years=[]
+    |             ^
+153 |     def stat(g,label):
+154 |         resid=g.outcome-g.fair
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> studies/swing_confluence/codex3/run.py:155:26
+    |
+153 |     def stat(g,label):
+154 |         resid=g.outcome-g.fair
+155 |         edge=resid.mean(); sign=np.sign(edge)
+    |                          ^
+156 |         annual=resid.groupby(g.year).mean()
+157 |         var=(g.fair*(1-g.fair)).sum()
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> studies/swing_confluence/codex3/run.py:164:37
+    |
+162 |         se=sqrt((cluster**2).sum()*G/max(G-1,1))/max(len(g),1)
+163 |         zc=edge/se if se>0 else 0
+164 |         e1=resid[g.year<2016].mean();e2=resid[g.year>=2016].mean()
+    |                                     ^
+165 |         cells.append(dict(cell=label,n=len(g),hold=g.outcome.mean(),fair=g.fair.mean(),edge=edge,e1=e1,e2=e2,
+166 |                           years_same=int((np.sign(annual)==sign).sum()),years=len(annual),days=G,
+    |
+
+E701 Multiple statements on one line (colon)
+   --> studies/swing_confluence/codex3/run.py:170:39
+    |
+168 |                           p=erfc(abs(z)/sqrt(2)) if len(g)>=300 else 1,
+169 |                           pc=erfc(abs(zc)/sqrt(2)) if len(g)>=300 else 1))
+170 |         for year,val in annual.items(): years.append(dict(cell=label,year=year,n=int((g.year==year).sum()),edge=val))
+    |                                       ^
+171 |     for b,t in [('1m','5m'),('5m','15m'),('15m','1h'),('1h','4h')]:
+172 |         for phase in ('N_break','N_reclaim_htf','N_reclaim_local'):
+    |
+
+E701 Multiple statements on one line (colon)
+   --> studies/swing_confluence/codex3/run.py:174:58
+    |
+172 |         for phase in ('N_break','N_reclaim_htf','N_reclaim_local'):
+173 |             g=r[(r.base==b)&(r.family==phase)]
+174 |             for name,sub in [('all',g),('up',g[g.trend])]: stat(sub,f'{phase} {b}/{t} {name}')
+    |                                                          ^
+175 |     for b,t in [('5m','1h'),('15m','4h'),('1h','4h')]:
+176 |         g=r[(r.base==b)&(r.family=='M')]
+    |
+
+E712 Avoid equality comparisons to `True`; use `g.forming:` for truth checks
+   --> studies/swing_confluence/codex3/run.py:177:49
+    |
+175 |     for b,t in [('5m','1h'),('15m','4h'),('1h','4h')]:
+176 |         g=r[(r.base==b)&(r.family=='M')]
+177 |         for name,sub in [('all',g),('forming',g[g.forming==True]),('complete',g[g.forming==False]),
+    |                                                 ^^^^^^^^^^^^^^^
+178 |                          ('forming_took',g[(g.forming==True)&(g.took==True)]),('forming_intact',g[(g.forming==True)&(g.took==False)])…
+179 |             stat(sub,f'M {b}/{t} {name}')
+    |
+help: Replace with `g.forming`
+    |
+176 |         g=r[(r.base==b)&(r.family=='M')]
+    -         for name,sub in [('all',g),('forming',g[g.forming==True]),('complete',g[g.forming==False]),
+177 +         for name,sub in [('all',g),('forming',g[g.forming]),('complete',g[g.forming==False]),
+178 |                          ('forming_took',g[(g.forming==True)&(g.took==True)]),('forming_intact',g[(g.forming==True)&(g.took==False)])]:
+    |
+note: This is an unsafe fix and may change runtime behavior
+
+E712 Avoid equality comparisons to `False`; use `not g.forming:` for false checks
+   --> studies/swing_confluence/codex3/run.py:177:81
+    |
+175 |     for b,t in [('5m','1h'),('15m','4h'),('1h','4h')]:
+176 |         g=r[(r.base==b)&(r.family=='M')]
+177 |         for name,sub in [('all',g),('forming',g[g.forming==True]),('complete',g[g.forming==False]),
+    |                                                                                 ^^^^^^^^^^^^^^^^
+178 |                          ('forming_took',g[(g.forming==True)&(g.took==True)]),('forming_intact',g[(g.forming==True)&(g.took==False)])…
+179 |             stat(sub,f'M {b}/{t} {name}')
+    |
+help: Replace with `not g.forming`
+    |
+176 |         g=r[(r.base==b)&(r.family=='M')]
+    -         for name,sub in [('all',g),('forming',g[g.forming==True]),('complete',g[g.forming==False]),
+177 +         for name,sub in [('all',g),('forming',g[g.forming==True]),('complete',g[not g.forming]),
+178 |                          ('forming_took',g[(g.forming==True)&(g.took==True)]),('forming_intact',g[(g.forming==True)&(g.took==False)])]:
+    |
+note: This is an unsafe fix and may change runtime behavior
+
+E712 Avoid equality comparisons to `True`; use `g.forming:` for truth checks
+   --> studies/swing_confluence/codex3/run.py:178:45
+    |
+176 |         g=r[(r.base==b)&(r.family=='M')]
+177 |         for name,sub in [('all',g),('forming',g[g.forming==True]),('complete',g[g.forming==False]),
+178 |                          ('forming_took',g[(g.forming==True)&(g.took==True)]),('forming_intact',g[(g.forming==True)&(g.took==False)])…
+    |                                             ^^^^^^^^^^^^^^^
+179 |             stat(sub,f'M {b}/{t} {name}')
+180 |     out=pd.DataFrame(cells)
+    |
+help: Replace with `g.forming`
+    |
+177 |         for name,sub in [('all',g),('forming',g[g.forming==True]),('complete',g[g.forming==False]),
+    -                          ('forming_took',g[(g.forming==True)&(g.took==True)]),('forming_intact',g[(g.forming==True)&(g.took==False)])]:
+178 +                          ('forming_took',g[(g.forming)&(g.took==True)]),('forming_intact',g[(g.forming==True)&(g.took==False)])]:
+179 |             stat(sub,f'M {b}/{t} {name}')
+    |
+note: This is an unsafe fix and may change runtime behavior
+
+E712 Avoid equality comparisons to `True`; use `g.took:` for truth checks
+   --> studies/swing_confluence/codex3/run.py:178:63
+    |
+176 |         g=r[(r.base==b)&(r.family=='M')]
+177 |         for name,sub in [('all',g),('forming',g[g.forming==True]),('complete',g[g.forming==False]),
+178 |                          ('forming_took',g[(g.forming==True)&(g.took==True)]),('forming_intact',g[(g.forming==True)&(g.took==False)])…
+    |                                                               ^^^^^^^^^^^^
+179 |             stat(sub,f'M {b}/{t} {name}')
+180 |     out=pd.DataFrame(cells)
+    |
+help: Replace with `g.took`
+    |
+177 |         for name,sub in [('all',g),('forming',g[g.forming==True]),('complete',g[g.forming==False]),
+    -                          ('forming_took',g[(g.forming==True)&(g.took==True)]),('forming_intact',g[(g.forming==True)&(g.took==False)])]:
+178 +                          ('forming_took',g[(g.forming==True)&(g.took)]),('forming_intact',g[(g.forming==True)&(g.took==False)])]:
+179 |             stat(sub,f'M {b}/{t} {name}')
+    |
+note: This is an unsafe fix and may change runtime behavior
+
+E712 Avoid equality comparisons to `True`; use `g.forming:` for truth checks
+   --> studies/swing_confluence/codex3/run.py:178:100
+    |
+176 |         g=r[(r.base==b)&(r.family=='M')]
+177 |         for name,sub in [('all',g),('forming',g[g.forming==True]),('complete',g[g.forming==False]),
+178 |                          ('forming_took',g[(g.forming==True)&(g.took==True)]),('forming_intact',g[(g.forming==True)&(g.took==False)])…
+    |                                                                                                    ^^^^^^^^^^^^^^^
+179 |             stat(sub,f'M {b}/{t} {name}')
+180 |     out=pd.DataFrame(cells)
+    |
+help: Replace with `g.forming`
+    |
+177 |         for name,sub in [('all',g),('forming',g[g.forming==True]),('complete',g[g.forming==False]),
+    -                          ('forming_took',g[(g.forming==True)&(g.took==True)]),('forming_intact',g[(g.forming==True)&(g.took==False)])]:
+178 +                          ('forming_took',g[(g.forming==True)&(g.took==True)]),('forming_intact',g[(g.forming)&(g.took==False)])]:
+179 |             stat(sub,f'M {b}/{t} {name}')
+    |
+note: This is an unsafe fix and may change runtime behavior
+
+E712 Avoid equality comparisons to `False`; use `not g.took:` for false checks
+   --> studies/swing_confluence/codex3/run.py:178:118
+    |
+176 | …
+177 | …=True]),('complete',g[g.forming==False]),
+178 | …e)&(g.took==True)]),('forming_intact',g[(g.forming==True)&(g.took==False)])]:
+    |                                                             ^^^^^^^^^^^^^
+179 | …
+180 | …
+    |
+help: Replace with `not g.took`
+    |
+177 |         for name,sub in [('all',g),('forming',g[g.forming==True]),('complete',g[g.forming==False]),
+    -                          ('forming_took',g[(g.forming==True)&(g.took==True)]),('forming_intact',g[(g.forming==True)&(g.took==False)])]:
+178 +                          ('forming_took',g[(g.forming==True)&(g.took==True)]),('forming_intact',g[(g.forming==True)&(not g.took)])]:
+179 |             stat(sub,f'M {b}/{t} {name}')
+    |
+note: This is an unsafe fix and may change runtime behavior
+
+E702 Multiple statements on one line (semicolon)
+   --> studies/swing_confluence/codex3/run.py:182:35
+    |
+180 |     out=pd.DataFrame(cells)
+181 |     assert len(out)==39
+182 |     out['bh']=bh(out.p.to_numpy());out['bh_cluster']=bh(out.pc.to_numpy())
+    |                                   ^
+183 |     gate=(out.n>=300)&(out.edge.abs()>=.03)&(out.e1*out.e2>0)&(out.years_same>=9)
+184 |     out['pass_nominal']=gate&out.bh;out['pass_cluster']=gate&out.bh_cluster
+    |
+
+E702 Multiple statements on one line (semicolon)
+   --> studies/swing_confluence/codex3/run.py:184:36
+    |
+182 |     out['bh']=bh(out.p.to_numpy());out['bh_cluster']=bh(out.pc.to_numpy())
+183 |     gate=(out.n>=300)&(out.edge.abs()>=.03)&(out.e1*out.e2>0)&(out.years_same>=9)
+184 |     out['pass_nominal']=gate&out.bh;out['pass_cluster']=gate&out.bh_cluster
+    |                                    ^
+185 |     out.to_csv(OUT/'cells.csv',index=False)
+186 |     pd.DataFrame(years).to_csv(OUT/'years.csv',index=False)
+    |
+
+E701 Multiple statements on one line (colon)
+   --> studies/swing_confluence/codex3/run.py:190:24
+    |
+188 |     print(out.to_string(index=False),flush=True)
+189 |
+190 | if __name__=='__main__': main()
+    |                        ^
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/verify.py:12:41
+   |
+11 | O=Path(__file__).parent
+12 | r=pd.read_parquet(O/'sequences.parquet');c=pd.read_csv(O/'cells.csv');old=pd.read_csv(O/'initial_cells.csv');claude=pd.read_csv(O/'rou…
+   |                                         ^
+13 | # Both versions plus every enumerated Claude cell, with p=1 for 7 insufficient cells.
+14 | combined=pd.concat([old.assign(version='initial'),c.assign(version='corrected'),claude.assign(version='claude')],ignore_index=True)
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/verify.py:12:70
+   |
+11 | O=Path(__file__).parent
+12 | r=pd.read_parquet(O/'sequences.parquet');c=pd.read_csv(O/'cells.csv');old=pd.read_csv(O/'initial_cells.csv');claude=pd.read_csv(O/'rou…
+   |                                                                      ^
+13 | # Both versions plus every enumerated Claude cell, with p=1 for 7 insufficient cells.
+14 | combined=pd.concat([old.assign(version='initial'),c.assign(version='corrected'),claude.assign(version='claude')],ignore_index=True)
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/verify.py:12:109
+   |
+11 | O=Path(__file__).parent
+12 | r=pd.read_parquet(O/'sequences.parquet');c=pd.read_csv(O/'cells.csv');old=pd.read_csv(O/'initial_cells.csv');claude=pd.read_csv(O/'rou…
+   |                                                                                                             ^
+13 | # Both versions plus every enumerated Claude cell, with p=1 for 7 insufficient cells.
+14 | combined=pd.concat([old.assign(version='initial'),c.assign(version='corrected'),claude.assign(version='claude')],ignore_index=True)
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/verify.py:22:26
+   |
+20 | c['bh_all226']=combined.loc[combined.version=='corrected','bh_all226'].to_numpy()
+21 | gate=(c.n>=300)&(c.edge.abs()>=.03)&(c.e1*c.e2>0)&(c.years_same>=9)
+22 | c['pass_78']=gate&c.bh_78;c['pass_cluster_78']=gate&c.bh_cluster_78;c['pass_all226']=gate&c.bh_all226
+   |                          ^
+23 | c.to_csv(O/'cells.csv',index=False)
+24 | df=load_period('dev');ts=pd.DatetimeIndex(df.ts).as_unit('ns').asi8
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/verify.py:22:68
+   |
+20 | c['bh_all226']=combined.loc[combined.version=='corrected','bh_all226'].to_numpy()
+21 | gate=(c.n>=300)&(c.edge.abs()>=.03)&(c.e1*c.e2>0)&(c.years_same>=9)
+22 | c['pass_78']=gate&c.bh_78;c['pass_cluster_78']=gate&c.bh_cluster_78;c['pass_all226']=gate&c.bh_all226
+   |                                                                    ^
+23 | c.to_csv(O/'cells.csv',index=False)
+24 | df=load_period('dev');ts=pd.DatetimeIndex(df.ts).as_unit('ns').asi8
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/verify.py:24:22
+   |
+22 | c['pass_78']=gate&c.bh_78;c['pass_cluster_78']=gate&c.bh_cluster_78;c['pass_all226']=gate&c.bh_all226
+23 | c.to_csv(O/'cells.csv',index=False)
+24 | df=load_period('dev');ts=pd.DatetimeIndex(df.ts).as_unit('ns').asi8
+   |                      ^
+25 | h,l,close=(to_ticks(df[k]) for k in ('high','low','close'))
+26 | checked=[]
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/verify.py:32:50
+   |
+30 |         i,j,d=int(row.bar),int(row.end),int(row.side)
+31 |         hi,lo=(h,l) if d==1 else (-l,-h)
+32 |         target=np.flatnonzero(hi[i+1:]>row.upper);stop=np.flatnonzero(lo[i+1:]<row.lower)
+   |                                                  ^
+33 |         a=i+1+target[0] if len(target) else len(df)
+34 |         b=i+1+stop[0] if len(stop) else len(df)
+   |
+
+E501 Line too long (160 > 120)
+  --> studies/swing_confluence/codex3/verify.py:40:121
+   |
+38 | …
+39 | …
+40 | …et',columns=[f'{row.base}_{"sh" if d==1 else "sl"}_ts']).iloc[:,0]).as_unit('ns').asi8
+   |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+41 | …
+42 | …nd=j,ts=str(df.ts.iloc[i]),outcome=row.outcome,fair=row.fair))
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/verify.py:47:33
+   |
+45 | for b,g in r[r.family=='M'].groupby('base'):
+46 |     for d in (1,-1):
+47 |         row=g[g.side==d].iloc[0];i=int(row.bar);key='sh' if d==1 else 'sl'
+   |                                 ^
+48 |         s=swing_state(df.iloc[:i+1],b,prev=True,newest=True)
+49 |         final=pd.read_parquet(O/f'state_{b}.parquet').iloc[i]
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/verify.py:47:48
+   |
+45 | for b,g in r[r.family=='M'].groupby('base'):
+46 |     for d in (1,-1):
+47 |         row=g[g.side==d].iloc[0];i=int(row.bar);key='sh' if d==1 else 'sl'
+   |                                                ^
+48 |         s=swing_state(df.iloc[:i+1],b,prev=True,newest=True)
+49 |         final=pd.read_parquet(O/f'state_{b}.parquet').iloc[i]
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/write_report.py:8:29
+   |
+ 7 | O=Path(__file__).parent
+ 8 | c=pd.read_csv(O/'cells.csv'); econ=pd.read_csv(O/'economics.csv');years=pd.read_csv(O/'years.csv')
+   |                             ^
+ 9 | def table(cols,rows):
+10 |  return '| '+' | '.join(cols)+' |\n| '+' | '.join(['---']*len(cols))+' |\n'+''.join('| '+' | '.join(map(str,r))+' |\n' for r in rows)
+   |
+
+E702 Multiple statements on one line (semicolon)
+  --> studies/swing_confluence/codex3/write_report.py:8:66
+   |
+ 7 | O=Path(__file__).parent
+ 8 | c=pd.read_csv(O/'cells.csv'); econ=pd.read_csv(O/'economics.csv');years=pd.read_csv(O/'years.csv')
+   |                                                                  ^
+ 9 | def table(cols,rows):
+10 |  return '| '+' | '.join(cols)+' |\n| '+' | '.join(['---']*len(cols))+' |\n'+''.join('| '+' | '.join(map(str,r))+' |\n' for r in rows)
+   |
+
+E501 Line too long (133 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:10:121
+   |
+ 8 | c=pd.read_csv(O/'cells.csv'); econ=pd.read_csv(O/'economics.csv');years=pd.read_csv(O/'years.csv')
+ 9 | def table(cols,rows):
+10 |  return '| '+' | '.join(cols)+' |\n| '+' | '.join(['---']*len(cols))+' |\n'+''.join('| '+' | '.join(map(str,r))+' |\n' for r in rows)
+   |                                                                                                                         ^^^^^^^^^^^^^
+11 | def results(mask):
+12 |  g=c[mask]
+   |
+
+E501 Line too long (298 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:13:121
+   |
+11 | …
+12 | …
+13 | …r.n:,}',f'{100*r.hold:.2f} / {100*r.fair:.2f}',f'{100*r.edge:+.2f}',f'{100*r.e1:+.2f} / {100*r.e2:+.2f}',f'{r.years_same}/12','yes' if r.bh_all226 else 'no') for r in g.itertuples()])
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+14 | …
+   |
+
+E501 Line too long (600 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:16:121
+   |
+14 | …
+15 | …
+16 | …the study's gates. Reclaiming a lower high raises …ablish why someone remembers a chart pattern.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17 | …
+18 | …xplain all of the difference as fees, or to infer its win probability from its net profit factor. The repository still has no passing purple candidate.
+   |
+
+E501 Line too long (266 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:18:121
+   |
+16 | …the study's gates. Reclaiming a lower high raises the raw probability of reaching the old high, but largely because the reclaim moves price nearer that high…
+17 | …
+18 | …xplain all of the difference as fees, or to infer its win probability from its net profit factor. The repository still has no passing purple candidate.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+19 | …
+20 | …
+   |
+
+E501 Line too long (538 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:22:121
+   |
+20 | …
+21 | …
+22 | …he strategy code/results. Loaded only CL dev using…es are confined to `codex3/` and this report.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+23 | …
+24 | …nce cells and 15 next-candle cells. An implementation audit corrected two points: reject an HL already breached before HH confirmation, and distinguish the higher-TF **right candle's** completion from its parent candle's completion. Initial results were retained, with no qualifying cell, rather than discarded from multiplicity. **Conservative Codex trial count: 78 = 39 initial + 39 corrected**, including duplicates and inade…
+   |
+
+E501 Line too long (647 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:24:121
+   |
+22 | …he strategy code/results. Loaded only CL dev using `load_period("dev")`: **3,983,238 one-minute bars**, 2010-06-07 00:00 UTC through 2021-12-31 21:59 UTC. Actual rebuilt table: **1,914,711 events**, including `pt_ts` and `opp_ts`. Some prose elsewhere gives an older event count. No downloads, CLI strategy tests, ledger writes, git operations, validation or holdout reads. Writes are confined to `codex3/` and this report.
+23 | …
+24 | …nce cells and 15 next-candle cells. An implementat…e superseded results are `initial_cells.csv`.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+25 | …
+26 | … receive p=1). **Joint BH family: 226 = 78 + 148**, duplicates retained. All tables below use the joint two-sided fair-score BH at 5%; nothing meets the full gates under either the Codex-only or joint family. The Claude reproduction is an audit, not 148 new independent discoveries. This count does not erase the much larger Round 1/2 selection history; it is no fresh out-of-sample evidence.
+   |
+
+E501 Line too long (507 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:26:121
+   |
+24 | …nce cells and 15 next-candle cells. An implementation audit corrected two points: reject an HL already breached before HH confirmation, and distinguish the higher-TF **right candle's** completion from its parent candle's completion. Initial results were retained, with no qualifying cell, rather than discarded from multiplicity. **Conservative Codex trial count: 78 = 39 initial + 39 corrected**,…
+25 | …
+26 | … receive p=1). **Joint BH family: 226 = 78 + 148**…story; it is no fresh out-of-sample evidence.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+27 | …
+28 | …ars.csv](codex3/years.csv). Both implementations and Claude's reproduced eligible cells: [codex3/all_cells.csv](codex3/all_cells.csv). Event-level decisions: [codex3/sequences.parquet](codex3/sequences.parquet); reproducible code: [codex3/run.py](codex3/run.py), [codex3/audit.py](codex3/audit.py), [codex3/verify.py](codex3/verify.py). All values below are in-sample; these are study outcomes, no…
+   |
+
+E501 Line too long (531 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:28:121
+   |
+26 | … receive p=1). **Joint BH family: 226 = 78 + 148**, duplicates retained. All tables below use the joint two-sided fair-score BH at 5%; nothing meets the full gates under either the Codex-only or joint family. The Claude reproduction is an audit, not 148 new independent discoveries. This count does not erase the much larger Round 1/2 selection history; it is no fresh out-of-sample evidence.
+27 | …
+28 | …ars.csv](codex3/years.csv). Both implementations a…ese are study outcomes, not strategy returns.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+29 | …
+30 | …
+   |
+
+E501 Line too long (469 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:34:121
+   |
+32 | …
+33 | …
+34 | …ws satisfy HH+HL. Require strict point-candle orde…ceding HH in the owner's longer trend sketch.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+35 | …is is the observable lower-low print; do not wait for an eventually surviving LL pivot to label it.
+36 | …ct across seed-to-break and is below the frozen HH. It is not retrospectively replaced with the low that ultimately becomes an HTF HL. Test both all such contexts and the subset where the HTF has HH+HL at the break. Context availability is at the decision close, not before the break minute.
+   |
+
+E501 Line too long (214 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:35:121
+   |
+34 | …ghs and two lows satisfy HH+HL. Require strict point-candle order **previous low → previous high → HL → new HH**, and no price below …
+35 | … frozen HH. This is the observable lower-low print; do not wait for an eventually surviving LL pivot to label it.
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+36 | … remained intact across seed-to-break and is below the frozen HH. It is not retrospectively replaced with the low that ultimately bec…
+37 | … starting after the break close.
+   |
+
+E501 Line too long (406 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:36:121
+   |
+34 | …ws satisfy HH+HL. Require strict point-candle order **previous low → previous high → HL → new HH**, and no price below the HL from its own candle through seed confirmation. The first listed high is not separately required to be higher than a third earlier high; this tests the broken-HL example, …
+35 | …is is the observable lower-low print; do not wait for an eventually surviving LL pivot to label it.
+36 | …ct across seed-to-break and is below the frozen HH… decision close, not before the break minute.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+37 | …r the break close.
+38 | … starts after the break and whose price is below the original HH. This is the post-break lower high relative to that original high. Wait for a later strict break of that high. Reject a reclaim on the same minute as either original barrier crossing. Do not backdate this decision to the original H…
+   |
+
+E501 Line too long (133 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:37:121
+   |
+35 | … must precede another strict break of the frozen HH. This is the observable lower-low print; do not wait for an eventually surviving …
+36 | …n known through `swing_state`. Require it remained intact across seed-to-break and is below the frozen HH. It is not retrospectively …
+37 | … the frozen HH before the frozen HTF low, starting after the break close.
+   |                                                              ^^^^^^^^^^^^^
+38 | …for the first new confirmed LTF swing high whose candle starts after the break and whose price is below the original HH. This is the …
+39 | …he frozen HTF low and (b) the lowest low observed from the break through the reclaim minute. Each has its own fair probability. If no…
+   |
+
+E501 Line too long (419 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:38:121
+   |
+36 | …ct across seed-to-break and is below the frozen HH. It is not retrospectively replaced with the low that ultimately becomes an HTF HL. Test both all such contexts and the subset where the HTF has HH+HL at the break. Context availability is at the decision close, not before the break minute.
+37 | …r the break close.
+38 | … starts after the break and whose price is below t…kdate this decision to the original HL break.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+39 | …the break through the reclaim minute. Each has its own fair probability. If no reclaim arrives first, it supplies no reclaim signal; it remains in the break cohort when eligible.
+   |
+
+E501 Line too long (293 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:39:121
+   |
+37 | …r the break close.
+38 | … starts after the break and whose price is below the original HH. This is the post-break lower high relative to that original high. Wait for a later strict break of that high. Reject …
+39 | …the break through the reclaim minute. Each has its own fair probability. If no reclaim arrives first, it supplies no reclaim signal; it remains in the break cohort when eligible.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+40 | …
+41 | …ing outcome eligibility. No extra thresholds, minimum leg, or horizons were searched. Opposite directions and different pairs can still overlap. The frozen HTF barrier can differ from…
+   |
+
+E501 Line too long (386 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:41:121
+   |
+39 | …the break through the reclaim minute. Each has its own fair probability. If no reclaim arrives first, it supplies no reclaim signal; it remains in the break cohort when eligible.
+40 | …
+41 | …ing outcome eligibility. No extra thresholds, minimum leg, or horizons were searched. Opposite directions and different pairs can still overlap. The frozen HTF barrier can differ from the HTF level at seed time; this is explicitly the level actionable at the break close.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+42 | …
+43 | …rs L−1 and H+1; mirror for shorts. Close is used only for the baseline. Exclude outside-bracket closes, unresolved outcomes, same-minute ties and contract-roll crossings. Decisions and sequences use highs/lows and owner `swing_state`, with no candle close/open predictor. C is…
+   |
+
+E501 Line too long (436 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:43:121
+   |
+41 | …ing outcome eligibility. No extra thresholds, minimum leg, or horizons were searched. Opposite directions and different pairs can still overlap. The frozen HTF barrier can differ from the HTF level at seed time; this is explicitly the level actionable at the break close.
+42 | …
+43 | …rs L−1 and H+1; mirror for shorts. Close is used o… a decision timestamp, not a fill assumption.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+44 | …
+45 | …s mean it is a diagnostic benchmark, not a complete generative model of CL. Nominal p uses the Bernoulli fair variance; an additional CME-decision-day clustered residual-SE test addresses some within-day dependence. Clustered inference can be stronger or weaker than nominal, and does not remove multi-day or cross-cell depend…
+   |
+
+E501 Line too long (572 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:45:121
+   |
+43 | …rs L−1 and H+1; mirror for shorts. Close is used only for the baseline. Exclude outside-bracket closes, unresolved outcomes, same-minute ties and contract-roll crossings. Decisions and sequences use highs/lows and owner `swing_state`, with no candle close/open predictor. C is a decision timestamp, not a fill assumption.
+44 | …
+45 | …s mean it is a diagnostic benchmark, not a complet…gnostics are not separately mined hypotheses.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+46 | …
+47 | …
+   |
+
+E501 Line too long (312 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:52:121
+   |
+50 | …
+51 | …
+52 | …**. Calling a reclaim predictive from its raw hit rate alone would manufacture the hoped-for result. These are selected later decision points, not evidence that the original break was manipulation.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+53 | …
+54 | …
+   |
+
+E501 Line too long (397 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:59:121
+   |
+57 | …
+58 | …
+59 | …cted cells, the largest absolute edge anywhere is …p is too small; it is not a strategy finding.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+60 | …
+61 | …n years.csv):
+   |
+
+E501 Line too long (128 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:61:121
+   |
+59 | The 1h/4h HTF-up reclaim cells have fewer than 300 observations and only 11 represented years. Among eligible corrected cells, the lar…
+60 |
+61 | Annual edges for the main HTF-barrier reclaim test, all contexts (pp; full annual n and every other cell-year are in years.csv):
+   |                                                                                                                         ^^^^^^^^
+62 |
+63 | '''
+   |
+
+E501 Line too long (137 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:64:121
+   |
+63 | …
+64 | …cell.str.endswith(' all')].pivot(index='year',columns='cell',values='edge')
+   |                                                            ^^^^^^^^^^^^^^^^^
+65 | …m','15m'),('15m','1h'),('1h','4h')]]
+66 | …(y),*[f'{100*v:+.2f}' for v in row[cols]]) for y,row in annual.iterrows()])
+   |
+
+E501 Line too long (137 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:66:121
+   |
+64 | …cell.str.endswith(' all')].pivot(index='year',columns='cell',values='edge')
+65 | …m','15m'),('15m','1h'),('1h','4h')]]
+66 | …(y),*[f'{100*v:+.2f}' for v in row[cols]]) for y,row in annual.iterrows()])
+   |                                                            ^^^^^^^^^^^^^^^^^
+67 | …
+68 | …ue
+   |
+
+E501 Line too long (853 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:70:121
+   |
+68 | …
+69 | …
+70 | …t be the first strict break: no earlier raw high s…ion strategy's low-then-high-in-C entry rule.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+71 | …
+72 | … No unclosed HTF candle confirms a swing. Also classify whether the observed parent-through-decision window has taken the preceding HTF candle's opposite extreme. This window can include the current right-hand candle, so it is a path feature, not the eventual OHLC of one completed candle.
+   |
+
+E501 Line too long (404 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:72:121
+   |
+70 | …t be the first strict break: no earlier raw high since that point's candle exceeds the level. Next candle C must strictly take B's low. At C's known completion, B must actually be the current swing high published by `swing_state`, with its exact candle timestamp. Thus full owner rules, includi…
+71 | …
+72 | … No unclosed HTF candle confirms a swing. Also cla…ot the eventual OHLC of one completed candle.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+73 | …
+74 | …
+   |
+
+E501 Line too long (150 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:75:121
+   |
+74 | …
+75 | …all')|c.cell.str.endswith('forming_took')|c.cell.str.endswith('forming_intact')))
+   |                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+76 | …
+77 | …ing; each "complete" cell has n=0.** This follows from the timeframes: the next small candle cannot also finish the higher-TF right c…
+   |
+
+E501 Line too long (511 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:77:121
+   |
+75 | …ll.str.endswith('forming_intact')))
+76 | …
+77 | …ows from the timeframes: the next small candle can…esult and remain counted in the trial family.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+78 | …
+79 | …low, the 4h 15:00–19:00 right candle is unfinished. A valid 1h point does not imply a confirmed 4h point. **No reproduction of 13 November 2026 was attempted: dev ends in 2021.** The time interpretation above comes from the supplied description, not observed 2026 bars. A later 4h confirmation would be a later decision with a new baseline, never permission to label the earlier bar using that future …
+   |
+
+E501 Line too long (526 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:79:121
+   |
+77 | …ows from the timeframes: the next small candle cannot also finish the higher-TF right candle. Pending/complete is therefore not an independent predictive split here. The parent containing B itself can already be closed, which was the timing distinction missed by the initial implementation. The initial parent-open splits also produced no qualifying result and remain counted in the trial family.
+78 | …
+79 | …low, the 4h 15:00–19:00 right candle is unfinished… the earlier bar using that future knowledge.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+80 | …
+81 | …
+   |
+
+E501 Line too long (236 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:83:121
+   |
+81 | …
+82 | …
+83 | …codex3/audit.json) records exact agreement with every saved cell's n, edge, both halves and z (maximum difference **zero**).
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+84 | …
+85 | …
+   |
+
+E501 Line too long (234 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:87:121
+   |
+85 | …
+86 | …
+87 | …ical on sorted dev bars; dh/dl are indexed at day−1. CME trading-day alignment is correct, including the evening session. |
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+88 | …F candle extrema are available at that close. Full-data candle membership does not itself leak its eventual high/low into these featu…
+89 | …red on this rebuilt table. No wrong-mirroring defect found. |
+   |
+
+E501 Line too long (250 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:88:121
+   |
+86 | …
+87 | … on sorted dev bars; dh/dl are indexed at day−1. CME trading-day alignment is correct, including the evening session. |
+88 | …ndle extrema are available at that close. Full-data candle membership does not itself leak its eventual high/low into these features. |
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+89 | …on this rebuilt table. No wrong-mirroring defect found. |
+90 | …ts and same-candle opposite points. Among filtered H1 events, replacement counts are 29,003 / 7,832 / 3,106 / 936 on 1m/5m/15m/1h. Opposite …
+   |
+
+E501 Line too long (172 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:89:121
+   |
+87 | …rize(trading_day)` is chronological on sorted dev bars; dh/dl are indexed at day−1. CME trading-day alignment is correct, including t…
+88 | …h the decision minute. Prior HTF candle extrema are available at that close. Full-data candle membership does not itself leak its eve…
+89 | …H selection are correctly mirrored on this rebuilt table. No wrong-mirroring defect found. |
+   |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+90 | …oral history. It permits replacements and same-candle opposite points. Among filtered H1 events, replacement counts are 29,003 / 7,83…
+91 | …level known before the event candle, whereas trend/leg use confirmation-time state. It does not freeze one HTF low and verify its sur…
+   |
+
+E501 Line too long (554 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:90:121
+   |
+88 | …ndle extrema are available at that close. Full-data candle membership does not itself leak its eventual high/low into these features. |
+89 | …on this rebuilt table. No wrong-mirroring defect found. |
+90 | …ts and same-candle opposite points. Among filtered…l is not an exhaustive ordered-theory test. |
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+91 | …, whereas trend/leg use confirmation-time state. It does not freeze one HTF low and verify its survival through a later reclaim. Not look-ahead, but a different hypothesis. |
+92 | …/ 1,122,316 eligible lower-base events for 15m (12.3%); 58,441 / 1,218,656 for 1h (4.8%); 19,943 / 1,242,445 for 4h (1.6%); 2,328 / 1,248,187 for 1d (0.19%). This is a definition bug if interpreting the cells as still-open candles. It also does not test the owner's higher-TF right-candle confirmation gate. |
+   |
+
+E501 Line too long (289 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:91:121
+   |
+89 | …on this rebuilt table. No wrong-mirroring defect found. |
+90 | …ts and same-candle opposite points. Among filtered H1 events, replacement counts are 29,003 / 7,832 / 3,106 / 936 on 1m/5m/15m/1h. Opposite point is on the same candle in 9,818 / …
+91 | …, whereas trend/leg use confirmation-time state. It does not freeze one HTF low and verify its survival through a later reclaim. Not look-ahead, but a different hypothesis. |
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+92 | …/ 1,122,316 eligible lower-base events for 15m (12.3%); 58,441 / 1,218,656 for 1h (4.8%); 19,943 / 1,242,445 for 4h (1.6%); 2,328 / 1,248,187 for 1d (0.19%). This is a definition …
+93 | …repaired table's rule. Use explicit previous-day availability instead. **Zero eligible dev events affected in this sample**, so it does not explain the reported edge. |
+   |
+
+E501 Line too long (424 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:92:121
+   |
+90 | …ts and same-candle opposite points. Among filtered H1 events, replacement counts are 29,003 / 7,832 / 3,106 / 936 on 1m/5m/15m/1h. Opposite point is on the same candle in 9,818 / 2,340 / 814 / 204 cases; two 5m events even have it later. Same-candle points can be valid under the owner order rule, but need an expl…
+91 | …, whereas trend/leg use confirmation-time state. It does not freeze one HTF low and verify its survival through a later reclaim. Not look-ahead, but a different hypothesis. |
+92 | …/ 1,122,316 eligible lower-base events for 15m (12…s higher-TF right-candle confirmation gate. |
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+93 | …repaired table's rule. Use explicit previous-day availability instead. **Zero eligible dev events affected in this sample**, so it does not explain the reported edge. |
+94 | …hat candle starts, plus same-day confirmation. It is a first-crossing-candle category, not necessarily the first swing signal after a first intrabar crossing. Purple uses a touch, an armed approach from a known side, a possible role flip, a gap, then a limit fill. H3 lacks those filters and execution selection. "…
+   |
+
+E501 Line too long (283 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:93:121
+   |
+91 | …, whereas trend/leg use confirmation-time state. It does not freeze one HTF low and verify its survival through a later reclaim. Not look-ahead, but a different hypothesis. |
+92 | …/ 1,122,316 eligible lower-base events for 15m (12.3%); 58,441 / 1,218,656 for 1h (4.8%); 19,943 / 1,242,445 for 4h (1.6%); 2,328 / 1,248,187 for 1d (0.19%). This is a defin…
+93 | …repaired table's rule. Use explicit previous-day availability instead. **Zero eligible dev events affected in this sample**, so it does not explain the reported edge. |
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+94 | …hat candle starts, plus same-day confirmation. It is a first-crossing-candle category, not necessarily the first swing signal after a first intrabar crossing. Purple uses a …
+95 | …saved CSV reproduce exactly. README's **175** is stale/inconsistent with this version. BH in Claude's code uses only the 141 eligible cells. This report conservatively count…
+   |
+
+E501 Line too long (534 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:94:121
+   |
+92 | …/ 1,122,316 eligible lower-base events for 15m (12.3%); 58,441 / 1,218,656 for 1h (4.8%); 19,943 / 1,242,445 for 4h (1.6%); 2,328 / 1,248,187 for 1d (0.19%). This is a definition bug if interpreting the cells as still-open candles. It also does not test the owner's higher-TF right-candle confirmation gate. |
+93 | …repaired table's rule. Use explicit previous-day availability instead. **Zero eligible dev events affected in this sample**, so it does not explain the reported edge. |
+94 | …hat candle starts, plus same-day confirmation. It …t is not a test of purple's full mechanism. |
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+95 | …saved CSV reproduce exactly. README's **175** is stale/inconsistent with this version. BH in Claude's code uses only the 141 eligible cells. This report conservatively counts all 148. |
+96 | …e z statistic. BH does not repair that sampling dependence. This limits significant small effects, not evidence of a hidden positive ≥3 pp finding. |
+   |
+
+E501 Line too long (300 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:95:121
+   |
+93 | …repaired table's rule. Use explicit previous-day availability instead. **Zero eligible dev events affected in this sample**, so it does not explain the reported edge. |
+94 | …hat candle starts, plus same-day confirmation. It is a first-crossing-candle category, not necessarily the first swing signal after a first intrabar crossing. Purple uses a touch, an armed a…
+95 | …saved CSV reproduce exactly. README's **175** is stale/inconsistent with this version. BH in Claude's code uses only the 141 eligible cells. This report conservatively counts all 148. |
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+96 | …e z statistic. BH does not repair that sampling dependence. This limits significant small effects, not evidence of a hidden positive ≥3 pp finding. |
+   |
+
+E501 Line too long (264 > 120)
+  --> studies/swing_confluence/codex3/write_report.py:96:121
+   |
+94 | …hat candle starts, plus same-day confirmation. It is a first-crossing-candle category, not necessarily the first swing signal after a first intrabar cross…
+95 | …saved CSV reproduce exactly. README's **175** is stale/inconsistent with this version. BH in Claude's code uses only the 141 eligible cells. This report c…
+96 | …e z statistic. BH does not repair that sampling dependence. This limits significant small effects, not evidence of a hidden positive ≥3 pp finding. |
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+97 | …
+98 | …blished H3 bug: rebuilt events identify new point candles. The supported H3 differences are its candle-level first-crossing definition and missing purple …
+   |
+
+E501 Line too long (296 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:98:121
+    |
+ 96 | …e z statistic. BH does not repair that sampling dependence. This limits significant small effects, not evidence of a hidden positive ≥3 pp finding. |
+ 97 | …
+ 98 | …blished H3 bug: rebuilt events identify new point candles. The supported H3 differences are its candle-level first-crossing definition and missing purple mechanics, as stated above.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 99 | …
+100 | …ion need the distinctions above. No source repair was made because writes outside the allowed paths are prohibited.
+    |
+
+E501 Line too long (230 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:100:121
+    |
+ 98 | …n established H3 bug: rebuilt events identify new point candles. The supported H3 differences are its candle-level first-crossing de…
+ 99 | …
+100 | …planation need the distinctions above. No source repair was made because writes outside the allowed paths are prohibited.
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+101 | …
+102 | …
+    |
+
+E501 Line too long (492 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:104:121
+    |
+102 | …
+103 | …
+104 | …ics.csv) contains exact hashes, parameters and ca…led by setting within best-of-5/14 research.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+105 | …
+106 | …
+    |
+
+E501 Line too long (210 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:107:121
+    |
+106 | …
+107 | …(5 tried)','SPF reversal 15m stop (5 tried)','Manipulation swing TP (14 tried)','Manipulation TP60 (14 tried)']
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+108 | …exit median ticks'],[(label,f'{r.trades:,}',f'{r.gross:,.0f}',f'{r.fees:,.2f}',f'{r.net:,.2f}',f'{r.pf_net:.3f}',f'{r.gross_per:+.2f…
+109 | …
+    |
+
+E501 Line too long (329 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:108:121
+    |
+106 | …
+107 | …reversal 15m stop (5 tried)','Manipulation swing TP (14 tried)','Manipulation TP60 (14 tried)']
+108 | …s'],[(label,f'{r.trades:,}',f'{r.gross:,.0f}',f'{r.fees:,.2f}',f'{r.net:,.2f}',f'{r.pf_net:.3f}',f'{r.gross_per:+.2f}',f'{100*r.win:.2f}',f'{r.stop_median_ticks:.0f}') for label,r in zip(labels,econ.itertuples())])
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+109 | …
+110 | …nt and exit rules matter. The saved CSV does not record every original bracket price, so no scheduled-risk distribution is invented here. The median 15m-stop reversal exit is 8 ticks while its README's median entry-to-s…
+    |
+
+B905 `zip()` without an explicit `strict=` parameter
+   --> studies/swing_confluence/codex3/write_report.py:108:299
+    |
+106 | …
+107 | …
+108 | ….2f}',f'{r.stop_median_ticks:.0f}') for label,r in zip(labels,econ.itertuples())])
+    |                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+109 | …
+110 | …here. The median 15m-stop reversal exit is 8 ticks while its README's median entry-to-stop is 10; these measure different population…
+    |
+help: Add explicit value for parameter `strict=`
+    |
+107 | labels=['Purple 15m (2 tried)','Purple 5m (2 tried)','SPF default (15 tried)','SPF reversal risk15 (5 tried)','SPF reversal 15m stop (5 tried)','Manipulation swing TP (14 tried)','Manipulation TP60 (14 tried)']
+    - report+=table(['Setting','n','Gross $','Fees $','Net $','Net PF','Gross $/trade','Net win %','Stop-exit median ticks'],[(label,f'{r.trades:,}',f'{r.gross:,.0f}',f'{r.fees:,.2f}',f'{r.net:,.2f}',f'{r.pf_net:.3f}',f'{r.gross_per:+.2f}',f'{100*r.win:.2f}',f'{r.stop_median_ticks:.0f}') for label,r in zip(labels,econ.itertuples())])
+108 + report+=table(['Setting','n','Gross $','Fees $','Net $','Net PF','Gross $/trade','Net win %','Stop-exit median ticks'],[(label,f'{r.trades:,}',f'{r.gross:,.0f}',f'{r.fees:,.2f}',f'{r.net:,.2f}',f'{r.pf_net:.3f}',f'{r.gross_per:+.2f}',f'{100*r.win:.2f}',f'{r.stop_median_ticks:.0f}') for label,r in zip(labels,econ.itertuples(), strict=False)])
+109 | report+='''
+    |
+note: This is an unsafe fix and may change runtime behavior
+
+E501 Line too long (381 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:110:121
+    |
+108 | …s'],[(label,f'{r.trades:,}',f'{r.gross:,.0f}',f'{r.fees:,.2f}',f'{r.net:,.2f}',f'{r.pf_net:.3f}',f'{r.gross_per:+.2f}',f'{100*r.win:.2f}',f'{r.stop_median_ticks:.0f}') for label,r in zip(labels,econ.itertuples())])
+109 | …
+110 | …nt and exit rules matter. The saved CSV does not record every original bracket price, so no scheduled-risk distribution is invented here. The median 15m-stop reversal exit is 8 ticks while its README's median entry-to-stop is 10; these measure different populations.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+111 | …
+112 | …icks/trade). SPF default loses $43,620 before fees. SPF reversal's best larger-stop setting earns only $1.39 gross/trade versus a $4.04 fee. Removing fees would not make SPF default work, and would leave reversal very thin. Purple may select better reversals via level + …
+    |
+
+E501 Line too long (570 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:112:121
+    |
+110 | …nt and exit rules matter. The saved CSV does not record every original bracket price, so no scheduled-risk distribution is invented here. The median 15m-stop reversal exit is 8 ticks while its README's median entry-to-stop is 10; these measure different populations.
+111 | …
+112 | …icks/trade). SPF default loses $43,620 before fee…component generates filled-trade expectancy.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+113 | … median 28 ticks (15m) / 17 (5m). Fee drag is about 1.44% / 2.38% of those median dollar losses, versus 10.1% for SPF's four-tick median. A fair symmetric 28-tick bracket needs about 50.72% wins after fees; 17 ticks needs 51.19%. SPF's 4-tick stop/50-tick target needs about 8.16% under the oversimplified fixed-bracket net equation, not 50%; its varying stops/early exits mean that toy threshold cannot be applied to its ledger aggregate. Actual SPF gross is …
+114 | …,400–7,400 swing failure/reversal trades. Reducing trade count alone does not create gross alpha; it helps only if removed trades have insufficient expectancy after costs.
+    |
+
+E501 Line too long (724 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:113:121
+    |
+112 | …icks/trade). SPF default loses $43,620 before fees. SPF reversal's best larger-stop setting earns only $1.39 gross/trade versus a $4.04 fee. Removing fees would not make SPF default work, and would leave reversal very thin. Purple may select better reversals via level + approach + rapid gap departure, but those components have not been causally isolated by an ablation. H3's +2–3 pp lean does not prove which component generates filled-trade expectancy.
+113 | … median 28 ticks (15m) / 17 (5m). Fee drag is abo… probability falls as reward distance rises.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+114 | …,400–7,400 swing failure/reversal trades. Reducing trade count alone does not create gross alpha; it helps only if removed trades have insufficient expectancy after costs.
+115 | …ntity PF/(1+PF) needs equal average net wins and losses. Here average net wins/losses are $300.60/$296.68, with variable risk and flatten/roll/gap exits; 5m is $205.21/$198.32 and 54.48% wins. Its gross expectancy and success rate are evidence of selected reversal behaviour in dev, not validation of a 4–5 pp swing-study excess.
+    |
+
+E501 Line too long (286 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:114:121
+    |
+112 | …icks/trade). SPF default loses $43,620 before fees. SPF reversal's best larger-stop setting earns only $1.39 gross/trade versus a $4.04 fee. Removing fees would not make SPF de…
+113 | … median 28 ticks (15m) / 17 (5m). Fee drag is about 1.44% / 2.38% of those median dollar losses, versus 10.1% for SPF's four-tick median. A fair symmetric 28-tick bracket needs…
+114 | …,400–7,400 swing failure/reversal trades. Reducing trade count alone does not create gross alpha; it helps only if removed trades have insufficient expectancy after costs.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+115 | …ntity PF/(1+PF) needs equal average net wins and losses. Here average net wins/losses are $300.60/$296.68, with variable risk and flatten/roll/gap exits; 5m is $205.21/$198.32 …
+116 | …: 7/12 positive years, 55.0% pass rate, PF 1.239. Both miss PF 1.25; each also misses another gate. Current 15m net is **$14,508.20**, not older README rows of $14,938 or $14,4…
+    |
+
+E501 Line too long (444 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:115:121
+    |
+113 | … median 28 ticks (15m) / 17 (5m). Fee drag is about 1.44% / 2.38% of those median dollar losses, versus 10.1% for SPF's four-tick median. A fair symmetric 28-tick bracket needs about 50.72% wins after fees; 17 ticks needs 51.19%. SPF's 4-tick stop/50-tick target needs about 8.16% under the oversimplified fixed-bracket net equation, …
+114 | …,400–7,400 swing failure/reversal trades. Reducing trade count alone does not create gross alpha; it helps only if removed trades have insufficient expectancy after costs.
+115 | …ntity PF/(1+PF) needs equal average net wins and …t validation of a 4–5 pp swing-study excess.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+116 | …: 7/12 positive years, 55.0% pass rate, PF 1.239. Both miss PF 1.25; each also misses another gate. Current 15m net is **$14,508.20**, not older README rows of $14,938 or $14,430. The README documents 400 raw-bar checks and positive traded-through-fill subsets, but those subset diagnostics predate later fixes and should not be prese…
+    |
+
+E501 Line too long (486 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:116:121
+    |
+114 | …,400–7,400 swing failure/reversal trades. Reducing trade count alone does not create gross alpha; it helps only if removed trades have insufficient expectancy after costs.
+115 | …ntity PF/(1+PF) needs equal average net wins and losses. Here average net wins/losses are $300.60/$296.68, with variable risk and flatten/roll/gap exits; 5m is $205.21/$198.32 and 54.48% wins. Its gross expectancy and success rate are evidence of selected reversal behaviour in dev, not validation of a 4–5 pp swing-study excess.
+116 | …: 7/12 positive years, 55.0% pass rate, PF 1.239.…e presented as exact current-hash estimates.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+117 | …
+118 | … Yesterday's extremes are fixed before today and cannot be retroactively replaced, whereas live swing points can change under the owner rule. A three-candle gap is fast departure measured from highs/lows; it is not itself proof of manipulation or of institutional liquidity. Purple also permits a level's role flip, consistent with context-dependent acceptance/rejection. Its …
+    |
+
+E501 Line too long (639 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:118:121
+    |
+116 | …: 7/12 positive years, 55.0% pass rate, PF 1.239. Both miss PF 1.25; each also misses another gate. Current 15m net is **$14,508.20**, not older README rows of $14,938 or $14,430. The README documents 400 raw-bar checks and positive traded-through-fill subsets, but those subset diagnostics predate later fixes and should not be presented as exact current-hash estimates.
+117 | …
+118 | … Yesterday's extremes are fixed before today and …sify than a retrospectively labelled HTF HL.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+119 | …
+120 | …
+    |
+
+E501 Line too long (393 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:122:121
+    |
+120 | …
+121 | …
+122 | …t: 8 dev configurations total**: two unchanged pu…dicators, volume, news, or validation looks.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+123 | …
+124 | …ase candle lies wholly above it (support/long) or wholly below it (resistance/short), using highs/lows only. A touch consumes the level's attempt for the day, even if no trade follows; at most one attempt per level per day, no role-flip retest in these variants. Bullish gap at q mea…
+    |
+
+E501 Line too long (1012 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:124:121
+    |
+122 | …t: 8 dev configurations total**: two unchanged purple controls (5m,15m; counted even though previously researched) plus three families × two fixed base/context pairs (5m/1h,15m/4h). No stop-size/RR/expiry grids; no new time-of-day, indicators, volume, news, or validation looks.
+123 | …
+124 | …ase candle lies wholly above it (support/long) or…d controls remain the attribution reference.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+125 | …
+126 | …ctive swing low for a long/high for a short from `swing_state` at the prior minute. Require aligned HH+HL/LH+LL then known. The level must remain unbroken through confirmation q. Use the first gap completed 1–4 base candles after the touch, with q−2 no earlier than the candle before touch. Stop covers touch through q. Hypothesis: HTF structure filters the first daily-level bounce without shrinking the economic bracket.
+    |
+
+E501 Line too long (537 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:126:121
+    |
+124 | …ase candle lies wholly above it (support/long) or wholly below it (resistance/short), using highs/lows only. A touch consumes the level's attempt for the day, even if no trade follows; at most one attempt per level per day, no role-flip retest in these variants. Bullish gap at q means high[q−2] < low[q], bearish mirror. Entry limit at low[q] long/high[q] short, works from the next minute for four base-candle clock durations…
+125 | …
+126 | …ctive swing low for a long/high for a short from …unce without shrinking the economic bracket.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+127 | …t do not require its trend. Within four base candles after the touch, price must strictly break a previously confirmed base HL (LH for shorts), then confirm a new opposite swing after that break, then strictly reclaim it before the HTF protection breaks. Previous HL/LH must already be known at touch. Require the first directional gap at or after reclaim, still within that original four-candle deadline. Stop covers touch thr…
+128 | …first breaks a pre-known base swing high; next C takes B's low and confirms B as the owner swing high. PDL must be the day's first armed support touch during B or C. Freeze HTF swing low before B starts; it must survive through q. After C completion, require B-high reclaim strictly before C-low break, then first bullish gap at or after reclaim, all within four base candles after C. Stop covers B through q. Short mirrors aro…
+    |
+
+E501 Line too long (723 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:127:121
+    |
+126 | …ctive swing low for a long/high for a short from `swing_state` at the prior minute. Require aligned HH+HL/LH+LL then known. The level must remain unbroken through confirmation q. Use the first gap completed 1–4 base candles after the touch, with q−2 no earlier than the candle before touch. Stop covers touch through q. Hypothesis: HTF structure filters the first daily-level bounce without shrinking the economic bracket.
+127 | …t do not require its trend. Within four base cand…g the touch a manipulation using its future.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+128 | …first breaks a pre-known base swing high; next C takes B's low and confirms B as the owner swing high. PDL must be the day's first armed support touch during B or C. Freeze HTF swing low before B starts; it must survive through q. After C completion, require B-high reclaim strictly before C-low break, then first bullish gap at or after reclaim, all within four base candles after C. Stop covers B through q. Short mirrors around PDH, failed downside breakout, HTF high. Parent/right-HTF status is recorded as known then, never required to become a final HTF HL/LH in hindsight. Hypothesis: daily location and wh…
+    |
+
+E501 Line too long (835 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:128:121
+    |
+126 | …ctive swing low for a long/high for a short from `swing_state` at the prior minute. Require aligned HH+HL/LH+LL then known. The level must remain unbroken through confirmation q. Use the first gap completed 1–4 base candles after the touch, with q−2 no earlier than the candle before touch. Stop covers touch through q. Hypothesis: HTF structure filters the first daily-level bounce without shrinking the economic bracket.
+127 | …t do not require its trend. Within four base candles after the touch, price must strictly break a previously confirmed base HL (LH for shorts), then confirm a new opposite swing after that break, then strictly reclaim it before the HTF protection breaks. Previous HL/LH must already be known at touch. Require the first directional gap at or after reclaim, still within that original four-candle deadline. Stop covers touch through q. This is an actionable ordered recovery at a fixed reference, with its baseline/entry assessed after recovery rather than labelling the touch a manipulation using its future.
+128 | …first breaks a pre-known base swing high; next C …cs; it is deliberately stricter than bare M.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+129 | …
+130 | … frozen-barrier checks and all gaps, require same contract; use clock deadlines when minutes are missing. Report all eight, comparisons to controls, annual concentration, fills/fees, actual risk distributions and trade spot checks. Gates remain PROTOCOL.md, including neighbouring-parameter robustness declared separately before any expansion; no candidate gets validation until qualified. Any attempted further combinations consume a new explicitly reported budget. The two pre-existing controls are comparisons, not new independent evidence.
+    |
+
+E501 Line too long (658 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:130:121
+    |
+128 | …first breaks a pre-known base swing high; next C takes B's low and confirms B as the owner swing high. PDL must be the day's first armed support touch during B or C. Freeze HTF swing low before B starts; it must survive through q. After C completion, require B-high reclaim strictly before C-low break, then first bullish gap at or after reclaim, all within four base candles after C. Stop covers B through q. Short mirrors around PDH, failed downside breakout, HTF high. Parent/right-HTF status is recorded as known then, never required to become …
+129 | …
+130 | … frozen-barrier checks and all gaps, require same…e comparisons, not new independent evidence.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+131 | …
+132 | …
+    |
+
+E501 Line too long (228 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:134:121
+    |
+132 | …
+133 | …
+134 | … remain below its high for an owner-confirmed swing high? If C also breaks B's high, what exact 1m ordering is required?
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+135 | …ight candle's close? Which fixed level is the invalidation at that moment?
+136 | …e 4h remains pending, or recorded as two distinct hypotheses? Confirmation later cannot make it valid earlier.
+    |
+
+E501 Line too long (182 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:135:121
+    |
+134 | …nd must the next candle remain below its high for an owner-confirmed swing high? If C also breaks B's high, what exact 1m ordering i…
+135 | …-high reclaim, or the right candle's close? Which fixed level is the invalidation at that moment?
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+136 | …maller-TF evidence while 4h remains pending, or recorded as two distinct hypotheses? Confirmation later cannot make it valid earlier.
+137 | …ed/replaced `swing_state` level replace it while waiting? This changes the sequence being tested.
+    |
+
+E501 Line too long (218 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:136:121
+    |
+134 | …andle remain below its high for an owner-confirmed swing high? If C also breaks B's high, what exact 1m ordering is required?
+135 | …the right candle's close? Which fixed level is the invalidation at that moment?
+136 | … while 4h remains pending, or recorded as two distinct hypotheses? Confirmation later cannot make it valid earlier.
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+137 | …_state` level replace it while waiting? This changes the sequence being tested.
+138 | …tion? A side-by-side successful/failed pair with the decision time hidden from later bars would clarify whether the label is predict…
+    |
+
+E501 Line too long (182 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:137:121
+    |
+135 | …-high reclaim, or the right candle's close? Which fixed level is the invalidation at that moment?
+136 | …maller-TF evidence while 4h remains pending, or recorded as two distinct hypotheses? Confirmation later cannot make it valid earlier.
+137 | …ed/replaced `swing_state` level replace it while waiting? This changes the sequence being tested.
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+138 | …till call manipulation? A side-by-side successful/failed pair with the decision time hidden from later bars would clarify whether th…
+    |
+
+E501 Line too long (256 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:138:121
+    |
+136 | …mains pending, or recorded as two distinct hypotheses? Confirmation later cannot make it valid earlier.
+137 | …l replace it while waiting? This changes the sequence being tested.
+138 | …-by-side successful/failed pair with the decision time hidden from later bars would clarify whether the label is predictive or retrospective.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+139 | …
+140 | …
+    |
+
+E501 Line too long (608 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:142:121
+    |
+140 | …
+141 | …
+142 | …/base/side), confirms barrier order and fair geom…No new strategy was submitted to the engine.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^…^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+143 | …
+144 | …ences, explicitly ordered evidence, a baseline restarted at the actual decision, and actual trade economics are testable; eventual higher-TF swing membership is not an available entry feature.
+    |
+
+E501 Line too long (307 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:144:121
+    |
+142 | …/base/side), confirms barrier order and fair geometry, checks ordered reclaim timestamps, and recomputes six early M examples on truncated input to verify the owner point was already available. See…
+143 | …
+144 | …ences, explicitly ordered evidence, a baseline restarted at the actual decision, and actual trade economics are testable; eventual higher-TF swing membership is not an available entry feature.
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+145 | …
+146 | …
+    |
+
+E501 Line too long (125 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:148:121
+    |
+146 | # Count the actual verification examples rather than hard-code a stale count.
+147 | v=json.loads((O/'verification.json').read_text())
+148 | report=report.replace('for 60 deterministic sequence examples',f"for {len(v['raw_checks'])} deterministic sequence examples")
+    |                                                                                                                         ^^^^^
+149 | (O.parent/'codex_round3.md').write_text(report)
+150 | paths=['data/studies/swing_confluence_dev.parquet','data/studies/round3_cells.csv','results/ledger.csv','cltester/swings.py','studies…
+    |
+
+E501 Line too long (165 > 120)
+   --> studies/swing_confluence/codex3/write_report.py:152:121
+    |
+150 | ….csv','results/ledger.csv','cltester/swings.py','studies/swing_confluence/round3.py',str(O/'PLAN.md'),str(O/'run.py'),str(O/'cells.c…
+151 | …
+152 | …for p in sorted(Path('data/cl1').glob('year=*.parquet')) if 2010<=int(p.stem[5:])<=2021}
+    |                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+153 | …
+154 | …
+    |
+
+Found 134 errors (7 fixed, 127 remaining).
+9 unsafe fixes available with `--fix --unsafe-fixes`.

@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from cltester.data import Bars, add_session
-from cltester.engine import backtest
+from cltester.engine import Fills, backtest
 
 
 def make(rows, start="2024-03-05 08:00", sym=None):
@@ -27,6 +27,94 @@ def test_limit_fills_on_touch():
     df, b = make([FLAT, (70.05, 70.06, 70.01, 70.02), (70.05, 70.06, 70.00, 70.02), *[FLAT] * 3])
     t = backtest(b, sig(0))
     assert (t["entry_bar"].iat[0], t["entry"].iat[0]) == (2, 70.00)  # bar 1 stayed 1 tick above
+
+
+def test_strict_fills_need_a_trade_beyond_the_limit():
+    df, b = make([FLAT, (70.05, 70.06, 70.00, 70.02), (70.05, 70.06, 69.99, 70.02), *[FLAT] * 3])
+    t = backtest(b, sig(0), Fills(through=1))
+    assert (t["entry_bar"].iat[0], t["entry"].iat[0]) == (2, 70.00)  # bar 1 only touched; fill price stays the limit
+
+
+def test_negative_trade_through_is_refused():
+    with pytest.raises(ValueError):
+        Fills(through=-10)
+
+
+def test_void_break_before_the_fill_cancels_the_order():
+    df, b = make([FLAT, (70.05, 70.06, 70.03, 70.04), (69.70, 69.75, 69.60, 69.70), *[FLAT] * 3])
+    s = sig(0, stop=69.5)
+    s["void"] = 69.80
+    assert backtest(b, s).empty  # bar 2 gaps below the void (and the limit): cancelled, no fill
+
+
+def test_limit_reached_on_the_way_to_the_void_fills_first():
+    df, b = make([FLAT, (70.05, 70.06, 69.75, 70.04), *[FLAT] * 3])
+    s = sig(0, stop=69.5)
+    s["void"] = 69.80
+    t = backtest(b, s)
+    assert (t["entry_bar"].iat[0], t["entry"].iat[0]) == (1, 70.00)  # price passes 70.00 before 69.79
+
+
+def test_open_between_limit_and_void_fills_at_the_open_then_stops():
+    df, b = make([FLAT, (69.95, 69.96, 69.40, 69.45), *[FLAT] * 3])
+    s = sig(0, stop=69.5)
+    s["void"] = 69.80
+    t = backtest(b, s)
+    assert (t["entry"].iat[0], t["reason"].iat[0], t["exit"].iat[0]) == (69.95, "stop", 69.50)
+
+
+def test_short_open_between_limit_and_void_fills_at_the_open_then_stops():
+    df, b = make([FLAT, (70.25, 70.60, 70.24, 70.55), *[FLAT] * 3])
+    s = sig(0, side=-1, limit=70.20, stop=70.50, target=69.80)
+    s["void"] = 70.30
+    t = backtest(b, s)
+    assert (t["entry"].iat[0], t["reason"].iat[0], t["exit"].iat[0]) == (70.25, "stop", 70.50)
+
+
+def test_strict_fill_level_beyond_the_void_is_cancelled():
+    df, b = make([FLAT, (70.05, 70.06, 69.70, 70.00), *[FLAT] * 3])
+    s = sig(0, stop=69.5)
+    s["void"] = 70.00  # strict fill needs 69.99; the void breaks at 69.99 too: same price, cancelled
+    assert backtest(b, s, Fills(through=1)).empty
+
+
+def test_void_not_broken_lets_the_order_fill():
+    df, b = make([FLAT, (70.05, 70.06, 70.00, 70.04), *[FLAT] * 3])
+    s = sig(0, stop=69.5)
+    s["void"] = 69.80
+    assert len(backtest(b, s)) == 1
+
+
+def test_short_void_above_cancels():
+    df, b = make([FLAT, (70.40, 70.45, 70.35, 70.40), *[FLAT] * 3])
+    s = sig(0, side=-1, limit=70.20, stop=70.50, target=69.80)
+    s["void"] = 70.30
+    assert backtest(b, s).empty
+
+
+def _void_case(gap: bool):
+    """Order 0 stays unfilled through bar 1, then bar 2 cancels it: a gap beyond the void at the open (touch fills),
+    or inside the bar before the strict fill level (through 1: fill level 69.99, void break 69.99)."""
+    bar2 = (69.70, 69.75, 69.60, 69.70) if gap else (70.05, 70.06, 69.70, 70.00)
+    df, b = make([FLAT, (70.05, 70.06, 70.03, 70.04), bar2, *[FLAT] * 3])
+    s0 = sig(0, limit=70.00, stop=69.5)
+    s0["void"] = 69.80 if gap else 70.00
+    return b, s0, Fills(through=0 if gap else 1)
+
+
+@pytest.mark.parametrize("gap", [True, False])
+def test_signal_while_a_voided_order_still_works_is_ignored(gap):
+    b, s0, fills = _void_case(gap)
+    s1 = sig(1, limit=69.80, stop=69.5)  # bar 2 would fill it
+    assert backtest(b, pd.concat([s0, s1]), fills).empty  # order 0 still worked at bar 1's close
+
+
+@pytest.mark.parametrize("gap", [True, False])
+def test_signal_on_the_void_bar_is_accepted(gap):
+    b, s0, fills = _void_case(gap)
+    s2 = sig(2, limit=70.10, stop=69.5, target=70.5)  # bar 3 (70.08 low) fills it
+    t = backtest(b, pd.concat([s0, s2]), fills)
+    assert len(t) == 1 and t["signal_bar"].iat[0] == 2
 
 
 def test_gap_below_limit_fills_at_open():

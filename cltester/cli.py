@@ -37,6 +37,13 @@ def _parse_set(items: list[str]) -> dict:
     return out
 
 
+def _non_negative(v: str) -> int:
+    n = int(v)
+    if n < 0:
+        raise argparse.ArgumentTypeError("--through must be 0 or more ticks")
+    return n
+
+
 def _touches_holdout(period: str) -> bool:
     lo, hi = PERIODS[period]
     h_lo, h_hi = PERIODS["holdout"]
@@ -69,7 +76,8 @@ def cmd_test(a: argparse.Namespace) -> None:
     unknown = set(p) - set(strat.PARAMS)
     if unknown:
         raise SystemExit(f"unknown params {sorted(unknown)}")
-    h = params_hash(a.name, p, strat.DEPENDS)
+    fill_tag = {"fills": f"through{a.through}"} if a.through else {}  # strict fills: own hash, own ledger params
+    h = params_hash(a.name, {**p, **fill_tag}, strat.DEPENDS)
     if _touches_holdout(a.period) and not a.unlock:
         if a.period != "holdout":
             raise SystemExit(f"period {a.period} includes holdout bars; use --period holdout (once) or --unlock")
@@ -79,14 +87,15 @@ def cmd_test(a: argparse.Namespace) -> None:
     if df.empty:
         raise SystemExit(f"no bars in period {a.period} yet; nothing tested, ledger unchanged")
     bars = Bars.from_frame(df)
-    fills = Fills()
+    fills = Fills(through=a.through)
     trades = strat.day_rules(backtest(bars, strat.signals(df, p), fills, strat.manage, overlap=strat.OVERLAP), p)
     days = topstep.trading_days(df)
     stats = metrics.summary(trades, days)
     combine = topstep.summary(topstep.rolling(trades, days), topstep.sequential(trades, days), days)
 
     print(f"{a.name} [{h}] period={a.period} params={p}")
-    print(f"fills: limit touch, no exit slippage, fee=${fills.fee}/RT  (in-sample unless period is holdout/forward)")
+    entry_rule = f"limit trades {a.through} tick(s) through" if a.through else "limit touch"
+    print(f"fills: {entry_rule}, no exit slippage, fee=${fills.fee}/RT  (in-sample unless period is holdout/forward)")
     for k, v in stats.items():
         print(f"  {k:<18} {v}")
     print(f"{COMBINE_50K.name}:")
@@ -97,7 +106,7 @@ def cmd_test(a: argparse.Namespace) -> None:
     out.mkdir(parents=True, exist_ok=True)
     trades.drop(columns="path").to_csv(out / f"{a.period}_{h}.csv", index=False)
     row = {"utc": datetime.now(UTC).isoformat(timespec="seconds"), "strategy": a.name, "hash": h,
-           "period": a.period, "params": json.dumps(p, sort_keys=True),
+           "period": a.period, "params": json.dumps({**p, **fill_tag}, sort_keys=True),
            **{k: stats.get(k) for k in ("trades", "net", "profit_factor", "win_rate", "max_drawdown")},
            **{k: combine[k] for k in ("pass_rate", "seq_passes", "seq_fails", "seq_cost_per_pass_usd")}}
     new = not LEDGER.exists()
@@ -123,6 +132,8 @@ def main() -> None:
     t.add_argument("--period", choices=list(PERIODS), default="dev")
     t.add_argument("--set", nargs="*", default=[], help="param overrides key=value")
     t.add_argument("--unlock", action="store_true", help="allow a second holdout run")
+    t.add_argument("--through", type=_non_negative, default=0,
+                   help="sensitivity: an entry fills only when price trades this many ticks beyond the limit")
     t.set_defaults(fn=cmd_test)
     a = ap.parse_args()
     pd.set_option("display.width", 160)

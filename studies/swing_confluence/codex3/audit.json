@@ -1,0 +1,54 @@
+{
+  "saved_cells": 141,
+  "source_enumerated_cells": 148,
+  "reproduced_cells": 141,
+  "max_abs_diff": {
+    "n": 0.0,
+    "edge": 0.0,
+    "e1": 0.0,
+    "e2": 0.0,
+    "z": 0.0
+  },
+  "negative_level_events": 0,
+  "negative_first_take": 0,
+  "closed_H2": {
+    "15m": {
+      "events": 1122316,
+      "already_complete": 138128
+    },
+    "1h": {
+      "events": 1218656,
+      "already_complete": 58441
+    },
+    "4h": {
+      "events": 1242445,
+      "already_complete": 19943
+    },
+    "1d": {
+      "events": 1248187,
+      "already_complete": 2328
+    }
+  },
+  "H1_orders": {
+    "1m": {
+      "n": 143461,
+      "opposite_not_earlier": 9818,
+      "replacement": 29003
+    },
+    "5m": {
+      "n": 42247,
+      "opposite_not_earlier": 2342,
+      "replacement": 7832
+    },
+    "15m": {
+      "n": 15748,
+      "opposite_not_earlier": 814,
+      "replacement": 3106
+    },
+    "1h": {
+      "n": 4553,
+      "opposite_not_earlier": 204,
+      "replacement": 936
+    }
+  }
+}

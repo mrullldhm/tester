@@ -30,6 +30,11 @@ from .data import Bars, session_minute, to_ticks
 class Fills:
     fee: float = FEE_ROUND_TURN  # $ per contract round turn
     flatten: int = session_minute(COMBINE_50K.flatten)  # session minute: no orders or positions from here
+    through: int = 0  # 0: a touch fills (owner rule). N: the bar must trade N ticks beyond the limit (sensitivity)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.through, int) or isinstance(self.through, bool) or self.through < 0:
+            raise ValueError(f"through must be a whole number of ticks >= 0, got {self.through!r}")
 
 
 @dataclass
@@ -63,7 +68,7 @@ TRADE_COLUMNS = ["signal_bar", "entry_bar", "exit_bar", "entry_ts", "exit_ts", "
 def _prepare(signals: pd.DataFrame, n: int) -> pd.DataFrame:
     s = signals.copy()
     for col, default in (("target", np.nan), ("expire", 30), ("expire_min", np.nan), ("hold", np.nan), ("qty", 1),
-                         ("part_qty", 0), ("part_target", np.nan)):
+                         ("part_qty", 0), ("part_target", np.nan), ("void", np.nan)):
         if col not in s:
             s[col] = default
     missing = {"side", "limit", "stop"} - set(s.columns)
@@ -118,6 +123,7 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
     lim, stp = to_ticks(sig["limit"]), to_ticks(sig["stop"])
     tgt, tgt_t = _ticks_or_zero(sig["target"])
     _, ptg_t = _ticks_or_zero(sig["part_target"])
+    void, void_t = _ticks_or_zero(sig["void"])
     sides, qtys = sig["side"].to_numpy(np.int64), sig["qty"].to_numpy(np.int64)
     pqtys = sig["part_qty"].to_numpy(np.int64)
     expires, holds = sig["expire"].to_numpy(np.int64), sig["hold"].to_numpy(float)
@@ -146,12 +152,15 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
         L, S = side * lim[r], side * stp[r]
         T = None if np.isnan(tgt[r]) else side * tgt_t[r]
         P = side * ptg_t[r] if pq > 0 else None
+        V = None if np.isnan(void[r]) else side * void_t[r]
+        if V is not None and V > L:
+            raise ValueError(f"signal at bar {i}: void must be at or beyond the limit on the losing side")
         if S >= L or (T is not None and T <= L) or (P is not None and (P <= L or (T is not None and P > T))):
             raise ValueError(f"signal at bar {i}: stop must be on the losing side and targets on the winning side")
         hold = None if np.isnan(holds[r]) else int(holds[r])
         day, sym = bars.day_id[i], bars.sym_id[i]
         # --- working entry order: bars i+1 .. i+expire ---
-        entry_bar, last_active = -1, i
+        entry_bar, last_active, voided = -1, i, -1
         timed = not np.isnan(expire_min[r])
         deadline = minute[i] + 1 + int(expire_min[r]) if timed else 0  # first minute the order no longer works
         for j in range(i + 1, n if timed else min(n, i + 1 + int(expires[r]))):
@@ -159,11 +168,26 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
                 break
             if (timed and minute[j] >= deadline) or j > cancel_at:
                 break
-            if l[j] <= L:  # a touch fills (owner rule)
-                entry_bar, E = j, min(o[j], L)
+            F = L - fills.through  # a touch fills (owner rule); `through` asks for a trade beyond the limit
+            if V is not None and o[j] < V:  # opened beyond the void: cancelled before any fill
+                voided = j
+                break
+            if l[j] <= F:
+                # From the open price falls through F before V - 1 (the void break) unless V - 1 >= F: then the
+                # void breaks first (same price: order unknown, cancelled).
+                if V is None or o[j] <= F or F >= V:
+                    entry_bar, E = j, min(o[j], L)
+                    break
+                voided = j
+                break
+            if V is not None and l[j] < V:  # void broken without reaching the fill level: cancelled
+                voided = j
                 break
             last_active = j
         if entry_bar < 0:
+            if voided >= 0:  # the order worked into bar j until the void cancelled it: free from j's close
+                next_free = voided
+                continue
             next_free = last_active
             if timed and last_active + 1 < n and minute[last_active + 1] >= deadline \
                     and minute[last_active] + 1 < deadline:

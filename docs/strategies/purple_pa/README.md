@@ -60,3 +60,18 @@ session are dropped, and day levels come from raw bars. These rows replace all e
 |---|---|---|---|---|---|---|
 | dev | 545 | +14,508 | 1.196 | 10/12 | 38.6% | 15m |
 | dev | 591 | +12,732 | 1.239 | 7/12 | 55.0% | 5m |
+
+Re-run 2026-11-16 after a Codex review fix (shared with `purple_levels`): a setup whose stop window, gap candles or
+signal bar spans a contract roll is now cancelled (CL.v.0 rolls at 00:00 UTC, mid-session, so a roll could pass the
+contract price jump off as the gap). Test: `tests/test_purple_roll.py`. These rows replace the ones above.
+
+| Period | Trades | Net | PF | Years + | Pass rate | Cost/pass | Note |
+|---|---|---|---|---|---|---|---|
+| dev | 587 | +$13,599 | 1.259 | 7/12 | 55.5% | $1,450 | 5m (4 roll trades removed); hash e84669abca12 |
+| dev | 541 | +$14,314 | 1.195 | 9/12 | 33.9% | $1,057 | 15m (4 removed); hash c8e29f8c2529 |
+
+5m now clears the PF gate (1.259) but still fails years positive (7/12) and cost per pass. Verdict unchanged: dropped.
+
+Roll-guard refinement (2026-11-16): a gap candidate that only reads a pre-roll candle is skipped instead of ending the
+setup. Re-run: 5m 589 trades, +$13,560, PF 1.258 (b7a82477ea92); 15m 542, +$14,400, PF 1.196 (1e3d4962d8f3).
+Verdict unchanged.

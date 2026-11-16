@@ -26,6 +26,8 @@ class Strategy(Base):
         h, l, c = (np.round(cd[k].to_numpy() / TICK).astype(np.int64) for k in ("high", "low", "close"))
         o = np.round(cd["open"].to_numpy() / TICK).astype(np.int64)
         live = in_session(df, cd)
+        sym1 = pd.factorize(df["raw_symbol"])[0]
+        sym = sym1[cd["first"].to_numpy()]  # contract of each candle's first bar
         days, day_id = np.unique(cd["day"].to_numpy(), return_inverse=True)
         prev_ok, dh, dl = previous_day_levels(df, days)
         rows, idx = [], []
@@ -58,6 +60,12 @@ class Strategy(Base):
                     sd = side  # from above: support, long; from below: resistance, short
                     for q in range(t + 1, min(t + 1 + p["confirm"], b)):
                         if q - 2 < max(t - 1, a):
+                            continue
+                        # the setup (touch through the signal bar) must stay on one contract, else it is over;
+                        # a gap candidate reading a candle from before a roll is skipped, not the whole setup
+                        if len(set(sym[t:q + 1])) != 1 or sym1[av[q]] != sym[t]:
+                            break
+                        if len(set(sym[q - 2:q + 1])) != 1:
                             continue
                         gap = (h[q - 2] < l[q]) if sd == 1 else (l[q - 2] > h[q])
                         if not gap:

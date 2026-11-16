@@ -43,8 +43,10 @@ adjustable swing settings. Tests: `tests/test_swings.py`.
 
 ## Timeframes
 
-`1m, 5m, 15m, 30m, 1h, 4h, 1d`, built from the 1m bars. 5m to 1h follow the clock. 4h blocks start at the 17:00 CT
-session open. 1d is the CME trading day. A candle is complete at the close of its last minute (4h: 20:59, 00:59,
+`1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w, 1mo`, built from the 1m bars. 5m to 1h follow the clock. 4h blocks start at the
+17:00 CT session open. 1d is the CME trading day. 1w is the Monday-to-Friday trading days (Sunday evening belongs to
+Monday). 1mo is the trading days of one calendar month (named `1mo`, never `1M`, so it cannot be misread as 1m).
+1w and 1mo are complete at the 15:59 CT close of their last trading day (the exchange calendar is known ahead). A candle is complete at the close of its last minute (4h: 20:59, 00:59,
 04:59, 08:59, 12:59 CT; the day's last 4h block and the daily candle: 15:59 CT, the last minute before the halt).
 If that minute has no bar (early-close holidays, quiet minutes), it is complete at the close of the next bar. Swings
 continue across contract changes (prices are not back-adjusted).

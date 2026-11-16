@@ -129,7 +129,7 @@ def test_removed_swing_is_not_carried_forward():
     assert st["1m_sh"].iloc[7] == 71.5
 
 
-@pytest.mark.parametrize("tf", ["5m", "15m", "1h", "4h", "1d"])
+@pytest.mark.parametrize("tf", ["5m", "15m", "1h", "4h", "1d", "1w", "1mo"])
 def test_warm_up_with_no_complete_candle_returns_empty_state(tf):
     st = swing_state(bars([(70.1, 70.0)]), tf)
     assert len(st) == 1 and st.isna().all().all()
@@ -148,12 +148,47 @@ def test_day_is_complete_at_1559_ct():
     assert list(build_candles(df, "4h").avail) == [59]
 
 
-@pytest.mark.parametrize("tf", ["1m", "5m", "15m", "30m", "1h", "4h", "1d"])
+@pytest.mark.parametrize("tf", ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1mo"])
 def test_empty_frame_gives_empty_results(tf):
     df = bars([]).iloc[:0]
     assert swing_points(df, tf).empty
     st = swing_state(df, tf)
     assert st.empty and list(st.columns) == [f"{tf}_sh", f"{tf}_sh_ts", f"{tf}_sl", f"{tf}_sl_ts"]
+
+
+def _days(start, n):
+    """n trading days of 3 bars each (17:00 CT open, 15:58 and 15:59 CT close) from the session of start."""
+    frames = []
+    for d in pd.bdate_range(start, periods=n):
+        ct = [d - pd.Timedelta(hours=7), d + pd.Timedelta(hours=15, minutes=58), d + pd.Timedelta(hours=15, minutes=59)]
+        frames.append(pd.DatetimeIndex(ct).tz_localize("America/Chicago").tz_convert("UTC"))
+    ts = frames[0].append(frames[1:])
+    return add_session(pd.DataFrame({"ts": ts, "raw_symbol": "CLJ4", "open": 70.0, "high": 70.1, "low": 69.9,
+                                     "close": 70.0, "volume": 1, "vendor": "test"}))
+
+
+def test_week_is_monday_to_friday_and_complete_at_friday_1559():
+    df = _days("2024-03-04", 6)  # Mon 4 .. Fri 8, then Mon 11
+    cd = build_candles(df, "1w")
+    assert len(cd) == 1 and list(cd.avail) == [14]  # Friday's 15:59 bar (5 days x 3 bars - 1)
+    assert cd.first[0] == 0 and cd.last[0] == 14  # Sunday 17:00 CT bar belongs to Monday's week
+    assert list(build_candles(df.iloc[:15], "1w").avail) == [14]  # live prefix: same answer at Friday 15:59
+
+
+def test_week_with_a_friday_holiday_completes_at_the_next_bar():
+    df = _days("2024-03-25", 5).iloc[:12]  # Mon 25 .. Thu 28 (Good Friday 29 closed) ...
+    nxt = _days("2024-04-01", 1)  # ... then Mon 1 Apr
+    df = pd.concat([df, nxt], ignore_index=True)
+    assert list(build_candles(df, "1w").avail) == [12]  # not scheduled to end Thursday: known at the next bar
+    assert len(build_candles(df.iloc[:12], "1w")) == 0
+
+
+def test_month_groups_trading_days_and_completes_at_its_last_day():
+    df = _days("2024-03-27", 4)  # Wed 27, Thu 28, Fri 29 (March), Mon Apr 1
+    cd = build_candles(df, "1mo")
+    assert len(cd) == 1 and list(cd.avail) == [8] and cd.last[0] == 8
+    assert list(build_candles(df.iloc[:9], "1mo").avail) == [8]  # live prefix agrees
+    assert pd.Timestamp(df["trading_day"].iloc[9]).month == 4  # Sunday 31 Mar 17:00 CT is April's first session
 
 
 def test_state_prev_gives_the_points_before_the_last():

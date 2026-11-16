@@ -24,6 +24,8 @@ traded price, so the stop fills there.
 | Event | Condition on bar *j* | Fill price |
 |---|---|---|
 | Limit entry | low ≤ limit (a touch fills) | min(open, limit) |
+| Limit entry, strict sensitivity (`--through N`) | low ≤ limit − N ticks (price traded through) | min(open, limit) |
+| Void (optional `void` price, at or beyond the limit) | open beyond void: cancelled. Otherwise price reaches the fill level before the void (it lies between), so a bar that reaches both fills; once filled the void no longer matters. Only when the void break comes first (strict fills with the fill level at or past the void break) is the order cancelled; the same price counts as cancelled. A cancelled order still worked on the bar that cancelled it, so a new signal is accepted only from that bar's close | — |
 | Stop on the fill bar | low of the fill bar ≤ stop (assume the low came after the fill) | min(entry, stop) |
 | Flatten | first bar at or after 3:10 PM CT | open |
 | Stop at the open | open ≤ stop | open (gap) |
@@ -47,6 +49,9 @@ roll / day end at the close. A stop moved by `manage` to or beyond the open exit
 return whole ticks in side space (negated for shorts, `ctx.to_side`); a fraction or NaN raises. `ctx.best` starts at the fill bar's
 high, which may have printed before the fill. The open is the first price of the bar, so an exit
 there happens before anything else in that bar.
+
+Strict fills are a sensitivity check, not the owner rule: a touch-only fill may not happen live (queue position).
+`--through` must be 0 or more (negative values are refused). `cli test --through 1` records `"fills": "through1"` in the ledger params and gets its own hash and trade file.
 
 ## Money
 

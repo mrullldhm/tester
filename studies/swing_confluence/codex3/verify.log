@@ -1,0 +1,40 @@
+                      cell     n      edge        e1        e2  years_same  bh_all265  pass_all265  pass_cluster_117
+         N_break 1m/5m all 60054  0.008933  0.009709  0.008253          11       True        False             False
+          N_break 1m/5m up 18627  0.000367 -0.002748  0.003047           6      False        False             False
+   N_reclaim_htf 1m/5m all 24402 -0.002157 -0.006880  0.002077           7      False        False             False
+    N_reclaim_htf 1m/5m up  7922 -0.012172 -0.020170 -0.004965           9      False        False             False
+ N_reclaim_local 1m/5m all 24379 -0.007656 -0.016160 -0.000041           7       True        False             False
+  N_reclaim_local 1m/5m up  7916 -0.014615 -0.026995 -0.003459           8       True        False             False
+        N_break 5m/15m all 15319  0.003303  0.004084  0.002584           6      False        False             False
+         N_break 5m/15m up  4922 -0.000144 -0.013839  0.012899           6      False        False             False
+  N_reclaim_htf 5m/15m all  5317 -0.003765  0.002538 -0.009573           7      False        False             False
+   N_reclaim_htf 5m/15m up  1842 -0.019857 -0.028152 -0.012169           9      False        False             False
+N_reclaim_local 5m/15m all  5325 -0.012344 -0.005424 -0.018727          10      False        False             False
+ N_reclaim_local 5m/15m up  1846 -0.029927 -0.038180 -0.022277           8       True        False             False
+        N_break 15m/1h all  5731 -0.001869  0.000246 -0.003853           5      False        False             False
+         N_break 15m/1h up  1698 -0.014070 -0.016635 -0.011548           9      False        False             False
+  N_reclaim_htf 15m/1h all  1980 -0.007792 -0.004324 -0.011049           8      False        False             False
+   N_reclaim_htf 15m/1h up   601 -0.008318 -0.007800 -0.008821           9      False        False             False
+N_reclaim_local 15m/1h all  1988 -0.016782 -0.010045 -0.023113           9      False        False             False
+ N_reclaim_local 15m/1h up   604 -0.023676 -0.001720 -0.044917           9      False        False             False
+         N_break 1h/4h all  1272  0.008833  0.008494  0.009149           8      False        False             False
+          N_break 1h/4h up   420  0.002021 -0.015138  0.017035           7      False        False             False
+   N_reclaim_htf 1h/4h all   397  0.007086 -0.018850  0.029949           6      False        False             False
+    N_reclaim_htf 1h/4h up   142 -0.027438 -0.077557  0.008189           5      False        False             False
+ N_reclaim_local 1h/4h all   408  0.013468  0.017719  0.009763           8      False        False             False
+  N_reclaim_local 1h/4h up   147 -0.027448 -0.044598 -0.015284           7      False        False             False
+               M 5m/1h all 28139 -0.012474 -0.016141 -0.008493          12       True        False             False
+           M 5m/1h forming 28139 -0.012474 -0.016141 -0.008493          12       True        False             False
+          M 5m/1h complete     0       NaN       NaN       NaN           0      False        False             False
+      M 5m/1h forming_took  7938 -0.004802 -0.000472 -0.009493           8      False        False             False
+    M 5m/1h forming_intact 20201 -0.015489 -0.022290 -0.008099          10       True        False             False
+              M 15m/4h all 10706 -0.006231 -0.011229 -0.001386           8      False        False             False
+          M 15m/4h forming 10706 -0.006231 -0.011229 -0.001386           8      False        False             False
+         M 15m/4h complete     0       NaN       NaN       NaN           0      False        False             False
+     M 15m/4h forming_took  3419 -0.005764 -0.007927 -0.003633           8      False        False             False
+   M 15m/4h forming_intact  7287 -0.006450 -0.012797 -0.000344           8      False        False             False
+               M 1h/4h all  2980 -0.004036  0.003995 -0.011466           7      False        False             False
+           M 1h/4h forming  2980 -0.004036  0.003995 -0.011466           7      False        False             False
+          M 1h/4h complete     0       NaN       NaN       NaN           0      False        False             False
+      M 1h/4h forming_took  1220  0.001600 -0.000604  0.003885           6      False        False             False
+    M 1h/4h forming_intact  1760 -0.007944  0.007517 -0.021156           6      False        False             False
