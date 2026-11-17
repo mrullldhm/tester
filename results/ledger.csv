@@ -292,3 +292,7 @@ utc,strategy,hash,period,params,trades,net,profit_factor,win_rate,max_drawdown,p
 2026-11-16T14:42:52+00:00,pd_swing,1b4e3e855b50,dev,"{""ctx"": ""4h"", ""expire_candles"": 4, ""rr"": 1.0, ""tf"": ""15m"", ""variant"": ""P3a""}",4,-396.16,0.491,0.5,-704.04,nan,0,0,nan
 2026-11-16T14:43:37+00:00,pd_swing,18c825787e3b,dev,"{""ctx"": ""1h"", ""expire_candles"": 4, ""rr"": 1.0, ""tf"": ""5m"", ""variant"": ""P3b""}",1,-164.04,0.0,0.0,-164.04,nan,0,0,nan
 2026-11-16T14:44:10+00:00,pd_swing,4c2e33569efd,dev,"{""ctx"": ""4h"", ""expire_candles"": 4, ""rr"": 1.0, ""tf"": ""15m"", ""variant"": ""P3b""}",0,0.0,,,,nan,0,0,nan
+2026-11-17T16:00:20+00:00,purple_levels_rth,390888dd9cf5,dev,"{""confirm"": 4, ""expire_candles"": 4, ""levels"": ""all"", ""rr"": 1.0, ""tf"": ""5m""}",273,23747.08,1.846,0.63,-2659.08,0.7501,7,1,1015.0
+2026-11-17T16:00:53+00:00,purple_levels_rth,5e96bb8fd259,dev,"{""confirm"": 4, ""expire_candles"": 4, ""fills"": ""through1"", ""levels"": ""all"", ""rr"": 1.0, ""tf"": ""5m""}",264,20243.44,1.714,0.6098,-2659.08,0.7486,6,1,1176.0
+2026-11-17T16:06:37+00:00,purple_levels_rth,1129ea203322,dev,"{""confirm"": 4, ""expire_candles"": 4, ""levels"": ""all"", ""rr"": 1.0, ""tf"": ""5m""}",273,23747.08,1.846,0.63,-2659.08,0.7501,7,1,1015.0
+2026-11-17T16:07:07+00:00,purple_levels_rth,7955f919e3e9,dev,"{""confirm"": 4, ""expire_candles"": 4, ""fills"": ""through1"", ""levels"": ""all"", ""rr"": 1.0, ""tf"": ""5m""}",264,20243.44,1.714,0.6098,-2659.08,0.7486,6,1,1176.0

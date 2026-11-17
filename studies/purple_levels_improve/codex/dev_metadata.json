@@ -1,0 +1,16 @@
+{
+  "period": "dev, in-sample",
+  "bars": 3983238,
+  "days": 2976,
+  "years": 11.567419575633128,
+  "start": "2010-06-07 00:00:00",
+  "end": "2021-12-31 00:00:00",
+  "cells": 144,
+  "kind_counts": {
+    "decomposition": 132,
+    "portfolio": 8,
+    "paired_difference": 4
+  },
+  "bh_discoveries": 69,
+  "baseline_reproduction": "four exact matches on trade count, bars, side, entry, exit, net; instrumented signals equal original signals"
+}

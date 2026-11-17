@@ -1,0 +1,28 @@
+{
+  "scope": "dev / in-sample",
+  "new_cells": 112,
+  "pooled_tests": 256,
+  "prior_evaluated_cells": 164,
+  "total_codex_evaluated_cells": 276,
+  "matched": {
+    "label": "all_strict/stop_standardized_RTH_minus_other",
+    "n": 1051,
+    "estimate": 0.18149717568367194,
+    "se": 0.08293380036041323,
+    "p": 0.014318112558786188
+  },
+  "regression": {
+    "label": "all_strict/RTH_bin_year_adjusted",
+    "n": 1051,
+    "estimate": 0.1542568324899831,
+    "se": 0.0774376032102603,
+    "p": 0.023184730614431964
+  },
+  "interaction": {
+    "label": "all_strict/first_RTH_interaction",
+    "n": 1051,
+    "estimate": 0.07895903403345042,
+    "se": 0.13954428427422091,
+    "p": 0.2857529904234445
+  }
+}

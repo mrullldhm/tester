@@ -2,6 +2,7 @@
 
 Status: dropped (2026-11-16: `all` 5m and `nopd` 5m both fail validation 2022-2024; dev edge did not repeat. Holdout not run)
 Code: `strategies/purple_levels.py`
+Successor: `purple_levels_rth` (RTH-only, frozen 2026-11-17 for forward paper only; docs/strategies/purple_levels_rth/README.md)
 Source: `purple_pa` (docs/strategies/purple_pa/README.md) + swing confluence study. Swing points: owner rule only.
 
 ## Hypothesis

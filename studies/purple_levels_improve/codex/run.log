@@ -1,0 +1,21 @@
+Loading dev only
+Signals all
+all_first_only_strict 565 20777.400000000005
+all_midpoint_strict 908 18381.680000000004
+Signals nopd
+nopd_first_only_strict 418 18201.28
+nopd_midpoint_strict 660 19843.6
+{"period": "dev, in-sample", "bars": 3983238, "days": 2976, "years": 11.567419575633128, "start": "2010-06-07 00:00:00", "end": "2021-12-31 00:00:00", "cells": 144, "kind_counts": {"decomposition": 132, "portfolio": 8, "paired_difference": 4}, "bh_discoveries": 69, "baseline_reproduction": "four exact matches on trade count, bars, side, entry, exit, net; instrumented signals equal original signals"}
+                                         label              kind    n      net      mean       pf        se        p        q
+                                     all_touch         portfolio 1157 37765.72 32.641072 1.388495  7.348781 0.000004 0.000161
+                                    all_strict         portfolio 1051 25333.96 24.104624 1.268945  7.768800 0.000959 0.005310
+                         all_first_only_strict         portfolio  565 20777.40 36.774159 1.409988 10.852703 0.000351 0.002480
+ all_first_only_strict/paired_daily_difference paired_difference 2976 -4556.56 -1.531102      NaN  1.769706 0.806528 0.847738
+                           all_midpoint_strict         portfolio  908 18381.68 20.244141 1.247688  7.593126 0.003837 0.014932
+   all_midpoint_strict/paired_daily_difference paired_difference 2976 -6952.28 -2.336116      NaN  1.386801 0.953961 0.967397
+                                    nopd_touch         portfolio  847 33618.12 39.690815 1.487583  8.562069 0.000002 0.000161
+                                   nopd_strict         portfolio  768 24647.28 32.092813 1.369336  9.096423 0.000209 0.002318
+                        nopd_first_only_strict         portfolio  418 18201.28 43.543732 1.497963 12.655660 0.000290 0.002480
+nopd_first_only_strict/paired_daily_difference paired_difference 2976 -6446.00 -2.165995      NaN  1.550277 0.918818 0.951869
+                          nopd_midpoint_strict         portfolio  660 19843.60 30.066061 1.384640  8.923477 0.000377 0.002480
+  nopd_midpoint_strict/paired_daily_difference paired_difference 2976 -4803.68 -1.614140      NaN  1.210911 0.908734 0.948244
