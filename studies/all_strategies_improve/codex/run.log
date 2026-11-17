@@ -1,0 +1,40 @@
+Loading dev only
+3983238 bars, 2976 days
+signals/replay xtley_gap best 2f195160aaa8
+signals/replay xtley_gap median 47e3ace9206d
+signals/replay swapnil_momentum best fd1fc401f7d2
+signals/replay swapnil_momentum median 1f6580b00caf
+signals/replay swapnil_hm best 90bd453f3918
+signals/replay swapnil_hm median f0232cc8ed4c
+signals/replay ict_ea best 43a9eca5594a
+signals/replay ict_ea median fe164f336803
+signals/replay scribd_supertrend best c081ed95a503
+signals/replay scribd_supertrend median 3fa288b20b14
+signals/replay purple_pa best 1e3d4962d8f3
+signals/replay purple_pa median b7a82477ea92
+signals/replay swing_point_failure best 762b413670c0
+signals/replay swing_point_failure median 5fcd3f337aa8
+signals/replay swing_point_failure_reversal best b614116a4633
+signals/replay swing_point_failure_reversal median f5b06822ca20
+signals/replay swing_point_manipulation best 8cf495b86d35
+signals/replay swing_point_manipulation median 8e0b071e38ac
+signals/replay pd_swing best 712be2ec24b9
+signals/replay pd_swing median 1b4e3e855b50
+signals/replay purple_levels best 018fdfd1eb22
+signals/replay purple_levels median 626f2b8d5bff
+signals/replay purple_levels_rth best 1129ea203322
+signals/replay purple_levels_rth median 7955f919e3e9
+Traceback (most recent call last):
+  File "/home/mrullldhm/personal/tradingview-tester/studies/all_strategies_improve/codex/run.py", line 95, in <module>
+    for sel in [s for s in selections if s['selection']=='best']:
+                                                ^^^^^^^^^^^^^^^
+  File "/home/mrullldhm/personal/tradingview-tester/studies/all_strategies_improve/codex/run.py", line 48, in run
+    return t
+             
+  File "/home/mrullldhm/personal/tradingview-tester/cltester/engine.py", line 214, in backtest
+    new_s, close_now = manage(ctx)
+                       ^^^^^^^^^^^
+  File "/home/mrullldhm/personal/tradingview-tester/strategies/xtley_gap.py", line 56, in manage
+    p = self._p
+        ^^^^^^^
+AttributeError: 'Strategy' object has no attribute '_p'

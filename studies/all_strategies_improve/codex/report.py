@@ -1,0 +1,76 @@
+import sys
+sys.dont_write_bytecode=True
+from pathlib import Path
+import json
+import numpy as np
+import pandas as pd
+O=Path('studies/all_strategies_improve/codex'); C=pd.read_csv(O/'cells.csv');I=pd.read_csv(O/'ledger_inventory.csv');M=json.loads((O/'metadata.json').read_text());S=json.loads((O/'selections.json').read_text());R=pd.read_csv(O/'replay_checks.csv')
+def fmt(v,d=3):return '—' if pd.isna(v) else (f'{v:.2g}' if v!=0 and abs(v)<0.5*10**(-d) else f'{v:.{d}f}')
+def est(r,d=3):return f'{fmt(r["mean"],d)} ± {fmt(r["se"],d)}'
+def table(headers,rows):return '\n'.join(['| '+' | '.join(headers)+' |','| '+' | '.join(['---']*len(headers))+' |']+['| '+' | '.join(str(v) for v in row)+' |' for row in rows])
+def get(kind,name,label=None,unit=None):
+ a=C[(C.kind==kind)&(C.strategy==name)]
+ if label is not None:a=a[a.label==label]
+ if unit is not None:a=a[a.unit==unit]
+ return a.iloc[0]
+def money(v):return f'${v:,.0f}'
+parts=['# Independent CL strategy audit — dev / in-sample',
+'**Verdict:** No tested change establishes a repeatable improvement. Keep `purple_levels_rth` frozen for its existing forward paper experiment; do not retune it or promote these dev results to a paid Combine. Other verdicts appear below. All performance and inference here are **dev / in-sample**, including the out-of-family check; planning estimates use selected dev effects.',
+f'Read-only inputs: required repository docs, the previous Purple study, ledger metadata and dev trades. No other researcher’s files in this study were read. Only `load_period("dev")` loaded bars: **{M["dev_bars"]:,} bars / {M["dev_days"]:,} CME days**, {M["first"][:10]}–{M["last"][:10]}. No validation/holdout bars or trade lists, downloads, git, CLI tests, ledger changes, or production edits.',
+'**Selection and units.** “Best” = highest total net; “median” = lower middle run by total net. Primary table keeps the latest ledger row per exact parameter dictionary (including fill mode), removing superseded code versions. Implicit/explicit defaults can remain duplicate dictionaries; they count conservatively. The table’s N is that dictionary count, **not independent trials**. It includes previously selected parameters and fill sensitivities. [Archive best/median](codex/archive_best_median.csv) separately retains literal historical hash selection; obsolete runs are not valid current candidates. Original risk was not recorded in those trade CSVs, so historical R is not identifiable without old signals. Current selected runs recover it from reproduced signals.',
+'Net uses the repository’s $4.04 round-turn fee per contract and no exit slippage; strict fills change entry eligibility only. Gross ticks = gross dollars / ($10 × contracts), including partial legs. Gross R = gross dollars / (contracts × $10 × original **planned limit-to-stop ticks**); actual exit ticks never substitute for risk. Values below are mean ± **daily-cluster SE**, before fees. All dev days, including zero-trade days, enter clustering. One-sided positive-mean normal tests; 95% intervals are mean ± 1.96 SE. Days may still be serially dependent; selection and shared trades reduce the strength of this inference.',
+'**1. Triage — dev / in-sample, best of N.**']
+rows=[]
+for _,i in I.iterrows():
+ n=i.strategy;bt=get('triage',n,'best','gross_ticks');br=get('triage',n,'best','gross_R');mt=get('triage',n,'median','gross_ticks');mr=get('triage',n,'median','gross_R')
+ rows.append([n,int(i.param_sets),f'{int(bt.n):,} / {int(mt.n):,}',est(bt),est(br),est(mt),est(mr),f'{fmt(bt.BH)} / {fmt(bt.BY)}'])
+parts.append(table(['Strategy','N','Trades best / median','Best ticks ± SE','Best R ± SE','Median ticks ± SE','Median R ± SE','Best ticks BH / BY'],rows))
+parts.append('Only `purple_levels` and its frozen RTH successor retain positive gross-tick evidence at BY 5%; they are the same family, whose validation already failed. No unrelated family supplies a robust gross survivor. Normal SEs in very sparse bins are unreliable; zero empirical variance with two trades is not zero uncertainty.')
+parts.append('Exploratory survivors were pre-declared as best gross-tick p<.05 before correction: '+', '.join('`'+n+'`' for n in M['survivors'])+'. This is a screening rule, not proof. The correction table qualifies that screen. A positive estimate with an interval containing zero supplies no basis for optimizing a failed family; those receive only the mandatory out-of-family check.')
+parts.append(f'**Multiplicity:** {M["evaluated_cells"]} evaluated statistic/portfolio/diagnostic/power cells; {M["inferential_cells"]} finite inferential tests jointly corrected with BH and dependence-robust BY, including every unique historical hash’s gross ticks, both primary units, overlapping groups, contrasts and duplicate inputs. Undefined evaluated cells remain counted, with no p-value; empty decomposition bins are not tested. Details: [cell ledger](codex/cells.csv), [counts](codex/metadata.json), [pre-run declaration](codex/plan.md). This does **not** correct all earlier research (the prior Purple audit alone counted 276 cells; swing confluence examined thousands). Corrected dev significance does not establish an out-of-sample edge.')
+parts += ['**2. Pre-declared out-of-family session check — dev / in-sample, best of each strategy’s N above.**',
+'Exact declaration preceded calculations in [plan.md](codex/plan.md): one best canonical configuration per other family; independently replay **strict through1** entries; compare entry-time CT **08:30≤time<13:30** with all other times. Exclude `purple_levels`, its frozen successor and `purple_pa` because they share the originating mechanics. Primary: gross R mean difference. Secondary: net R difference and group means. Equal-strategy pooling uses day-aligned residual covariance, including shared-market exposure; it does not assume independent strategies. Each family keeps all original rules. Entry-time cohorts are descriptive, not executable session filters.']
+rows=[]
+for _,r in C[C.kind=='session_contrast'].iterrows():
+ if r.unit!='gross_R':continue
+ nr=get('session_contrast',r.strategy,r.label,'net_R')
+ rows.append([r.strategy,f'{int(r.n_rth)} / {int(r.n_other)}',fmt(r.rth),fmt(r.other),est(r),f'{fmt(r.BH)} / {fmt(r.BY)}',est(nr)])
+parts.append(table(['Other strategy','Strict N RTH / other','Gross RTH R','Gross other R','Gross ΔR ± SE','BH / BY','Net ΔR ± SE'],rows))
+for _,r in C[C.kind=='session_pooled'].iterrows():parts.append(f'Equal-strategy pooled **{r.unit}** contrast: **{est(r)}**, 95% interval [{fmt(r.lo)}, {fmt(r.hi)}], BH {fmt(r.BH)}, BY {fmt(r.BY)} (dev / in-sample).')
+parts.append('RTH is better in 8 of 9 gross contrasts, but the primary pooled gross test fails BH and BY. Only Supertrend’s individual gross contrast survives BY: its RTH gross mean is near zero and its RTH net mean remains negative. SPF’s positive contrast is less-negative trading, not positive expectancy. The pooled secondary net contrast passes BH but fails BY; smaller fee/R during busier hours can contribute. Thus the evidence suggests a general session cost/quality effect, **not** transferable profitable edge. Purple’s relatives cannot serve as independent replication; different strategies still share CL bars.')
+parts.append('**3. Survivor decomposition — dev / in-sample, selected as above.** Fixed bins and all cells, including side, prior-day volatility and touch-only/traded-through fill-bar cohorts, are in [cells.csv](codex/cells.csv). The compact comparison below uses strict portfolios. Mean R includes every exit. The prior-day regime uses only completed day ranges and a trailing 60-day median (minimum 20); no future-day range or alternate swing definition.')
+rows=[]
+for n in M['survivors']:
+ for label in ['strict/session/RTH','strict/session/Asia','strict/session/London','strict/session/Pre','strict/session/Late','strict/stop_bin/<=8','strict/stop_bin/9-16','strict/stop_bin/>16','strict/side/-1','strict/side/1']:
+  a=C[(C.kind=='decomposition')&(C.strategy==n)&(C.label==label)&(C.unit=='net_R')]
+  if len(a):
+   r=a.iloc[0];rows.append([n,label.removeprefix('strict/'),int(r.n),est(r),money(r.net)])
+parts.append(table(['Survivor','Strict cohort','N','Net R ± SE','Net dollars'],rows))
+rows=[]
+for n in M['survivors']:
+ values=[]
+ for label in ['touch/through/False','touch/through/True','strict/regime/prior_quiet','strict/regime/prior_large']:
+  rr=get('decomposition',n,label,'net_R');values.append(f'{int(rr.n)} / {est(rr)}')
+ rows.append([n,*values])
+parts.append(table(['Survivor','Touch-only N / net R ± SE','Through fill-bar N / net R ± SE','Strict prior quiet N / net R ± SE','Strict prior large N / net R ± SE'],rows))
+parts.append('The larger-prior-range cohort has higher strict net R in all three related portfolios, plausibly because enough range helps a 1R target finish before flattening. These are overlapping Purple trades, no between-regime contrast was tested, and there is no unrelated survivor: this is not independent replication. Side strength switches across these portfolios, and the small-stop cells are sparse, so neither supports a universal side/stop filter. `purple_pa` 15m also has positive Asia net R, contradicting a universal overnight≈0 claim. Its RTH filter removes profitable overnight trades.')
+parts.append('A touch-run fill bar that trades through is not the strict strategy: waiting for a deeper print can delay fills, change exits and block later orders. Strict portfolios above were replayed in the engine, not made by dropping touch-only trades. Neither those cohorts nor the stop bins justify new thresholds. Prior studies show bare fixed-level touches are near their geometric fair rate; the gap already records departure, so its bounce association is partly circular.')
+parts.append('**4. One proposed change, one parameter value — dev check rejected.** `purple_pa` only, keeping its pre-selected best timeframe and all other parameters: signals decided at CT 08:30≤close<13:30, cap order expiry at 13:30, retain original position exits and overnight setup history. Reason fixed before this check: watched levels and greater regular-session participation may improve the liquidity supplied on pullbacks. This window came from earlier Purple dev research, so this is mechanism-informed family selection, **not** an independent discovery. No window grid, combined filters, or new `purple_levels`/`purple_levels_rth` variant.')
+rows=[]
+for _,r in C[C.kind=='paired_change'].iterrows():
+ v=get('revision',r.strategy,r.label,'net_dollars');rows.append([r.label,int(v.n),money(r.base_net),money(r.new_net),money(r.total_delta),est(r,2),f'[{fmt(r.lo,2)}, {fmt(r.hi,2)}]',f'{fmt(r.BH)} / {fmt(r.BY)}',fmt(v.pf)])
+parts.append(table(['Change fill model','New trades','Original net','Changed net','Paired total Δ','Daily Δ$ ± SE','95% interval','BH / BY','New PF'],rows))
+parts.append('The revision lowers total net by $5,000 touch / $3,404 strict (dev / in-sample), with no paired improvement. Paired daily differences include every dev trading day, not only days the revision trades. A higher conditional mean/PF with fewer trades does not itself improve earning rate. No production change is recommended on these selected dev comparisons; artifacts preserve the tested specification and its paired daily series.')
+parts.append('**5. What can judge this, power, and verdicts.** The ledger records validation only for `purple_levels` (12 rows, including execution sensitivities and bug-fix replays), with failed all/nopd strict validation documented in its README. Every listed strategy has zero holdout ledger rows. This is repository usage, not virgin data: protocol says the owner researched every year through 2026 before reset. Related Purple strategies inherit shared validation exposure; a new name or filter does not restore it. The level-regime study also used dev+validation; its findings were read as required, without loading those data. Only observations after a genuine freeze, not already inspected, plus paper execution logs can provide clean evidence.')
+verdict={'purple_levels':'drop; failed validation; preserve holdout','purple_levels_rth':'freeze for forward; existing paper plan only','purple_pa':'drop as separate candidate; no extra Purple selection','swing_point_manipulation':'drop; no established gross edge','pd_swing':'drop; sparse, no established gross edge'}
+rows=[]
+for _,i in I.iterrows():
+ n=i.strategy;r=get('power_input',n,'strict_net_R','net_R');p=get('power',n,'selected_strict_effect','trades');need='— (μ≤0)' if not np.isfinite(p['mean']) else f'{p["mean"]:,.0f} / {p.years:.1f}y'
+ rows.append([n,f'{int(i.dev_rows)} / {int(i.dev_hashes)}',f'{int(i.validation_rows)} / {int(i.holdout_rows)}',est(r),need,verdict.get(n,'drop; no established gross edge')])
+parts.append(table(['Strategy','Dev rows / hashes','Validation / holdout rows','Best strict net R ± SE','N / years at dev effect','Verdict'],rows))
+parts.append('Power is a planning calculation, not a forecast: two-sided 5%, 80% power, N≈(2.802×daily-cluster SE/selected mean)²×dev N. Calendar years use the observed dev trade rate. No positive selected net mean means no finite sample target to establish that same effect as positive. At half the selected effect, required N/years quadruple; parameter selection, regime change, serial dependence and execution uncertainty can increase them further. Sparse positive `pd_swing` estimates are especially unreliable. A year of frozen RTH paper trading is primarily an execution check; it cannot certify a repeatable edge or Combine feasibility. Existing frozen RTH cost/pass already misses the repository gate; this audit makes no new Combine probability claim.')
+parts.append('**Verification and reproduction.** All 72 deterministic first/middle/last touch/strict raw-bar checks passed; BH/BY and paired daily SEs were independently recomputed ([verification log](codex/verify.log)). '+f'{int(R.match.sum())}/{len(R)} selected best/median replays match ledger trade count, signal/entry/exit bars, side, size, prices, gross and net. '+ '[Replay checks](codex/replay_checks.csv), [raw-bar entry/exit spot checks](codex/verification_spot_checks.csv), [selection hashes/parameters](codex/selections.json), best dev trade/signal files and strict trade files are under `codex/`. Spot checks verify selected entries against limit/strict reach and raw exits; they are not a full independent signal audit or proof of queue fills. Swing strategies use production `swing_state` only, point-in-time. No new swing logic was introduced.')
+parts.append('Reproduce from repo root: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python studies/all_strategies_improve/codex/run.py`, then `.../codex/verify.py` and `.../codex/report.py` with the same interpreter/environment. The first invocation stopped at strict replay because a fresh managed strategy lacked signal-initialized state; `run.py` is corrected, and [resume.py](codex/resume.py) continued saved triage without new parameter choices. Both logs are retained; repeated calculations are not additional selected cells.')
+Path('studies/all_strategies_improve/codex_report.md').write_text('\n\n'.join(parts)+'\n')
+C[C.kind=='triage'].to_csv(O/'triage.csv',index=False)
+print('Report written')

@@ -1,0 +1,45 @@
+Resuming completed triage; dev only
+Strict session replay xtley_gap
+Strict session replay swapnil_momentum
+Strict session replay swapnil_hm
+Strict session replay ict_ea
+Strict session replay scribd_supertrend
+Strict session replay purple_pa
+Strict session replay swing_point_failure
+Strict session replay swing_point_failure_reversal
+Strict session replay swing_point_manipulation
+Strict session replay pd_swing
+Strict session replay purple_levels
+Strict session replay purple_levels_rth
+Triage done; starting predeclared survivor decompositions
+Survivors ['purple_pa', 'purple_levels', 'purple_levels_rth']
+Revision purple_pa RTH through0
+Revision purple_pa RTH through1
+COMPLETE {
+  "dev_bars": 3983238,
+  "dev_days": 2976,
+  "first": "2010-06-07 00:00:00",
+  "last": "2021-12-31 00:00:00",
+  "survivors": [
+    "purple_pa",
+    "purple_levels",
+    "purple_levels_rth"
+  ],
+  "evaluated_cells": 665,
+  "inferential_cells": 603,
+  "cell_counts": {
+    "historical_ticks": 258,
+    "decomposition": 237,
+    "triage": 48,
+    "session_group": 36,
+    "revision_year": 24,
+    "session_contrast": 18,
+    "power": 14,
+    "strict_baseline": 12,
+    "power_input": 12,
+    "session_pooled": 2,
+    "revision": 2,
+    "paired_change": 2
+  },
+  "all_replays_match": true
+}

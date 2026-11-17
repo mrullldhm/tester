@@ -1,0 +1,9 @@
+strategy,runs,defined_runs,median_trades,gross_median,gross_min,gross_max,all_runs_ci_below_0,all_runs_ci_above_0,eligible,diff_median,diff_min,diff_max,share_defined_rth_better
+ict_ea,6,1,8500.5,-0.3207,-0.3891,-0.315,True,False,False,,,,1.0
+scribd_supertrend,8,8,15195.5,-0.4626,-0.841,-0.0862,False,False,True,1.2011,0.9291,1.4778,1.0
+swapnil_hm,8,8,491.0,-2.2937,-8.4175,3.1239,False,False,True,11.235,5.9158,19.123,1.0
+swapnil_momentum,9,9,18805.0,-0.2528,-0.45,-0.201,False,False,True,0.7215,-0.2222,1.2358,0.7778
+swing_point_failure,27,27,7310.0,-0.5923,-1.0141,-0.2004,False,False,True,0.2416,-0.4396,0.9527,0.8519
+swing_point_failure_reversal,17,17,6520.0,-0.2729,-0.4559,0.1385,False,False,True,-0.2265,-0.4377,0.6573,0.4118
+swing_point_manipulation,42,42,1207.0,0.0251,-0.2742,0.7787,False,False,True,1.3042,-0.0628,3.2952,0.9762
+xtley_gap,18,18,3822.5,0.1434,-1.6512,0.4408,False,False,True,0.2148,-1.034,11.789,0.5

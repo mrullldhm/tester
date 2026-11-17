@@ -1,0 +1,28 @@
+{
+  "dev_bars": 3983238,
+  "dev_days": 2976,
+  "first": "2010-06-07 00:00:00",
+  "last": "2021-12-31 00:00:00",
+  "survivors": [
+    "purple_pa",
+    "purple_levels",
+    "purple_levels_rth"
+  ],
+  "evaluated_cells": 665,
+  "inferential_cells": 603,
+  "cell_counts": {
+    "historical_ticks": 258,
+    "decomposition": 237,
+    "triage": 48,
+    "session_group": 36,
+    "revision_year": 24,
+    "session_contrast": 18,
+    "power": 14,
+    "strict_baseline": 12,
+    "power_input": 12,
+    "session_pooled": 2,
+    "revision": 2,
+    "paired_change": 2
+  },
+  "all_replays_match": true
+}

@@ -4,7 +4,8 @@ A strategy returns signals: one row per bar i where, after bar i closes, it plac
 Columns: side (+1 long / -1 short), limit, stop (required), target (optional, NaN = none),
 expire (bars the order stays working, default 30) or expire_min (minutes of clock time after the signal bar's
 close; replaces expire, so missing minutes cannot stretch the order), hold (max bars in the trade, optional),
-qty (default 1),
+qty (default 1), kill (optional: a price beyond the limit on the winning side, e.g. the target; a touch cancels
+the unfilled order, see docs/ENGINE.md),
 part_qty / part_target (optional partial exit: part_qty contracts leave at part_target, the rest runs on).
 
 Optional trade management: `manage(ctx)` is called on every held bar m after the fill bar, before that bar's
@@ -68,7 +69,7 @@ TRADE_COLUMNS = ["signal_bar", "entry_bar", "exit_bar", "entry_ts", "exit_ts", "
 def _prepare(signals: pd.DataFrame, n: int) -> pd.DataFrame:
     s = signals.copy()
     for col, default in (("target", np.nan), ("expire", 30), ("expire_min", np.nan), ("hold", np.nan), ("qty", 1),
-                         ("part_qty", 0), ("part_target", np.nan), ("void", np.nan)):
+                         ("part_qty", 0), ("part_target", np.nan), ("void", np.nan), ("kill", np.nan)):
         if col not in s:
             s[col] = default
     missing = {"side", "limit", "stop"} - set(s.columns)
@@ -124,6 +125,7 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
     tgt, tgt_t = _ticks_or_zero(sig["target"])
     _, ptg_t = _ticks_or_zero(sig["part_target"])
     void, void_t = _ticks_or_zero(sig["void"])
+    kill, kill_t = _ticks_or_zero(sig["kill"])
     sides, qtys = sig["side"].to_numpy(np.int64), sig["qty"].to_numpy(np.int64)
     pqtys = sig["part_qty"].to_numpy(np.int64)
     expires, holds = sig["expire"].to_numpy(np.int64), sig["hold"].to_numpy(float)
@@ -155,6 +157,9 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
         V = None if np.isnan(void[r]) else side * void_t[r]
         if V is not None and V > L:
             raise ValueError(f"signal at bar {i}: void must be at or beyond the limit on the losing side")
+        K = None if np.isnan(kill[r]) else side * kill_t[r]
+        if K is not None and K <= L:
+            raise ValueError(f"signal at bar {i}: kill must be beyond the limit on the winning side")
         if S >= L or (T is not None and T <= L) or (P is not None and (P <= L or (T is not None and P > T))):
             raise ValueError(f"signal at bar {i}: stop must be on the losing side and targets on the winning side")
         hold = None if np.isnan(holds[r]) else int(holds[r])
@@ -176,6 +181,9 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
                 # From the open price falls through F before V - 1 (the void break) unless V - 1 >= F: then the
                 # void breaks first (same price: order unknown, cancelled).
                 if V is None or o[j] <= F or F >= V:
+                    if K is not None and o[j] > F and h[j] >= K:  # fill level and kill in one bar: order unknown
+                        voided = j
+                        break
                     entry_bar, E = j, min(o[j], L)
                     break
                 voided = j
@@ -183,9 +191,12 @@ def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
             if V is not None and l[j] < V:  # void broken without reaching the fill level: cancelled
                 voided = j
                 break
+            if K is not None and h[j] >= K:  # kill touched before any fill: cancelled
+                voided = j
+                break
             last_active = j
         if entry_bar < 0:
-            if voided >= 0:  # the order worked into bar j until the void cancelled it: free from j's close
+            if voided >= 0:  # the order worked into bar j until the void or kill cancelled it: free from j's close
                 next_free = voided
                 continue
             next_free = last_active

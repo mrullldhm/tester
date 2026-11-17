@@ -53,7 +53,9 @@ point-in-time.
    rule 5's "TP touched between the break and the signal" check is skipped (the order does not exist yet), and rule 7
    cancels the unfilled order at the first touch of the fixed target.
 7. **Unfilled order** is cancelled (owner 2026-11-15) at the first 1m bar that touches TP (the order does not work in
-   that bar) or at the next setup signal (either side; the order works through that bar), and by the engine at the
+   that bar, unless that bar opens at or through the fill level: the open filled it before the TP touch; decided by
+   the engine's `kill` = TP with its own fill rule, so `--through N` is respected; owner-approved Codex fixes
+   2026-11-18) or at the next setup signal (either side; the order works through that bar), and by the engine at the
    trading-day change, contract change and 3:10 PM CT.
 8. One order or position at a time (engine default, no overlap). A setup signal while a position is open is ignored.
 
@@ -143,6 +145,21 @@ TP 75 (2026-11-16, best of 14, in-sample): PF 1.034, win rate 16%, years positiv
 pass rate 21.7%, drawdown −$7,655. Slightly below TP 60 on net, PF and pass rate, so the curve flattens past 60.
 Target exits are 75–83 ticks from entry; spot-checked long 2016-10-19 (entry 50.78, target 51.53; high 51.52 before
 the exit bar, low 50.77 stays above the stop). Hash 74f373c054d0.
+Open-fill fix (2026-11-18, Codex review of juda_swing_point, owner-approved): rule 7 dropped an order on the
+first TP-touch bar even when that bar opened at or through the limit, so the open had filled it before the TP touch.
+Now that bar works the order. All 14 dev versions re-run (in-sample, best of 14):
+
+| Version | Trades | Net | PF | Pass rate | Change |
+|---|---|---|---|---|---|
+| risk 15 / 20 / 25, skip | 1,214 / 1,256 / 1,281 | −$4,005 / −$4,914 / −$8,125 | 0.953 / 0.948 / 0.920 | 8.0% / 11.5% / 12.3% | +7 trades each |
+| risk 15 / 20 / 25, strict | 1,181 / 1,223 / 1,247 | −$4,051 / −$4,751 / −$7,928 | 0.951 / 0.949 / 0.920 | 11.5% / 17.2% / 15.5% | +7 trades each |
+| risk 15 / 20 / 25, strict, confirm | 717 / 737 / 752 | +$2,463 / −$117 / −$1,708 | 1.047 / 0.998 / 0.972 | 27.0% / 20.8% / 11.6% | +2 trades each |
+| TP 15 / 30 / 45 / 60 / 75 (strict, confirm, risk 15) | 984 / 1,235 / 1,362 / 1,437 / 1,477 | −$1,295 / −$6,049 / −$992 / +$5,385 / +$4,663 | 0.977 / 0.936 / 0.991 / 1.042 / 1.034 | 1.4% / 0% / 17.6% / 32.4% / 21.7% | TP 15 +1 trade; 30-75 identical |
+
+Verdict unchanged: best PF 1.047, every version far below the gates. The table rows above are the pre-fix figures.
+Then (Codex review 2026-11-18, 3rd) the TP-touch decision moved into the engine (`kill` = TP, docs/ENGINE.md),
+so strict fills (`--through N`) use the strict fill level. All 14 re-run with touch fills: identical to this table.
+
 Note from the first check: c1 to c3 may span the weekend or the daily halt (candles are consecutive in the
 candle list, as in the swing rule); the owner confirmed this is intended (2026-11-16).
 

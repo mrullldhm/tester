@@ -1,0 +1,10 @@
+{
+  "selected_replays": 24,
+  "all_replays_match": true,
+  "strict_and_touch_raw_checks": 72,
+  "all_raw_checks_pass": true,
+  "cell_count": 665,
+  "inference_count": 603,
+  "BH_BY_recomputed": true,
+  "paired_daily_SE_verified": true
+}

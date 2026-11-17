@@ -26,6 +26,7 @@ traded price, so the stop fills there.
 | Limit entry | low ≤ limit (a touch fills) | min(open, limit) |
 | Limit entry, strict sensitivity (`--through N`) | low ≤ limit − N ticks (price traded through) | min(open, limit) |
 | Void (optional `void` price, at or beyond the limit) | open beyond void: cancelled. Otherwise price reaches the fill level before the void (it lies between), so a bar that reaches both fills; once filled the void no longer matters. Only when the void break comes first (strict fills with the fill level at or past the void break) is the order cancelled; the same price counts as cancelled. A cancelled order still worked on the bar that cancelled it, so a new signal is accepted only from that bar's close | — |
+| Kill (optional `kill` price, beyond the limit on the winning side, e.g. the target) | high ≥ kill cancels the unfilled order. An open at or through the fill level fills first (the kill is touched later). Otherwise a bar that reaches both the fill level and the kill: order unknown, cancelled, no fill. With `--through N` the fill level is limit − N ticks. A cancelled order worked on that bar, so a new signal is accepted from its close | — |
 | Stop on the fill bar | low of the fill bar ≤ stop (assume the low came after the fill) | min(entry, stop) |
 | Flatten | first bar at or after 3:10 PM CT | open |
 | Stop at the open | open ≤ stop | open (gap) |

@@ -8,7 +8,6 @@ import pytest
 
 from strategies.swing_point_manipulation import (
     NO_EXPIRY,
-    PLACED_THEN_CANCELLED,
     SIGNAL_AFTER_SESSION,
     Frame,
     State,
@@ -121,12 +120,12 @@ def test_tp_touched_before_the_order_works_gives_no_trade():
     assert run(hi, lo, cl, st)["why"] == "TP touched before the order"
 
 
-def test_order_is_cancelled_at_the_first_tp_touch():
+def test_order_works_through_the_first_tp_touch_bar_where_the_engine_kill_decides():
     hi, lo, cl, st = base()
     hi[15] = 200
-    assert run(hi, lo, cl, st)["expire"] == 1  # works bar 14 only
+    assert run(hi, lo, cl, st)["expire"] == 2  # bars 14-15; bar 15 is decided by the engine's kill (= target)
     hi[14] = 200
-    assert run(hi, lo, cl, st)["why"] == "TP touched at the first working bar"
+    assert (run(hi, lo, cl, st)["why"], run(hi, lo, cl, st)["expire"]) == ("trigger", 1)
 
 
 def states_frame(newest, sh_ts, sl_ts):
@@ -215,20 +214,15 @@ def test_signals_exist_at_their_bar_without_later_data(confirm):
         assert cut.loc[bar, cols].equals(full.loc[bar, cols])
 
 
-def test_an_order_cancelled_by_tp_on_its_first_bar_still_cancels_the_older_order(monkeypatch):
+def test_a_newer_order_cancels_the_older_one_and_every_order_carries_the_tp_kill(monkeypatch):
     s = Strategy()
-    rows = pd.DataFrame({"side": [1, -1, 1], "limit": [10.0, np.nan, 11.0], "stop": [9.0, np.nan, 10.0],
-                         "target": [12.0, 7.0, 13.0], "end": [100, 120, 150], "expire": [NO_EXPIRY, np.nan, 5],
-                         "why": ["trigger", PLACED_THEN_CANCELLED, "trigger"]})
+    rows = pd.DataFrame({"side": [1, -1, 1], "limit": [10.0, 8.0, 11.0], "stop": [9.0, 9.0, 10.0],
+                         "target": [12.0, 7.0, 13.0], "end": [100, 120, 150], "expire": [NO_EXPIRY, 1, 5],
+                         "why": ["trigger", "trigger", "trigger"]})
     monkeypatch.setattr(s, "setups", lambda df, p: rows)
     sig = s.signals(None, s.PARAMS)
-    assert list(sig.index) == [100, 150] and list(sig["expire"]) == [20, 5]  # works through bar 120 only
-
-
-def test_scan_marks_the_order_cancelled_by_tp_on_its_first_bar():
-    hi, lo, cl, st = base()
-    hi[14] = 200
-    assert run(hi, lo, cl, st)["why"] == PLACED_THEN_CANCELLED
+    assert list(sig.index) == [100, 120, 150] and list(sig["expire"]) == [20, 1, 5]  # first works through bar 120
+    assert list(sig["kill"]) == [12.0, 7.0, 13.0]
 
 
 @pytest.mark.parametrize("confirm", [False, True])
@@ -269,7 +263,7 @@ def test_fixed_tp_ignores_the_swing_target_before_the_order():
 def test_fixed_tp_touch_cancels_the_unfilled_order():
     hi, lo, cl, st = base()
     hi[15] = 125
-    assert run_tp(hi, lo, cl, st, tp_ticks=15)["expire"] == 1
+    assert run_tp(hi, lo, cl, st, tp_ticks=15)["expire"] == 2  # through the TP-touch bar 15; the engine kill decides it
 
 
 def test_tp_must_be_swing_or_positive_ticks():

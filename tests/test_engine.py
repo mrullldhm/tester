@@ -480,3 +480,42 @@ def test_overlap_partial_exit_releases_contracts():
     assert (t["part_bar"].iat[0], t["part_qty"].iat[0]) == (2, 4)
     assert t["entry_bar"].iat[1] < t["exit_bar"].iat[0]  # held together: 1 + 4 contracts
     _by_day(t, COMBINE_50K)  # peak 5: accepted by the Combine check too
+
+
+# kill: a touch of a winning-side price cancels the unfilled order (Codex review 2026-11-18)
+def test_kill_touch_before_any_fill_cancels_the_order():
+    df, b = make([FLAT, (70.20, 70.40, 70.15, 70.30), (70.05, 70.06, 70.00, 70.02), *[FLAT] * 3])
+    assert backtest(b, sig(0, kill=70.40)).empty
+    assert len(backtest(b, sig(0))) == 1  # control: without kill bar 2 fills
+
+
+def test_kill_bar_that_opens_at_the_limit_fills_at_the_open():
+    df, b = make([FLAT, (70.00, 70.40, 69.95, 70.30), *[FLAT] * 3])
+    t = backtest(b, sig(0, kill=70.40, stop=69.90))
+    assert (t["entry_bar"].iat[0], t["entry"].iat[0]) == (1, 70.00)
+
+
+def test_kill_and_fill_in_one_bar_opening_above_the_limit_is_cancelled():
+    df, b = make([FLAT, (70.10, 70.40, 69.95, 70.30), (70.05, 70.06, 70.00, 70.02), *[FLAT] * 3])
+    assert backtest(b, sig(0, kill=70.40, stop=69.90)).empty  # order unknown; bar 2 never works it
+
+
+def test_kill_with_strict_fills_needs_the_open_beyond_the_fill_level():
+    """Codex case: open at the limit, low 1 tick below, high at kill. --through 1: the open (70.00) is not a fill,
+    so the order inside the bar is unknown: cancelled. Opening 1 tick below the limit fills at the open."""
+    bar = (70.00, 70.40, 69.99, 70.30)
+    df, b = make([FLAT, bar, *[FLAT] * 3])
+    assert backtest(b, sig(0, kill=70.40, stop=69.90), Fills(through=1)).empty
+    assert len(backtest(b, sig(0, kill=70.40, stop=69.90))) == 1  # touch fills: the open filled first
+    df, b = make([FLAT, (69.99, 70.40, 69.95, 70.30), *[FLAT] * 3])
+    t = backtest(b, sig(0, kill=70.40, stop=69.90), Fills(through=1))
+    assert (t["entry_bar"].iat[0], t["entry"].iat[0]) == (1, 69.99)
+
+
+def test_kill_mirrors_for_shorts_and_must_sit_on_the_winning_side():
+    df, b = make([FLAT, (70.30, 70.35, 69.80, 70.00), *[FLAT] * 3])
+    assert backtest(b, sig(0, side=-1, limit=70.30, stop=70.50, target=69.80, kill=69.80)).empty is False
+    df, b = make([FLAT, (70.20, 70.35, 69.80, 70.00), *[FLAT] * 3])
+    assert backtest(b, sig(0, side=-1, limit=70.30, stop=70.50, target=69.80, kill=69.80)).empty
+    with pytest.raises(ValueError):
+        backtest(b, sig(0, kill=69.90))

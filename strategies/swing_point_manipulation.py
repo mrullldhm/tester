@@ -20,9 +20,6 @@ from cltester.strategy import Base
 from cltester.swings import build_candles, swing_state
 
 NO_EXPIRY = 100_000  # bars; the engine still cancels at the day change, contract change and 3:10 PM CT
-# An order placed at the signal and cancelled by the TP touch on the next bar: no trade, but it still cancels an
-# older unfilled order (README rule 7).
-PLACED_THEN_CANCELLED = "TP touched at the first working bar"
 SIGNAL_AFTER_SESSION = "signal after the session or contract ended"
 OUTSIDE = ("skip", "strict")  # newest swing high on the swing low's own candle: ignore it, or no setup (README)
 
@@ -143,10 +140,9 @@ def scan(hi, lo, cl, h1: Frame, c3_bars: tuple[np.ndarray, np.ndarray], m15: Fra
             rec["target"] = tp
         end = int(last[sig])
         hit = np.flatnonzero(hi[sig + 1:end + 1] >= tp)
-        expire = int(hit[0]) if len(hit) else NO_EXPIRY  # works bars sig+1 .. the bar before the TP touch
-        if expire < 1:
-            rec["why"] = PLACED_THEN_CANCELLED
-            continue
+        # works bars sig+1 .. the first TP-touch bar; the engine's kill (= target) decides that bar with its own fill
+        # rule: an open at/through the fill level fills first, otherwise the touch cancels (Codex review 2026-11-18)
+        expire = int(hit[0]) + 1 if len(hit) else NO_EXPIRY
         rec.update(why="trigger", limit=limit, expire=expire)
     return rows
 
@@ -203,8 +199,7 @@ class Strategy(Base):
 
     def signals(self, df: pd.DataFrame, p: dict) -> pd.DataFrame:
         setups = self.setups(df, p)
-        placed = np.sort(setups.loc[setups["limit"].notna() | (setups["why"] == PLACED_THEN_CANCELLED), "end"]
-                         .astype(int).to_numpy())
+        placed = np.sort(setups.loc[setups["limit"].notna(), "end"].astype(int).to_numpy())
         if len(placed) != len(np.unique(placed)):
             raise RuntimeError("two setups on one bar; each candle 3 gives one 15m break candle")
         s = setups[setups["limit"].notna()].sort_values("end", kind="stable")
@@ -215,4 +210,4 @@ class Strategy(Base):
         expire = np.minimum(s["expire"].astype(int).to_numpy(), cap)
         return pd.DataFrame({"side": s["side"].astype(int).to_numpy(), "limit": s["limit"].to_numpy(float),
                              "stop": s["stop"].to_numpy(float), "target": s["target"].to_numpy(float),
-                             "expire": expire}, index=ends)
+                             "expire": expire, "kill": s["target"].to_numpy(float)}, index=ends)
