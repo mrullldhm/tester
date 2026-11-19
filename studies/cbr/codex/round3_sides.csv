@@ -1,0 +1,3 @@
+side,trades,net,gross,fees,win_rate,profit_factor,avg_trade,avg_win,avg_loss,max_drawdown,worst_day,best_day,sharpe_daily_ann,years_positive,exit_reasons
+-1,288,6356.48,7520.0,1163.52,0.3889,1.299,22.07,246.32,-120.63,-1642.32,-534.04,935.96,0.536,9/12,"{'stop': 175, 'target': 112, 'flatten': 1}"
+1,259,7203.64,8250.0,1046.36,0.3861,1.363,27.81,270.36,-124.73,-1466.76,-404.04,995.96,0.577,9/12,"{'stop': 159, 'target': 100}"

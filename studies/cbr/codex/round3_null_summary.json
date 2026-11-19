@@ -1,0 +1,24 @@
+{
+  "seed": 20261120,
+  "replicates": 1000,
+  "source_days": 927,
+  "eligible_destination_days": 2934,
+  "orders": 1043,
+  "actual_net": 13560.120000000003,
+  "net_mean": 1072.351040000002,
+  "net_median": 1240.3000000000025,
+  "net_ci95": [
+    -7300.836999999995,
+    9714.946000000002
+  ],
+  "fraction_profitable": 0.608,
+  "pf_median": 1.0305477844083129,
+  "trades_median": 497.0,
+  "trades_ci95": [
+    468.975,
+    522.0
+  ],
+  "one_sided_nominal_p_plus_one": 0.003996003996003996,
+  "mean_long_net": 1020.9423600000015,
+  "mean_short_net": 51.40868000000114
+}

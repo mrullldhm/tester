@@ -1,0 +1,33 @@
+dev, in-sample, rth+ny 576 versions
+ny touch: net>0 59.4% PF med 1.07 | strict1: net>0 45.5% PF med 0.96 | any-shift control: net>0 69.1% PF med 1.07
+rth touch: net>0 78.5% PF med 1.25 | strict1: net>0 63.5% PF med 1.10 | any-shift control: net>0 81.9% PF med 1.17
+window context bias ext target  attempts  trades      net    pf  years_pos_all  trades_s   net_s  pf_s  years_pos_all_s  trades_a    net_a  pf_a
+   rth     reb none e20     r2         1     547 13560.12 1.330          0.833       504 5393.84 1.133            0.500      1113 13753.48 1.178
+   rth     reb none e20     r2         2     577 13868.92 1.319          0.750       531 5494.76 1.128            0.583      1252 13861.92 1.159
+
+24 near-passers under strict fills: PF>=1.10: 21  net>0: 24
+window context   bias      ext target  attempts    pf  pf_s   net_s  pf_a  trades  trades_a
+    ny     reb   body e20loose    mid         2 1.509 1.350 4941.00 1.248     240       688
+   rth   reb30   none      dur   r1.5         2 1.515 1.344 4861.20 1.220     240       504
+   rth     reb struct e20loose     r2         2 1.453 1.344 5801.00 1.229     240       604
+    ny     reb   body e20loose    mid         1 1.495 1.343 4669.28 1.218     232       601
+   rth     reb struct e20loose     r2         1 1.437 1.332 5339.48 1.206     227       530
+   rth   reb30   none      dur   r1.5         1 1.500 1.328 4635.24 1.213     239       486
+   rth     reb struct      dur    mid         1 1.318 1.279 4175.04 1.219     235       706
+   rth     reb   body      e20     r2         2 1.493 1.270 4341.40 1.248     234       504
+    ny     reb   body      e20     r2         2 1.382 1.230 4093.12 1.128     240       506
+   rth     reb struct      dur    mid         2 1.259 1.226 3590.60 1.164     247       850
+    ny     reb   body e20loose     r2         2 1.307 1.175 4588.72 1.080     356       824
+   rth     reb   body      dur    mid         1 1.321 1.173 3260.32 1.072     314       874
+    ny     reb   body      e20     r2         1 1.320 1.162 2805.44 1.102     232       465
+   rth     reb   none      e20     r2         1 1.330 1.133 5393.84 1.178     547      1113
+   rth     reb   body      dur    mid         2 1.292 1.133 2628.00 1.132     322      1001
+   rth     reb   none      e20     r2         2 1.319 1.128 5494.76 1.159     577      1252
+   rth     reb   body e20loose    mid         1 1.272 1.126 1893.12 1.022     238       607
+    ny     reb   body e20loose     r2         1 1.259 1.123 3169.12 1.043     346       735
+   rth     reb   none      e20   r1.5         2 1.345 1.114 3481.48 1.139     451       994
+   rth     reb   none      e30     r2         2 1.291 1.106 4015.44 1.082     502      1147
+   rth     reb   none      e30     r2         1 1.293 1.103 3716.44 1.067     476      1026
+   rth     reb   none      e20   r1.5         1 1.315 1.080 2368.04 1.144     437       907
+   rth     reb   none      e30   r1.5         2 1.292 1.079 2169.44 1.066     398       927
+   rth     reb   none      e30   r1.5         1 1.285 1.066 1771.96 1.073     385       852

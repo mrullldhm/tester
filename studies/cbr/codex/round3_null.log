@@ -1,0 +1,45 @@
+Compact replay matches full dev bars exactly
+0 0.1 seconds
+50 4.9 seconds
+100 9.7 seconds
+150 14.2 seconds
+200 20.4 seconds
+250 24.9 seconds
+300 29.4 seconds
+350 34.0 seconds
+400 38.7 seconds
+450 43.3 seconds
+500 47.7 seconds
+550 53.8 seconds
+600 58.3 seconds
+650 62.6 seconds
+700 67.1 seconds
+750 71.8 seconds
+800 76.2 seconds
+850 80.8 seconds
+900 86.0 seconds
+950 90.5 seconds
+{
+  "seed": 20261120,
+  "replicates": 1000,
+  "source_days": 927,
+  "eligible_destination_days": 2934,
+  "orders": 1043,
+  "actual_net": 13560.120000000003,
+  "net_mean": 1072.351040000002,
+  "net_median": 1240.3000000000025,
+  "net_ci95": [
+    -7300.836999999995,
+    9714.946000000002
+  ],
+  "fraction_profitable": 0.608,
+  "pf_median": 1.0305477844083129,
+  "trades_median": 497.0,
+  "trades_ci95": [
+    468.975,
+    522.0
+  ],
+  "one_sided_nominal_p_plus_one": 0.003996003996003996,
+  "mean_long_net": 1020.9423600000015,
+  "mean_short_net": 51.40868000000114
+}
