@@ -1,0 +1,2100 @@
+Reading additional input from stdin...
+OpenAI Codex v0.167.0
+--------
+workdir: /home/mrullldhm/personal/tradingview-tester
+model: gpt-6.1-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a1f44f-4ad6-7f21-a27d-6554318e4f26
+--------
+user
+Round 2: code audit BEFORE the 13,824-version dev grid runs. Repo /home/mrullldhm/personal/tradingview-tester.
+READ ONLY for repo files; you may write scratch scripts only under studies/rlm/codex/. Python: .venv/bin/python
+(PYTHONPATH=.). Your round-1 reply: studies/rlm/codex/reply1.md (adopted: confirm mode with withdrawal, roll guard on
+the left reference candle, ATR reset per contract, expiry 1 S interval, BE ignores fill-bar high; NOT adopted: the
+48-config budget -- owner asked for every version, so full grid + your bootstrap family check, see the README).
+Read docs/strategies/rlm/README.md (spec, frozen) and audit strategies/rlm.py and studies/rlm/grid.py for:
+1. Look-ahead: swing_events known times (detect state[k] known at avail[k+1]), lock/confirm/withdraw logic, candle
+   avail vs signal bar, ATR, levels, manage() (data up to m-1 only), anything using future bars.
+2. Bugs vs the Pine logic (studies/rlm/rlm_logic.pine) and the README: aging/cross order, merge, eviction, nearest
+   selection, rejection tests, cooldown per combo, score, band refit, TF dedupe/upgrade/withdraw accounting
+   (Book.touch / withdraw / _shift / _merge), side-space mirroring in build_orders (entry/stop/target rounding for
+   shorts), kill/expiry, risk floor.
+3. Roll/session guards; anything that makes the screen misleading.
+Small read-only checks are fine (load_period('dev') ~1 s; trim to one year for speed; candidates() 5m on dev ~60 s).
+Reply: numbered findings, severity (bug / look-ahead / minor), file:line, concrete fix. <= 700 words.
+warning: Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. See the sandbox prerequisites: https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex will use the bundled bubblewrap in the meantime.
+hook: SessionStart
+hook: SessionStart Completed
+codex
+I’ll read the frozen spec and round-1 notes, then audit the implementation and grid runner. I’ll keep repo files unchanged and put any scratch scripts under `studies/rlm/codex/`.
+exec
+/bin/bash -lc "pwd; rg --files -g AGENTS.md -g 'README.md' -g 'reply1.md' -g 'rlm.py' -g 'grid.py' -g 'rlm_logic.pine'" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+/home/mrullldhm/personal/tradingview-tester
+README.md
+strategies/rlm.py
+studies/cbr/grid.py
+studies/cbr/codex/reply1.md
+docs/studies/swing_confluence/README.md
+docs/studies/pdl_swing_4h/README.md
+docs/studies/level_regime/README.md
+docs/strategies/swapnil_hm/README.md
+docs/strategies/purple_levels/README.md
+docs/strategies/ict_ea/README.md
+studies/cbr_optimize/README.md
+docs/strategies/purple_pa/README.md
+docs/strategies/cbr/README.md
+docs/strategies/xtley_gap/README.md
+docs/strategies/swapnil_momentum/README.md
+docs/strategies/juda_swing_point/README.md
+docs/strategies/scribd_supertrend/README.md
+studies/rlm/grid.py
+docs/strategies/ghost_box/README.md
+docs/strategies/purple_levels_rth/README.md
+docs/strategies/pd_swing/README.md
+docs/strategies/swing_point_manipulation/README.md
+docs/strategies/rlm/README.md
+docs/strategies/swing_point_failure_reversal/README.md
+studies/rlm/codex/reply1.md
+docs/strategies/swing_point_failure/README.md
+studies/rlm/rlm_logic.pine
+
+exec
+/bin/bash -lc 'for p in /AGENTS.md /home/AGENTS.md /home/mrullldhm/AGENTS.md /home/mrullldhm/personal/AGENTS.md /home/mrullldhm/personal/tradingview-tester/AGENTS.md; do if [ -f "$p" ]; then cat "$p"; fi; done
+cat docs/strategies/rlm/README.md studies/rlm/codex/reply1.md
+wc -l strategies/rlm.py studies/rlm/grid.py studies/rlm/rlm_logic.pine' in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+# rlm (Reaction Level Matrix, WillyAlgoTrader, mapped to CL)
+
+Status: dev
+Code: `strategies/rlm.py`. Study: `studies/rlm/` (grid, screen, trade study, Codex briefs/replies in `codex/`).
+Source: TradingView indicator "Reaction Level Matrix [WillyAlgoTrader]" v1.0.0 (Pine v6, an indicator, not a
+strategy), pasted by the owner 2026-11-19. Logic excerpt: `studies/rlm/rlm_logic.pine`. Mapped by Claude, reviewed by
+Codex (`studies/rlm/codex/reply1.md`). Swing points: owner rule only (`cltester/swings.py`).
+
+## What the original claims, and what its numbers really are
+The indicator clusters swing highs/lows into price bands ("levels"), scores them, and signals a rejection candle at
+the nearest strong level. Its dashboard "win rate" is **the share of trades that touched TP1 (1R)**, not the share
+that made money: a trade that touches 1R and then stops at break-even counts as a win (it loses the fee). Intrabar it
+gives targets priority over stops (a bar that touches both counts the target), it enters at the signal close (market),
+and it has no fees, slippage or P&L. Its displayed stats cannot show profitability. Here every trade is a real 1-CL
+bracket with fees and the engine's worst-case intrabar order (stop first).
+
+## Hypothesis
+Prices where CL turned several times (and on bigger timeframes) hold orders: resting limit orders and stop clusters
+of earlier participants. When price comes back to such a level and the candle closes strongly away from it, the
+level held again; buying the retest/close with a stop beyond the wick should have positive expectancy.
+Who is on the other side: breakout traders who sold into support (bought into resistance) and get trapped.
+
+## Rules (long; short is the mirror)
+| Original (Pine) | CL version | Note |
+|---|---|---|
+| Swings: `ta.pivothigh/low(6, 6)` on the chart TF | owner-rule swing points on several TFs (`sources`): `all` = S..1d of {5m, 15m, 1h, 4h, 1d}, `htf` = only TFs above S | owner rule mandatory; no swing length |
+| Touch weight = 1 + reaction size (≤ 2.5 ATR) in the 6 confirmation bars | **weight = TF** (owner: the bigger the TF, the stronger the swing): 5m 1, 15m 1.5, 1h 2, 4h 3, 1d 3.5 (same 1..3.5 range as the original). Control `flat`: every TF weight 1 | ladder numbers are an assumption; only the order is the owner's |
+| A pivot counts once | one turning point counts once: same kind, same price, one candle nested in the other = same extreme; a higher TF confirming it later upgrades the weight (strength + Δw from then on, no backdating), no extra touch | Codex: keep `touches` an event count |
+| Swing known 6 bars after the extreme | `reg = lock`: touch when the point is locked (a newer opposite point exists above it, so rule 5 can no longer replace it). `reg = confirm`: touch when the point first appears (candle k+1 close); when it later leaves the structure (rule 5/4, while still in the top four points) its weight is withdrawn from the level from then on | lock is later but stable; confirm is earlier. Rule-4 removal of an already locked point is not withdrawn in lock mode (43 of 14,561 5m points in 2010) |
+| Level engine per chart bar | per completed candle of the signal TF `sig_tf` S ∈ {5m, 15m, 1h}: age (half-life 500 S bars) and cross (close beyond the band: ×0.7 strength) with the candle close, register touches known by its completion, merge overlapping bands (5 passes), cap 60 levels, drop strength < 0.25, pick the 3 nearest active (≥ 2 touches) levels per side | constants as original |
+| Band: weighted mean ± weighted std, clamped to [0.15, tol] × ATR34; join radius tol × ATR34 | same, ATR34 of S | `tol` ∈ {0.4, 0.6, 1.0} |
+| Score = 100·(1 − e^(−strength·polar/6)), polar ×1.25 if touched by highs and lows | same | `score` ∈ {0, 50, 70} minimum |
+| Buy rejection: price above the band before this bar, low into the band, close above the band, (close − low)/range ≥ clv, cooldown 10 bars per level, nearest level first, long wins a tie | same | `clv` ∈ {0.6, 0.75} |
+| Entry at the signal close (market) | limit only (`entry`): `close` = limit at the signal candle close; `band` = limit at the band top (retest). Works one S interval (clock minutes) from the next 1m bar; killed by a target touch; engine cancels at day change / roll / 15:10 CT | owner rule: limit entries, touch fills |
+| SL wick-anchored: min(low − 0.25·ATR14, entry − 0.5·ATR14) | `stop`: `wick` = same (ATR14 of S, vs the limit price); `band` = min(band low − 0.25·ATR14, entry − 0.5·ATR14) | risk < 5 ticks skipped |
+| TP 1R/2R/3R, BE after TP1, close at TP3 or reversal | `exit`: `r1`, `r2`, `r3` fixed target; `be3` = 3R target, stop to entry once a bar after the fill bar reached 1R (effective next bar; the fill-bar high is ignored because it may predate the fill). Opposite-signal reversal not modelled (one position at a time) | 1 contract |
+| any time | `session`: `all` (any signal 17:00..15:10 CT) or `rth` (signal candle completes 08:30..13:30 CT). Levels always evolve on all hours | RTH known from earlier studies (post-hoc prior) |
+
+Point-in-time: a swing candle k's state is known when candle k+1 completes (`avail`); orders work from the next 1m
+bar. A signal candle that straddles a roll or completes in the next session is skipped.
+Rolls (prices not back-adjusted): levels, ATR and touches reset at every contract change; a touch needs its extreme
+candle and its left reference candle inside the current contract. Owner swing structure itself runs on unchanged.
+
+## Parameters and trial budget
+| Parameter | Values |
+|---|---|
+| `sig_tf` | 5m, 15m, 1h |
+| `reg` | lock, confirm |
+| `sources` | all, htf |
+| `weight` | tf, flat |
+| `tol` | 0.4, 0.6, 1.0 |
+| `score` | 0, 50, 70 |
+| `clv` | 0.6, 0.75 |
+| `entry` | close, band |
+| `stop` | wick, band |
+| `exit` | r1, r2, r3, be3 |
+| `session` | all, rth |
+
+Owner asked for every version: **13,824 combinations**, all run once on dev as a screen (`studies/rlm/grid.py`, every
+row kept). Codex recommended 48 (`codex/reply1.md`); the full grid is run because the owner asked, so the guard
+below must carry the multiple-testing load. Every dev number is **best of 13,824**.
+
+Disclosure: before this file was written, one smoke run of the default version on dev 2010-06..2011 (15m, lock,
+be3) was looked at: 2,418 trades, PF 0.91. The spec above was not changed because of it.
+
+## Screen and guard (declared before the grid)
+1. Dev gates (PROTOCOL.md): trades ≥ 200, PF ≥ 1.25, years positive ≥ 70% (all dev years; no-trade year = not
+   positive), Combine pass ≥ 50%, cost/pass ≤ $500; plus both halves (2010-06..2015, 2016..2021) net > 0, plus ≥ 60% of
+   one-step neighbours net > 0.
+2. Family check (Codex): day-block bootstrap of the max PF across the screened family vs a random-entry null
+   (same times, sides, brackets on random dates) to see if the best version beats what selection alone produces.
+3. Survivors (max 3, ranked by pass rate): `cli test --period dev` (ledger) and `--through 1` (PF must stay ≥ 1.10),
+   trade spot-checks against raw bars.
+4. Trade study (wins vs losses): predeclared features (TF of the strongest touch, touches, score, polarity, age,
+   crosses, band width/ATR, CLV, risk ticks, CT hour, side, ATR); any filter found there is a new trial and needs data
+   it was not found on.
+5. Validation 2022-2024 once per survivor, frozen. Holdout only with the owner's yes.
+If nothing survives step 1, the strategy is dropped on dev.
+
+## Pass criteria
+PROTOCOL.md dev gates (above), validation PF ≥ 1.10 and pass ≥ 40%.
+
+## Results
+| Date | Period | Fills | Trades | Net | PF | Pass rate | Cost/pass | Note |
+|---|---|---|---|---|---|---|---|---|
+All results in-sample unless the period is holdout or forward; tuned rows say best of N.
+1. **The original win rate is a TP1-touch rate, not a profitable-trade rate.**
+
+The [logic excerpt](/home/mrullldhm/personal/tradingview-tester/studies/rlm/rlm_logic.pine) labels a completed trade a win if it touched 1R. With one contract held toward 3R, touching 1R realizes nothing; a subsequent breakeven exit loses fees. Targets receive optimistic priority when stop and target occur in the same candle, and TP1/TP3 touches can block a stop exit. Entry assumes execution at the signal close; costs and P&L are absent. Opposite-signal reversals further separate this statistic from bracket expectancy. It cannot establish profitability or Combine suitability.
+
+2. **My CL translation, including disagreements.**
+
+- **Clock:** retain completed signal candles S = 5m/15m/1h. Maintain levels through all trading hours; restrict order eligibility separately. Process decay/crosses, swing registrations, merges, selection, then rejection, matching the source.
+- **Swings:** exclusively owner `swing_state`, with timestamp identities and `newest=True, prev=True`. I prefer **registration at first confirmation**, with replacement/removal reconciled prospectively. Confirmation is usable information; waiting for an opposite swing adds variable, potentially multi-day latency. Never erase historical signals, but withdraw invalidated contributions from future level state.
+- **Locking:** acceptable as a separately named interpretation, not an immutable truth. Opposite confirmation prevents ordinary rule-5 replacement; rule 4 can still remove earlier points. A `newest` flip alone misses outside-candle and replacement cases. Snapshot differences also cannot guarantee visibility into deep cascades; implementation needs audited owner-rule event reconciliation.
+- **TF strength:** use the draft’s monotone weights **instead of** reaction-distance weights, not multiplied by them. The numeric ladder is a research assumption; the owner mandated TF ordering, not those numbers. Feed weight into strength and weighted band moments; keep `touches` an independent-event count. Retain score scale 6 and threshold 50 initially. These imply effective strength ≥4.16, or ≥3.33 with polarity bonus; equal weight ranges do not imply equal signal frequencies.
+- **Double counting:** agree with one economic extreme counted once across TFs. Require same kind, integer-tick price, and nested candle provenance. Upgrade only when higher-TF evidence becomes available; do not reset age, increment touches, or backdate stronger scores. Preserve distinct later revisits at the same price. Track provenance through merges.
+- **Geometry:** ATR34(S) for joining/bands, ATR14(S) for risk is defensible. Source-TF ATR would let daily observations create enormous bands. Preserve tolerance 0.6, minimum half-width 0.15 ATR, 500-S-bar decay, 0.7 cross penalty, pruning below 0.25, cap 60, five merge passes, three nearest eligible levels, polarity bonus, CLV 0.6 and ten-S-bar cooldown. Refit only at declared events, as the source does.
+- **Execution:** close-limit versus support `hi`/resistance `lo` retest-limit; freeze geometry at signal. Expire after **one S interval in clock minutes**, with window-end cancellation. Wick stop: long `min(low−0.25ATR14, limit−0.5ATR14)`; mirror shorts. Round explicitly to ticks and reject invalid brackets. Targets use intended limit risk; report actual-fill risk separately. One CL, touch fills, fees, no exit slippage, flat 15:10 CT.
+- **Management:** compare 1R fixed against 3R with BE after 1R. BE becomes effective next minute; exclude ambiguous fill-bar highs. Drop opposite-signal reversals initially.
+- **Rolls:** reset levels, orders and ATR warmup. **Do not silently reset owner swings:** their documented structure continues across rolls. Reject mixed-contract candles and roll-dependent swing references/transitions; current-contract extreme timestamps alone are insufficient.
+
+3. **Budget and selection discipline.**
+
+Drop band stops, expiry tuning, locking, and `htf` sourcing from the initial grid. Fix sources to S..1d. Test:
+
+**3 S × 2 weight schemes × 2 entries × 2 sessions × 2 exits = 48 configurations.**
+
+Sessions: all versus 08:30–13:30 CT; enforce the window on fills too. Flat weights are an attribution control. Reserve six predefined tolerance/score/half-life neighbour checks around one selected candidate: **54 configurations maximum, 108 dev backtests including strict fills**.
+
+Require protocol gates, positive chronological halves, neighbour profitability, and acceptable concentration under both fill assumptions. Predeclare ranking and use a block-bootstrap maximum-statistic check that repeats selection across the family. Overlapping Combine attempts are not independent evidence. Freeze at most one candidate for one validation event, reporting both fill assumptions. No exceptions for almost passing cost/pass.
+
+4. **Point-in-time hazards.**
+
+Use candle `avail`, never candle-open timestamps as availability. Swing k becomes known at k+1 completion; do not register it at its historical extreme. Multiple updates can share one availability bar. Preserve outside-candle ordering and NaN removals; never forward-fill invalidated points.
+
+Orders start next minute. Distinguish candle `last` from `avail`; reject stale rejection signals completing in another session/contract. Respect clock-aligned versus session-aligned TFs, DST, holidays and missing minutes. Session filters must not suppress overnight level evolution. Verify live-prefix equivalence and spot-check rolls, replacements, merges, delayed completion and ambiguous fills.
+
+5. **Feature study without another optimization loop.**
+
+Log every signal/order, including unfilled and blocked ones: point IDs, TF provenance, weights/upgrades, touches, polarity, score components, age, crosses, band width, ATRs, CLV, wick/body, penetration, approach distance, side, CT time, volatility, stop ticks, target distance, fill delay and cancellation. Log outcomes separately: net dollars/R, MAE/MFE, exit reason, ambiguity and touch-only status.
+
+Predeclare a short feature list and continuous associations; control for year, session, S and risk, cluster by day, and correct multiplicity. Study net expectancy alongside win probability. Fill status and MFE are diagnostics, not entry predictors. Any discovered filter spends another research trial; confirm it on forward data. Repo validation/holdout were historically viewed, so neither is pristine.
+
+Read only; no files written.  495 strategies/rlm.py
+  106 studies/rlm/grid.py
+   81 studies/rlm/rlm_logic.pine
+  682 total
+
+exec
+/bin/bash -lc 'find strategies studies -name AGENTS.md -print
+nl -ba strategies/rlm.py' in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+     1	"""Reaction Level Matrix [WillyAlgoTrader] mapped to CL (2026-11-19, Claude + Codex).
+     2	Spec, CL mapping and trial budget: docs/strategies/rlm/README.md. Original logic: studies/rlm/rlm_logic.pine.
+     3	
+     4	Levels are price bands built online from swing points. The original finds swings with ta.pivothigh(6, 6) and weights
+     5	each touch by its reaction size; here every swing is an owner-rule point (cltester.swings) on one of several
+     6	timeframes and its weight is the TIMEFRAME (owner: the bigger the TF, the stronger the swing). One turning point counts
+     7	once: when a higher TF confirms the same extreme, the touch is upgraded to the higher weight.
+     8	
+     9	A point becomes a touch when it is LOCKED: a newer opposite point exists after it in the structure, so rule 5 can no
+    10	longer replace it. Known at the close of the candle that makes it locked (detect state[k] is known when candle k+1
+    11	completes).
+    12	
+    13	The level engine runs on completed candles of the signal timeframe S: age + cross with the candle close, register the
+    14	touches locked up to the candle's completion, pick the 3 nearest active levels per side, test the rejection candle.
+    15	Levels reset at every contract change (prices are not back-adjusted).
+    16	"""
+    17	
+    18	import hashlib
+    19	from bisect import bisect_left
+    20	
+    21	import numpy as np
+    22	import pandas as pd
+    23	
+    24	from cltester.config import TICK
+    25	from cltester.data import to_ticks
+    26	from cltester.indicators import atr_rma
+    27	from cltester.strategy import Base
+    28	from cltester.swings import HIGH, LOW, TIMEFRAMES, build_candles, detect
+    29	
+    30	# --- original constants (rlm_logic.pine) ---
+    31	STRUCT_ATR_LEN = 34
+    32	RISK_ATR_LEN = 14
+    33	MIN_HALF_WIDTH_ATR = 0.15
+    34	SCORE_SCALE = 6.0
+    35	POLARITY_BONUS = 1.25
+    36	CROSS_PENALTY = 0.7
+    37	MIN_STRENGTH = 0.25
+    38	MAX_LEVELS = 60
+    39	MERGE_PASSES = 5
+    40	MIN_TOUCHES = 2
+    41	HALF_LIFE = 500  # signal-TF bars
+    42	PER_SIDE = 3
+    43	COOLDOWN = 10  # signal-TF bars per level
+    44	WICK_BUFFER_ATR = 0.25
+    45	WICK_MIN_ATR = 0.5
+    46	
+    47	# --- CL mapping ---
+    48	SOURCES = ("5m", "15m", "1h", "4h", "1d")
+    49	# same 1..3.5 range as the original reaction weight
+    50	TF_WEIGHT = {"5m": 1.0, "15m": 1.5, "1h": 2.0, "4h": 3.0, "1d": 3.5}
+    51	COMBOS = [(clv, score) for clv in (0.6, 0.75) for score in (0, 50, 70)]  # rejection close strength x min level score
+    52	MIN_RISK = 5  # ticks
+    53	EXPIRE_BARS = 1  # signal-TF bars an unfilled entry works (also killed by a target touch)
+    54	RTH = (8 * 60 + 30, 13 * 60 + 30)  # CT minutes: signal candle completes inside [08:30, 13:30)
+    55	CAP = MAX_LEVELS + 2
+    56	
+    57	CAND_COLS = ["c", "bar", "side", "combo", "mid", "lo", "hi", "score", "touches", "polar", "maxw", "strength",
+    58	             "crosses", "age", "atr34", "atr14", "o", "h", "l", "cl"]
+    59	
+    60	
+    61	def _content_key(df: pd.DataFrame) -> str:
+    62	    hsh = hashlib.sha256()
+    63	    hsh.update(str(len(df)).encode())
+    64	    hsh.update(df["ts"].to_numpy("datetime64[ns]").view("int64").tobytes())
+    65	    for k in ("open", "high", "low", "close"):
+    66	        hsh.update(to_ticks(df[k]).tobytes())
+    67	    hsh.update(pd.util.hash_pandas_object(df["raw_symbol"], index=False).to_numpy().tobytes())
+    68	    return hsh.hexdigest()
+    69	
+    70	
+    71	_EVENTS: dict[tuple, pd.DataFrame] = {}
+    72	_CANDS: dict[tuple, pd.DataFrame] = {}
+    73	EV_COLS = ["known", "op", "kind", "price", "first", "last", "ref_first", "candle"]
+    74	
+    75	
+    76	def swing_events(df: pd.DataFrame, tf: str, reg: str, key: str | None = None) -> pd.DataFrame:
+    77	    """Owner swing points on tf as touch events, in the order they become known (1m bar `known`, at whose close the
+    78	    detect state of candle k is known = avail[k+1]).
+    79	    reg="lock": op +1 when the point is locked (a newer opposite point exists above it in the structure, so rule 5
+    80	    can no longer replace it). reg="confirm": op +1 when the point first appears, op -1 when it leaves the structure
+    81	    (rule-5 replacement or rule-4 removal) while it is still among the top four points.
+    82	    first / last: 1m bars of the extreme's candle; ref_first: first 1m bar of the candle left of it (its rule-2/3
+    83	    reference, used by the roll guard)."""
+    84	    key = key or _content_key(df)
+    85	    if (key, tf, reg) in _EVENTS:
+    86	        return _EVENTS[(key, tf, reg)]
+    87	    cd = build_candles(df, tf)
+    88	    n_c, n = len(cd), len(df)
+    89	    _, st = detect(cd)
+    90	    cols = (("sh", HIGH), ("sl", LOW), ("sh2", HIGH), ("sl2", LOW))
+    91	    seen: set[tuple[int, int]] = set()
+    92	    prev: dict[tuple[int, int], tuple[int, int]] = {}  # (kind, candle) -> (depth, price) after candle k-1
+    93	    rows = []
+    94	    for k in range(n_c - 1):
+    95	        known = int(cd.avail[k + 1])
+    96	        if known >= n:
+    97	            break
+    98	        nw = st["newest"][k]
+    99	        if nw == 0:
+   100	            continue
+   101	        order = ("sh", "sl", "sh2", "sl2") if nw == HIGH else ("sl", "sh", "sl2", "sh2")
+   102	        cur: dict[tuple[int, int], tuple[int, int]] = {}
+   103	        for depth, col in enumerate(order):
+   104	            kind = dict(cols)[col]
+   105	            cnd = int(st[f"{col}_candle"][k])
+   106	            if cnd >= 0:
+   107	                cur[(kind, cnd)] = (depth, int(st[f"{col}_price"][k]))
+   108	
+   109	        def row(op: int, kind: int, cnd: int, price: int, known: int = known) -> tuple:
+   110	            return (known, op, kind, price, int(cd.first[cnd]), int(cd.last[cnd]), int(cd.first[max(cnd - 1, 0)]),
+   111	                    cnd)
+   112	
+   113	        if reg == "lock":
+   114	            for (kind, cnd), (depth, price) in cur.items():
+   115	                if depth > 0 and (kind, cnd) not in seen:
+   116	                    seen.add((kind, cnd))
+   117	                    rows.append(row(1, kind, cnd, price))
+   118	        else:
+   119	            fresh = [pt for pt in cur if pt not in prev]
+   120	            for pt, (depth, price) in prev.items():
+   121	                if pt not in cur and depth + len(fresh) < 4:  # not pushed down: replaced or removed
+   122	                    rows.append(row(-1, pt[0], pt[1], price))
+   123	                    seen.discard(pt)
+   124	            for pt in fresh:
+   125	                if pt not in seen:
+   126	                    seen.add(pt)
+   127	                    rows.append(row(1, pt[0], pt[1], cur[pt][1]))
+   128	        prev = cur
+   129	    out = pd.DataFrame(rows, columns=EV_COLS)
+   130	    _EVENTS[(key, tf, reg)] = out
+   131	    return out
+   132	
+   133	
+   134	class Book:
+   135	    """Level memory in fixed-size numpy arrays (slot per level, `alive` mask). Prices in ticks (float)."""
+   136	
+   137	    def __init__(self, n_combo: int, tol: float):
+   138	        self.tol = tol
+   139	        z = lambda: np.zeros(CAP)  # noqa: E731
+   140	        self.lo, self.hi, self.mid = z(), z(), z()
+   141	        self.sw, self.swp, self.swp2, self.strength = z(), z(), z(), z()
+   142	        self.touches, self.ht, self.lt, self.crosses = z(), z(), z(), z()
+   143	        self.side, self.sidebar, self.first_c, self.maxw = z(), z(), z(), z()
+   144	        self.alive = np.zeros(CAP, dtype=bool)
+   145	        self.lastsig = np.full((CAP, n_combo), -1e9)
+   146	        self.keys: list[list] = [[] for _ in range(CAP)]  # touch keys owned by each slot
+   147	        self.owner: dict = {}  # touch key -> slot
+   148	        self.registry: dict = {}  # (kind, price) -> list of [first, last, {tf: w}, key, price, is_high]
+   149	        self.pid: dict = {}  # (tf, kind, candle) -> registry entry
+   150	        self.added: dict = {}  # touch key -> candle when its touch was added
+   151	        self.decay = 0.5 ** (1.0 / HALF_LIFE)
+   152	
+   153	    def clear(self) -> None:
+   154	        self.alive[:] = False
+   155	        self.keys = [[] for _ in range(CAP)]
+   156	        self.owner.clear()
+   157	        self.registry.clear()
+   158	        self.pid.clear()
+   159	        self.added.clear()
+   160	
+   161	    def _kill(self, s: int) -> None:
+   162	        self.alive[s] = False
+   163	        for k in self.keys[s]:
+   164	            self.owner.pop(k, None)
+   165	        self.keys[s] = []
+   166	
+   167	    def refit(self, s: int, a: float) -> None:
+   168	        m = self.swp[s] / self.sw[s]
+   169	        vr = self.swp2[s] / self.sw[s] - m * m
+   170	        hw = min(max(np.sqrt(max(vr, 0.0)), a * MIN_HALF_WIDTH_ATR), a * self.tol)
+   171	        self.mid[s], self.lo[s], self.hi[s] = m, m - hw, m + hw
+   172	
+   173	    def _add(self, s: int, price: float, w: float, is_high: bool, a: float, key) -> None:
+   174	        self.sw[s] += w
+   175	        self.swp[s] += w * price
+   176	        self.swp2[s] += w * price * price
+   177	        self.strength[s] += w
+   178	        self.touches[s] += 1
+   179	        self.ht[s] += is_high
+   180	        self.lt[s] += not is_high
+   181	        self.maxw[s] = max(self.maxw[s], w)
+   182	        self.keys[s].append(key)
+   183	        self.owner[key] = s
+   184	        self.refit(s, a)
+   185	
+   186	    def _merge(self, t: int, o: int, a: float) -> None:
+   187	        for arr in (self.sw, self.swp, self.swp2, self.strength, self.touches, self.ht, self.lt):
+   188	            arr[t] += arr[o]
+   189	        self.crosses[t] = max(self.crosses[t], self.crosses[o])
+   190	        self.first_c[t] = min(self.first_c[t], self.first_c[o])
+   191	        self.maxw[t] = max(self.maxw[t], self.maxw[o])
+   192	        self.lastsig[t] = np.maximum(self.lastsig[t], self.lastsig[o])
+   193	        for k in self.keys[o]:
+   194	            self.owner[k] = t
+   195	        self.keys[t].extend(self.keys[o])
+   196	        self.keys[o] = []
+   197	        self.alive[o] = False
+   198	        self.refit(t, a)
+   199	
+   200	    def _shift(self, s: int, dw: float, price: float, age: int = 0) -> None:
+   201	        """Change one touch's weight by dw on slot s. A removal (dw < 0) takes back its strength share decayed over
+   202	        `age` bars (cross penalties since then are ignored)."""
+   203	        self.sw[s] += dw
+   204	        self.swp[s] += dw * price
+   205	        self.swp2[s] += dw * price * price
+   206	        self.strength[s] = max(self.strength[s] + dw * self.decay ** age, 0.0)
+   207	
+   208	    def touch(self, pid: tuple, kind: int, price: int, first: int, last: int, w: float, a: float, close: float,
+   209	              c: int) -> None:
+   210	        """Register a swing point (pid = (tf, kind, candle)). Same extreme already known on another TF (same kind
+   211	        and price, one candle inside the other): the touch takes the larger weight, no extra touch."""
+   212	        reg = self.registry.setdefault((kind, price), [])
+   213	        for e in reg:
+   214	            if (first <= e[0] and e[1] <= last) or (e[0] <= first and last <= e[1]):
+   215	                old = max(e[2].values()) if e[2] else 0.0
+   216	                e[2][pid[0]] = w
+   217	                self.pid[pid] = e
+   218	                s = self.owner.get(e[3])
+   219	                if s is not None and self.alive[s]:
+   220	                    if w > old:
+   221	                        self._shift(s, w - old, price)
+   222	                        self.maxw[s] = max(self.maxw[s], w)
+   223	                        self.refit(s, a)
+   224	                        self._merge_overlaps(s, a)
+   225	                    return
+   226	                if old > 0:
+   227	                    return  # its level is gone (decayed / evicted): a later TF of the same extreme adds nothing
+   228	                break
+   229	        else:
+   230	            e = [first, last, {pid[0]: w}, (kind, price, first), price, kind == HIGH]
+   231	            reg.append(e)
+   232	            self.pid[pid] = e
+   233	        key = e[3]
+   234	        is_high = kind == HIGH
+   235	        alive = np.flatnonzero(self.alive)
+   236	        t = -1
+   237	        if len(alive):
+   238	            d = np.abs(self.mid[alive] - price)
+   239	            ok = np.flatnonzero(d <= a * self.tol)
+   240	            if len(ok):
+   241	                best = d[ok].min()
+   242	                t = int(alive[ok[np.flatnonzero(d[ok] == best)[-1]]])  # ties: the later level (Pine `<=`)
+   243	        if t >= 0:
+   244	            self._add(t, price, w, is_high, a, key)
+   245	            self._merge_overlaps(t, a)
+   246	        else:
+   247	            s = int(np.flatnonzero(~self.alive)[0])
+   248	            for arr in (self.sw, self.swp, self.swp2, self.strength, self.touches, self.ht, self.lt, self.crosses,
+   249	                        self.maxw):
+   250	                arr[s] = 0.0
+   251	            self.lastsig[s] = -1e9
+   252	            self.keys[s] = []
+   253	            self.side[s] = 1 if close > price else -1
+   254	            self.sidebar[s] = c
+   255	            self.first_c[s] = c
+   256	            self.alive[s] = True
+   257	            self._add(s, price, w, is_high, a, key)
+   258	        self.added[key] = c
+   259	        while self.alive.sum() > MAX_LEVELS:
+   260	            al = np.flatnonzero(self.alive)
+   261	            self._kill(int(al[np.argmin(self.strength[al])]))
+   262	
+   263	    def withdraw(self, pid: tuple, a: float, c: int) -> None:
+   264	        """confirm mode: a point left the owner structure. Its TF's weight leaves the touch (the touch drops to the
+   265	        next TF that still holds the same extreme, or goes away). History is not rewritten."""
+   266	        e = self.pid.pop(pid, None)
+   267	        if e is None or pid[0] not in e[2]:
+   268	            return
+   269	        old = max(e[2].values())
+   270	        del e[2][pid[0]]
+   271	        new = max(e[2].values()) if e[2] else 0.0
+   272	        s = self.owner.get(e[3])
+   273	        if s is None or not self.alive[s] or new >= old:
+   274	            return
+   275	        self._shift(s, new - old, e[4], c - self.added.get(e[3], c))
+   276	        if new == 0.0:
+   277	            self.touches[s] -= 1
+   278	            self.ht[s] -= e[5]
+   279	            self.lt[s] -= not e[5]
+   280	            self.keys[s].remove(e[3])
+   281	            self.owner.pop(e[3], None)
+   282	            self.registry[(e[3][0], e[3][1])].remove(e)
+   283	        if self.touches[s] <= 0 or self.sw[s] <= 1e-9:
+   284	            self._kill(s)
+   285	        else:
+   286	            self.refit(s, a)
+   287	
+   288	    def _merge_overlaps(self, t: int, a: float) -> None:
+   289	        for _ in range(MERGE_PASSES):
+   290	            again = False
+   291	            for k in np.flatnonzero(self.alive)[::-1]:
+   292	                if k != t and self.alive[k] and self.lo[k] <= self.hi[t] and self.lo[t] <= self.hi[k]:
+   293	                    self._merge(t, int(k), a)
+   294	                    again = True
+   295	            if not again:
+   296	                break
+   297	
+   298	    def age_cross(self, close: float, decay: float, c: int) -> None:
+   299	        al = self.alive
+   300	        self.strength[al] *= decay
+   301	        new = np.where(close > self.hi, 1.0, np.where(close < self.lo, -1.0, self.side))
+   302	        ch = al & (new != self.side)
+   303	        hit = ch & (self.touches >= MIN_TOUCHES)
+   304	        self.crosses[hit] += 1
+   305	        self.strength[hit] *= CROSS_PENALTY
+   306	        self.side[ch] = new[ch]
+   307	        self.sidebar[ch] = c
+   308	        for s in np.flatnonzero(al & (self.strength < MIN_STRENGTH)):
+   309	            self._kill(int(s))
+   310	
+   311	    def score(self, s) -> np.ndarray:
+   312	        polar = (self.ht[s] > 0) & (self.lt[s] > 0)
+   313	        return 100.0 * (1.0 - np.exp(-self.strength[s] * np.where(polar, POLARITY_BONUS, 1.0) / SCORE_SCALE))
+   314	
+   315	    def nearest(self, side: int, close: float) -> np.ndarray:
+   316	        cand = np.flatnonzero(self.alive & (self.touches >= MIN_TOUCHES) & (self.side == side))
+   317	        if not len(cand):
+   318	            return cand
+   319	        order = np.argsort(np.abs(close - self.mid[cand]), kind="stable")
+   320	        return cand[order[:PER_SIDE]]
+   321	
+   322	
+   323	def candidates(df: pd.DataFrame, sig_tf: str, reg: str, sources: str, weight: str, tol: float) -> pd.DataFrame:
+   324	    """Every rejection signal of the level engine, for all COMBOS at once (one row per candle, side and combo)."""
+   325	    key = _content_key(df)
+   326	    ck = (key, sig_tf, reg, sources, weight, tol)
+   327	    if ck in _CANDS:
+   328	        return _CANDS[ck]
+   329	    cd = build_candles(df, sig_tf)
+   330	    n_c = len(cd)
+   331	    m_sig = TIMEFRAMES[sig_tf]
+   332	    tfs = [t for t in SOURCES if (TIMEFRAMES[t] >= m_sig if sources == "all" else TIMEFRAMES[t] > m_sig)]
+   333	    ev = pd.concat([swing_events(df, t, reg, key).assign(tf=i, w=TF_WEIGHT[t] if weight == "tf" else 1.0)
+   334	                    for i, t in enumerate(tfs)], ignore_index=True)
+   335	    ev = ev.sort_values(["known", "tf", "op"], kind="stable")  # same bar: lower TF first, withdrawals first
+   336	    lk = ev[["known", "op", "kind", "price", "first", "last", "ref_first", "candle", "tf", "w"]].to_numpy()
+   337	    lk_known = ev["known"].to_numpy()
+   338	    h, lo, cl, opn = (cd.h.astype(float), cd.l.astype(float), cd.c.astype(float), cd.o.astype(float))
+   339	    sym = pd.factorize(df["raw_symbol"])[0]
+   340	    contract = np.cumsum(np.r_[False, sym[1:] != sym[:-1]])
+   341	    c_contract = contract[cd.last]
+   342	    a34, a14 = np.full(n_c, np.nan), np.full(n_c, np.nan)  # ATR restarts with each contract (no roll gap in TR)
+   343	    for g in np.split(np.arange(n_c), np.flatnonzero(np.diff(c_contract)) + 1):
+   344	        if len(g):
+   345	            a34[g] = atr_rma(h[g], lo[g], cl[g], STRUCT_ATR_LEN).to_numpy()
+   346	            a14[g] = atr_rma(h[g], lo[g], cl[g], RISK_ATR_LEN).to_numpy()
+   347	    c_start = np.r_[0, np.flatnonzero(np.diff(contract)) + 1][contract[cd.first]]  # 1m bar where its contract began
+   348	    tday = pd.factorize(df["trading_day"])[0]
+   349	    decay = 0.5 ** (1.0 / HALF_LIFE)
+   350	    book = Book(len(COMBOS), tol)
+   351	    rows = []
+   352	    p = 0  # next lock to register
+   353	    for c in range(n_c):
+   354	        if c and c_contract[c] != c_contract[c - 1]:
+   355	            book.clear()
+   356	        av = int(cd.avail[c])
+   357	        close = cl[c]
+   358	        a = a34[c] if np.isfinite(a34[c]) else 0.0
+   359	        if a > 0:
+   360	            book.age_cross(close, decay, c)
+   361	        while p < len(lk_known) and lk_known[p] <= av:
+   362	            kn, op, kind, price, first, last, ref_first, cnd, tfi, w = lk[p]
+   363	            p += 1
+   364	            pid = (int(tfi), int(kind), int(cnd))
+   365	            if op < 0:
+   366	                book.withdraw(pid, a, c)
+   367	                continue
+   368	            # the extreme and its left reference candle must be in the current contract (unadjusted prices)
+   369	            if a <= 0 or ref_first < c_start[c] or contract[int(kn)] != c_contract[c]:
+   370	                continue
+   371	            book.touch(pid, int(kind), int(price), int(first), int(last), float(w), a, close, c)
+   372	        # no signal from a candle that straddles a roll or completes in the next session (missing last minute)
+   373	        if a <= 0 or cd.first[c] < c_start[c] or not np.isfinite(a14[c]) \
+   374	                or tday[cd.first[c]] != tday[av]:
+   375	            continue
+   376	        rng = h[c] - lo[c]
+   377	        for side in (1, -1):
+   378	            sel = book.nearest(side, close)
+   379	            if not len(sel):
+   380	                continue
+   381	            if side == 1:
+   382	                clv = (close - lo[c]) / rng if rng > 0 else 0.5
+   383	                geo = (book.sidebar[sel] < c) & (lo[c] <= book.hi[sel]) & (close > book.hi[sel])
+   384	            else:
+   385	                clv = (h[c] - close) / rng if rng > 0 else 0.5
+   386	                geo = (book.sidebar[sel] < c) & (h[c] >= book.lo[sel]) & (close < book.lo[sel])
+   387	            if not geo.any():
+   388	                continue
+   389	            sc = book.score(sel)
+   390	            for ci, (cmin, smin) in enumerate(COMBOS):
+   391	                if clv < cmin:
+   392	                    continue
+   393	                ok = geo & (sc >= smin) & (c - book.lastsig[sel, ci] >= COOLDOWN)
+   394	                hit = np.flatnonzero(ok)
+   395	                if not len(hit):
+   396	                    continue
+   397	                s = int(sel[hit[0]])
+   398	                book.lastsig[s, ci] = c
+   399	                rows.append((c, av, side, ci, book.mid[s], book.lo[s], book.hi[s], float(sc[hit[0]]),
+   400	                             book.touches[s], bool(book.ht[s] > 0 and book.lt[s] > 0), book.maxw[s],
+   401	                             book.strength[s], book.crosses[s], c - book.first_c[s], a, a14[c], opn[c], h[c], lo[c],
+   402	                             close))
+   403	    out = pd.DataFrame(rows, columns=CAND_COLS)
+   404	    out["sig_tf"] = sig_tf
+   405	    _CANDS[ck] = out
+   406	    return out
+   407	
+   408	
+   409	def build_orders(cand: pd.DataFrame, df: pd.DataFrame, p: dict) -> pd.DataFrame:
+   410	    """Orders (ticks, side space resolved) from the candidates of one combo. One row per signal bar; a long and a
+   411	    short on one candle: long only (original). Columns include features for the trade study."""
+   412	    ci = COMBOS.index((float(p["clv"]), int(p["score"])))
+   413	    s = cand[cand["combo"] == ci].copy()
+   414	    if s.empty:
+   415	        return s
+   416	    s = s.sort_values(["bar", "side"], ascending=[True, False], kind="stable").drop_duplicates("bar", keep="first")
+   417	    ctm = df["ct_minute"].to_numpy()[s["bar"].to_numpy()]
+   418	    s["ct_min"] = ctm
+   419	    if p["session"] == "rth":
+   420	        s = s[(s["ct_min"] >= RTH[0]) & (s["ct_min"] < RTH[1])]
+   421	    side = s["side"].to_numpy()
+   422	    # side space: long as is, short negated
+   423	    cl, lo_c = (side * s["cl"]).to_numpy(), np.where(side == 1, s["l"], -s["h"])
+   424	    lvl_near = np.where(side == 1, s["hi"], -s["lo"])  # band edge price came back to
+   425	    lvl_far = np.where(side == 1, s["lo"], -s["hi"])
+   426	    a14 = s["atr14"].to_numpy()
+   427	    entry = np.where(p["entry"] == "close", cl, np.floor(lvl_near)).astype(float)
+   428	    if p["stop"] == "wick":
+   429	        raw = np.minimum(lo_c - WICK_BUFFER_ATR * a14, entry - WICK_MIN_ATR * a14)
+   430	    else:
+   431	        raw = np.minimum(lvl_far - WICK_BUFFER_ATR * a14, entry - WICK_MIN_ATR * a14)
+   432	    stop = np.floor(raw)
+   433	    risk = entry - stop
+   434	    k = {"r1": 1, "r2": 2, "r3": 3, "be3": 3, "be3opp": 3}[p["exit"]]
+   435	    target = entry + np.ceil(k * risk)
+   436	    s = s.assign(E=entry, S=stop, R=risk, T=target)
+   437	    return s[s["R"] >= MIN_RISK]
+   438	
+   439	
+   440	class Strategy(Base):
+   441	    NAME = "rlm"
+   442	    ABOUT = ("Reaction Level Matrix (WillyAlgoTrader) on CL: price levels from owner-rule swing points weighted by "
+   443	             "timeframe; buy a rejection candle at support (sell at resistance) with a limit, wick or band stop, "
+   444	             "R-multiple target.")
+   445	    PARAMS = {"sig_tf": "15m", "reg": "lock", "sources": "all", "weight": "tf", "tol": 0.6, "score": 50, "clv": 0.6,
+   446	              "entry": "close", "stop": "wick", "exit": "be3", "session": "all"}
+   447	    GRID = {"sig_tf": ["5m", "15m", "1h"], "reg": ["lock", "confirm"], "sources": ["all", "htf"],
+   448	            "weight": ["tf", "flat"], "tol": [0.4, 0.6, 1.0], "score": [0, 50, 70], "clv": [0.6, 0.75],
+   449	            "entry": ["close", "band"],
+   450	            "stop": ["wick", "band"], "exit": ["r1", "r2", "r3", "be3"], "session": ["all", "rth"]}
+   451	
+   452	    def __init__(self) -> None:
+   453	        self._p: dict = {}
+   454	        self._opp: dict[int, list[int]] = {}
+   455	        self._side_hi: dict[int, np.ndarray] = {}
+   456	
+   457	    def orders(self, df: pd.DataFrame, p: dict) -> pd.DataFrame:
+   458	        cand = candidates(df, p["sig_tf"], p["reg"], p["sources"], p["weight"], float(p["tol"]))
+   459	        return build_orders(cand, df, p)
+   460	
+   461	    def signals(self, df: pd.DataFrame, p: dict) -> pd.DataFrame:
+   462	        self._p = p
+   463	        o = self.orders(df, p)
+   464	        cols = ["side", "limit", "stop", "target", "expire_min", "kill"]
+   465	        if o.empty:
+   466	            return pd.DataFrame(columns=cols)
+   467	        side = o["side"].to_numpy()
+   468	        self._opp = {sd: sorted(o.loc[o["side"] == -sd, "bar"].astype(int)) for sd in (1, -1)}
+   469	        self._side_hi = {1: to_ticks(df["high"]), -1: -to_ticks(df["low"])}
+   470	        tgt = side * o["T"].to_numpy() * TICK
+   471	        return pd.DataFrame({"side": side, "limit": np.round(side * o["E"].to_numpy() * TICK, 2),
+   472	                             "stop": np.round(side * o["S"].to_numpy() * TICK, 2), "target": np.round(tgt, 2),
+   473	                             "expire_min": EXPIRE_BARS * TIMEFRAMES[p["sig_tf"]], "kill": np.round(tgt, 2)},
+   474	                            index=o["bar"].astype(int).to_numpy())
+   475	
+   476	    def manage(self, ctx):
+   477	        """be3: stop to entry once a bar after the fill bar reached entry + 1R (R = (target - entry) / 3), effective
+   478	        from the next bar. be3opp: also close at the open after an opposite signal bar (signal at or after the fill
+   479	        bar, original reversal exit)."""
+   480	        ex = self._p.get("exit")
+   481	        if ex not in ("be3", "be3opp"):
+   482	            return ctx.S, False
+   483	        st = ctx.state
+   484	        if "mx" not in st:
+   485	            st["mx"], st["R"] = -10**12, (ctx.T - ctx.E) // 3
+   486	        if ctx.m - 1 > ctx.j:
+   487	            st["mx"] = max(st["mx"], int(self._side_hi[ctx.side][ctx.m - 1]))
+   488	        stop = ctx.E if st["mx"] >= ctx.E + st["R"] else ctx.S
+   489	        stop = max(stop, ctx.S)
+   490	        if ex == "be3opp":
+   491	            opp = self._opp[ctx.side]
+   492	            k = bisect_left(opp, ctx.j)
+   493	            if k < len(opp) and opp[k] <= ctx.m - 1:
+   494	                return stop, True
+   495	        return stop, False
+
+exec
+/bin/bash -lc 'nl -ba studies/rlm/grid.py
+nl -ba studies/rlm/rlm_logic.pine
+nl -ba cltester/swings.py' in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+     1	"""RLM full-factorial dev screen (docs/strategies/rlm/README.md, trial budget 13,824). Every version once.
+     2	
+     3	Work unit = one level configuration (sig_tf, reg, sources, weight, tol): its candidates are built once, then every
+     4	downstream version (score, clv, entry, stop, exit, session) runs through the engine (touch fills, no exit slippage),
+     5	metrics, Combine rolling + sequential, and the net of each dev half. One CSV part per unit in studies/rlm/grid_parts/
+     6	(resumable); `--merge` joins them into grid_<period>.csv. Every number is in-sample, best of 13,824.
+     7	Run: .venv/bin/python -m studies.rlm.grid [--workers 5] [--through 0] [--merge]
+     8	"""
+     9	
+    10	import argparse
+    11	import itertools
+    12	import os
+    13	from multiprocessing import get_context
+    14	
+    15	import pandas as pd
+    16	
+    17	from cltester import metrics, topstep
+    18	from cltester.config import ROOT
+    19	from cltester.data import Bars, load_period
+    20	from cltester.engine import Fills, backtest
+    21	from strategies.rlm import SOURCES, Strategy, candidates, swing_events
+    22	
+    23	OUT = ROOT / "studies" / "rlm"
+    24	SPLIT = pd.Timestamp("2016-01-01")
+    25	LEVEL_KEYS = ["sig_tf", "reg", "sources", "weight", "tol"]
+    26	_G: dict = {}
+    27	
+    28	
+    29	def years_pos(trades: pd.DataFrame, days: list) -> float:
+    30	    """Share of the period's calendar years with net > 0; a year without trades is not positive."""
+    31	    years = sorted({d.year for d in days})
+    32	    if trades.empty:
+    33	        return 0.0
+    34	    by = trades.groupby(pd.to_datetime(trades["trading_day"]).dt.year)["net"].sum()
+    35	    return round(sum(by.get(y, 0.0) > 0 for y in years) / len(years), 3)
+    36	
+    37	
+    38	def evaluate(trades: pd.DataFrame, days: list) -> dict:
+    39	    st = metrics.summary(trades, days)
+    40	    cb = topstep.summary(topstep.rolling(trades, days), topstep.sequential(trades, days), days)
+    41	    td = pd.to_datetime(trades["trading_day"]) if len(trades) else pd.Series(dtype="datetime64[ns]")
+    42	    net = trades["net"] if len(trades) else pd.Series(dtype=float)
+    43	    return {"trades": st.get("trades", 0), "net": st.get("net", 0.0), "pf": st.get("profit_factor"),
+    44	            "win": st.get("win_rate"), "avg": st.get("avg_trade"), "maxdd": st.get("max_drawdown"),
+    45	            "years_pos_all": years_pos(trades, days), "pass_rate": cb["pass_rate"], "seq_passes": cb["seq_passes"],
+    46	            "seq_fails": cb["seq_fails"], "cost_per_pass": cb["seq_cost_per_pass_usd"],
+    47	            "net_h1": float(net[td < SPLIT].sum()), "net_h2": float(net[td >= SPLIT].sum()),
+    48	            "longs": int((trades["side"] == 1).sum()) if len(trades) else 0}
+    49	
+    50	
+    51	def run_unit(unit: dict) -> str:
+    52	    df, bars, days, fills, tag = _G["df"], _G["bars"], _G["days"], _G["fills"], _G["tag"]
+    53	    name = "_".join(str(unit[k]) for k in LEVEL_KEYS)
+    54	    path = OUT / "grid_parts" / f"{tag}{name}.csv"
+    55	    if path.exists():
+    56	        return f"skip {name}"
+    57	    candidates(df, unit["sig_tf"], unit["reg"], unit["sources"], unit["weight"], float(unit["tol"]))
+    58	    g = {k: v for k, v in Strategy.GRID.items() if k not in LEVEL_KEYS}
+    59	    rows = []
+    60	    for vals in itertools.product(*g.values()):
+    61	        p = {**unit, **dict(zip(g, vals, strict=True))}
+    62	        s = Strategy()
+    63	        trades = backtest(bars, s.signals(df, p), fills, s.manage)
+    64	        rows.append({**p, **evaluate(trades, days)})
+    65	    tmp = path.with_suffix(".tmp")
+    66	    pd.DataFrame(rows).to_csv(tmp, index=False)
+    67	    tmp.rename(path)
+    68	    return f"done {name}"
+    69	
+    70	
+    71	def main() -> None:
+    72	    ap = argparse.ArgumentParser()
+    73	    ap.add_argument("--through", type=int, default=0)
+    74	    ap.add_argument("--workers", type=int, default=min(5, os.cpu_count() or 1))
+    75	    ap.add_argument("--only", nargs="*", help="unit filters key=value (e.g. sig_tf=1h)")
+    76	    ap.add_argument("--merge", action="store_true")
+    77	    a = ap.parse_args()
+    78	    tag = f"through{a.through}_" if a.through else ""
+    79	    (OUT / "grid_parts").mkdir(exist_ok=True)
+    80	    if a.merge:
+    81	        parts = sorted((OUT / "grid_parts").glob(f"{tag}*.csv"))
+    82	        if not a.through:
+    83	            parts = [q for q in parts if not q.name.startswith("through")]
+    84	        g = pd.concat([pd.read_csv(q) for q in parts], ignore_index=True)
+    85	        g.to_csv(OUT / f"grid_dev{'_' + tag.rstrip('_') if tag else ''}.csv", index=False)
+    86	        print("merged", len(parts), "units", len(g), "rows")
+    87	        return
+    88	    df = load_period("dev")
+    89	    for reg in ("lock", "confirm"):
+    90	        for tf in SOURCES:
+    91	            swing_events(df, tf, reg)  # once in the parent; forked workers inherit the cache
+    92	    _G.update(df=df, bars=Bars.from_frame(df), days=topstep.trading_days(df), fills=Fills(through=a.through), tag=tag)
+    93	    units = [dict(zip(LEVEL_KEYS, v, strict=True)) for v in itertools.product(*(Strategy.GRID[k] for k in LEVEL_KEYS))]
+    94	    for f in a.only or []:
+    95	        k, v = f.split("=")
+    96	        units = [u for u in units if str(u[k]) == v]
+    97	    order = {"5m": 0, "15m": 1, "1h": 2}
+    98	    units.sort(key=lambda u: order[u["sig_tf"]])  # longest first
+    99	    print(f"{len(units)} level units, through={a.through}, workers={a.workers}", flush=True)
+   100	    with get_context("fork").Pool(a.workers, maxtasksperchild=1) as pool:
+   101	        for msg in pool.imap_unordered(run_unit, units):
+   102	            print(msg, flush=True)
+   103	
+   104	
+   105	if __name__ == "__main__":
+   106	    main()
+     1	// Reaction Level Matrix [WillyAlgoTrader] v1.0.0 — LOGIC EXCERPT (owner paste 2026-11-19).
+     2	// Visuals, dashboard, alerts, colors and input tooltips removed; trading logic copied verbatim.
+     3	
+     4	STRUCT_ATR_LEN     = 34
+     5	MIN_HALF_WIDTH_ATR = 0.15
+     6	REACTION_CAP       = 2.5
+     7	SCORE_SCALE        = 6.0
+     8	POLARITY_BONUS     = 1.25
+     9	CROSS_PENALTY      = 0.7
+    10	MIN_STRENGTH       = 0.25
+    11	MAX_LEVELS         = 60
+    12	MERGE_PASSES       = 5
+    13	WICK_BUFFER_ATR   = 0.25
+    14	WICK_MIN_ATR      = 0.5
+    15	
+    16	swingLenInput      = 6      // ta.pivothigh/pivotlow left=right=6
+    17	levelTolInput      = 0.6    // ×ATR34
+    18	minTouchesInput    = 2
+    19	halfLifeInput      = 500    // bars
+    20	levelsPerSideInput = 3
+    21	minScoreInput      = 50
+    22	rejectClvInput     = 0.6
+    23	cooldownInput      = 10     // bars per level
+    24	riskPreset "Balanced" => SL 1.5×ATR (ATR mode), TP 1R/2R/3R
+    25	slModeInput        = "Wick-Anchored"
+    26	atrLenRiskInput    = 14
+    27	beInput            = true, beOffset 0
+    28	
+    29	type Level: lo, hi, mid, sumW, sumWP, sumWP2, strength, touches, highTouches, lowTouches, firstTime, firstBar,
+    30	            activeTime, lastTouchBar, crosses, side (+1 price above = support, -1 below = resistance), sideBar,
+    31	            lastSignalBar, shown
+    32	
+    33	levelScore(lv) = 100 * (1 - exp(-(strength * (polar ? 1.25 : 1)) / 6))     // polar = touched by highs AND lows
+    34	
+    35	refitBand: mid = Σw·p/Σw ; hw = clamp(weighted std, 0.15·ATR, tol·ATR) ; lo/hi = mid ∓ hw
+    36	addTouch: sums += w, strength += w, touches += 1, high/lowTouches, lastTouchBar; activeTime when touches >= 2; refit
+    37	newLevel(price, w, ...): side = close > price ? 1 : -1 ; sideBar = bar_index ; addTouch
+    38	
+    39	registerSwing(lvls, price, w, isHigh, pBar, pTime, a):
+    40	    join the level with the nearest mid within tol·ATR (|mid - price| <= tol·ATR), else push newLevel
+    41	    after a join: up to 5 passes, merge every other level whose [lo,hi] overlaps the joined level's [lo,hi]
+    42	        (sums/strength/touches add; crosses = max; lastSignalBar = max)
+    43	    while size > 60: remove the weakest-strength level
+    44	
+    45	ageAndCross(lvls, decay) once per confirmed bar, BEFORE registering this bar's new swings:
+    46	    strength *= decay (decay = 0.5^(1/500))
+    47	    newSide = close > hi ? 1 : close < lo ? -1 : side
+    48	    if newSide != side:
+    49	        if touches >= 2: crosses += 1 ; strength *= 0.7 ; (count break of shown levels for trend display)
+    50	        side = newSide ; sideBar = bar_index
+    51	    remove if strength < 0.25
+    52	
+    53	selectNearest(lvls, sideWanted, 3): the 3 levels with touches >= 2 and side == sideWanted nearest to close (|close-mid|)
+    54	
+    55	Per bar (confirmed only):
+    56	    structAtr = ATR(34) ; swHigh = pivothigh(high,6,6) ; swLow = pivotlow(low,6,6)
+    57	    wHigh = 1 + min((swHigh - lowest(low,6)) / ATR34[6], 2.5)      // reaction during the 6 confirmation bars
+    58	    wLow  = 1 + min((highest(high,6) - swLow) / ATR34[6], 2.5)
+    59	    ageAndCross ; registerSwing(high) ; registerSwing(low)
+    60	    selRes = selectNearest(-1, 3) ; selSup = selectNearest(+1, 3)
+    61	
+    62	checkBuyRejection(sup): clv = (close-low)/(high-low) (0.5 if range 0); for each shown support, nearest first:
+    63	    approached = side == 1 and sideBar < bar_index
+    64	    touched    = low <= hi
+    65	    heldAbove  = close > hi
+    66	    strongBar  = clv >= 0.6
+    67	    scoreOk    = levelScore >= 50
+    68	    rested     = lastSignalBar na or bar_index - lastSignalBar >= 10
+    69	    all true -> fire, lastSignalBar = bar_index, break
+    70	checkSellRejection: mirror (high >= lo, close < lo, (high-close)/range >= 0.6)
+    71	long wins if both fire; signals only after warmup (bar >= max(34, 13)).
+    72	
+    73	Trade engine (one position, no pyramiding):
+    74	    entry = signal bar close (market)
+    75	    Wick SL long = min(low - 0.25·ATR14, close - 0.5·ATR14)    ; short mirror
+    76	    TP1/2/3 = entry ± 1R/2R/3R (R = |entry - SL|)
+    77	    hit checks from the bar after entry, confirmed bars, intrabar: TP touch registered even if SL touched same bar
+    78	    ("TP priority": optimistic); SL close blocked when TP1 or TP3 first touched on that bar
+    79	    BE after TP1: stop -> entry (+offset)
+    80	    close on TP3 touch or SL; opposite signal = reversal (close, count, then enter new side)
+    81	    WIN = TP1 was touched (a BE stop after TP1 is a win; P&L never computed, no fees/slippage)
+     1	"""Owner swing point rule (mandatory for every strategy that uses swings). Spec: docs/SWINGS.md.
+     2	
+     3	Each candle gives two price events, its high and its low, in the order they printed. Swing points are found on
+     4	that event stream:
+     5	  R2/R3  candidate low at candle k: low[k-1] >= low[k] and low[k+1] > low[k]  (high: mirror). Known when k+1 closes.
+     6	  R1     points alternate: low, high, low, high ...
+     7	  R4     a swing low is the lowest price between the swing highs around it (every candle counts, also the swing
+     8	         high candles' own lows when they printed inside the transition); high: mirror.
+     9	  R5     a second low with no high between replaces the first if lower or equal (equal: the later one wins),
+    10	         otherwise it is dropped; high: mirror.
+    11	Event order inside a candle: from its 1-minute bars (higher timeframes). When unknown (a 1m candle, or both
+    12	extremes in the same 1m bar), continue the order: after a swing high the low comes first, after a swing low the
+    13	high. Owner example: after a swing high, the candle holding the lowest low becomes swing low, then swing high,
+    14	when the candle after it has a higher low and a lower high.
+    15	"""
+    16	
+    17	from dataclasses import dataclass
+    18	
+    19	import numpy as np
+    20	import pandas as pd
+    21	
+    22	from .config import TICK
+    23	from .data import add_session, to_ticks
+    24	
+    25	HIGH, LOW = 1, -1
+    26	UNKNOWN = -1
+    27	SESSION_LAST_MINUTE = 1379  # 15:59 CT, minutes since the 17:00 CT open: the last minute of a CME trading day
+    28	UNDO_DEPTH = 64  # points an outside-candle trial may rewrite; a deeper cascade raises
+    29	# 1w, 1mo: trading-day groups (minutes are nominal); "1mo", never "1M", so it cannot be misread as 1m
+    30	TIMEFRAMES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440, "1w": 7200, "1mo": 30000}
+    31	
+    32	
+    33	@dataclass
+    34	class Candles:
+    35	    ts: pd.DatetimeIndex  # candle open (UTC)
+    36	    o: np.ndarray  # ticks
+    37	    h: np.ndarray
+    38	    l: np.ndarray  # noqa: E741
+    39	    c: np.ndarray
+    40	    high_first: np.ndarray  # 1 high printed first, 0 low first, -1 unknown
+    41	    avail: np.ndarray  # 1m bar index at whose close the candle is complete
+    42	    first: np.ndarray  # 1m bar index of the candle's first bar
+    43	    last: np.ndarray  # 1m bar index of the candle's last bar (avail can be later when its last minute is missing)
+    44	
+    45	    def __len__(self) -> int:
+    46	        return len(self.o)
+    47	
+    48	
+    49	def build_candles(df: pd.DataFrame, tf: str) -> Candles:
+    50	    """Candles from 1m bars. 5m-1h: clock aligned. 4h: blocks from the 17:00 CT session open. 1d: trading day.
+    51	    1w: trading days Monday-Friday. 1mo: trading days of one calendar month.
+    52	    A candle is complete at the close of its last minute (the 15:59 CT bar for the day's last 4h block and the daily
+    53	    candle); when that minute has no bar (early closes, quiet minutes), at the close of the next bar."""
+    54	    if tf not in TIMEFRAMES:
+    55	        raise ValueError(f"timeframe {tf} not in {list(TIMEFRAMES)}")
+    56	    if "sess_minute" not in df:
+    57	        df = add_session(df)
+    58	    n = len(df)
+    59	    o, h, l, c = (to_ticks(df[k]) for k in ("open", "high", "low", "close"))
+    60	    if n == 0:
+    61	        none = np.zeros(0, dtype=np.int64)
+    62	        return Candles(pd.DatetimeIndex([], tz="UTC"), none, none, none, none, none, none, none, none)
+    63	    if tf == "1m":
+    64	        idx = np.arange(n)
+    65	        return Candles(pd.DatetimeIndex(df["ts"]), o, h, l, c, np.full(n, UNKNOWN), idx, idx, idx)
+    66	    minutes = TIMEFRAMES[tf]
+    67	    sess = df["sess_minute"].to_numpy()
+    68	    day = pd.factorize(df["trading_day"])[0].astype(np.int64)
+    69	    day_close = sess == SESSION_LAST_MINUTE
+    70	    if tf == "1d":
+    71	        gid, last_minute = day, day_close
+    72	    elif tf in ("1w", "1mo"):
+    73	        tday = pd.DatetimeIndex(df["trading_day"])
+    74	        if tf == "1w":  # Monday-to-Friday trading days (Sunday evening belongs to Monday)
+    75	            gid = ((tday.as_unit("ns").asi8 // 86_400_000_000_000) + 3) // 7  # 1970-01-01 was a Thursday
+    76	        else:
+    77	            gid = (tday.year * 12 + tday.month).to_numpy()
+    78	        gid = np.asarray(gid, dtype=np.int64)
+    79	        # complete at 15:59 CT of the scheduled last day (Friday / last weekday of the month), from the bar's own
+    80	        # date only, so a live prefix agrees with full history. A holiday on that day: complete at the next bar.
+    81	        if tf == "1w":
+    82	            sched = tday.day_of_week == 4
+    83	        else:
+    84	            sched = tday == tday + pd.offsets.BMonthEnd(0)
+    85	        last_minute = day_close & np.asarray(sched)
+    86	    elif tf == "4h":
+    87	        gid, last_minute = day * 10 + sess // 240, ((sess + 1) % 240 == 0) | day_close
+    88	    else:
+    89	        epoch_min = pd.DatetimeIndex(df["ts"]).as_unit("ns").asi8 // 60_000_000_000
+    90	        gid, last_minute = epoch_min // minutes, (epoch_min + 1) % minutes == 0
+    91	    start = np.flatnonzero(np.r_[True, gid[1:] != gid[:-1]])
+    92	    end = np.r_[start[1:], n] - 1
+    93	    hi = np.maximum.reduceat(h, start)
+    94	    lo = np.minimum.reduceat(l, start)
+    95	    first_hi = np.array([s + int(np.argmax(h[s:e + 1] == v)) for s, e, v in zip(start, end, hi, strict=True)])
+    96	    first_lo = np.array([s + int(np.argmax(l[s:e + 1] == v)) for s, e, v in zip(start, end, lo, strict=True)])
+    97	    order = np.where(first_hi < first_lo, 1, np.where(first_lo < first_hi, 0, UNKNOWN))
+    98	    avail = np.where(last_minute[end], end, end + 1)
+    99	    done = avail < n  # the last candle is left out until it is complete: it may still print new prices
+   100	    return Candles(pd.DatetimeIndex(df["ts"].to_numpy()[start[done]]), o[start[done]], hi[done], lo[done],
+   101	                   c[end[done]], order[done], avail[done], start[done], end[done])
+   102	
+   103	
+   104	@dataclass
+   105	class Point:
+   106	    kind: int  # HIGH or LOW
+   107	    price: int  # ticks
+   108	    candle: int
+   109	    event: int  # position in the event stream (2 per candle)
+   110	
+   111	
+   112	def _extreme_ok(kind: int, price: int, ev_hi: np.ndarray, ev_lo: np.ndarray, a: int, b: int) -> bool:
+   113	    """price is the highest high (kind HIGH) / lowest low in events a..b inclusive."""
+   114	    if b < a:
+   115	        return True
+   116	    return bool(price >= ev_hi[a:b + 1].max()) if kind == HIGH else bool(price <= ev_lo[a:b + 1].min())
+   117	
+   118	
+   119	def _offer(stack: list[Point], q: Point, ev_hi: np.ndarray, ev_lo: np.ndarray) -> None:
+   120	    while True:
+   121	        if not stack:
+   122	            if _extreme_ok(q.kind, q.price, ev_hi, ev_lo, 0, q.event):
+   123	                stack.append(q)
+   124	            return
+   125	        t = stack[-1]
+   126	        if t.kind == q.kind:  # R5: same type with no opposite point between
+   127	            more = q.price >= t.price if q.kind == HIGH else q.price <= t.price
+   128	            if not more:
+   129	                return
+   130	            stack.pop()
+   131	            continue
+   132	        if not _extreme_ok(q.kind, q.price, ev_hi, ev_lo, t.event + 1, q.event):
+   133	            return  # R4: a more extreme price already printed since t
+   134	        prev_event = stack[-2].event + 1 if len(stack) > 1 else 0
+   135	        if _extreme_ok(t.kind, t.price, ev_hi, ev_lo, prev_event, q.event - 1):
+   136	            stack.append(q)
+   137	            return
+   138	        stack.pop()  # R4: t is not the extreme of its own transition, so it is not a swing point
+   139	
+   140	
+   141	def _process(stack: list[Point], cd: Candles, k: int, high_first: int, is_low: bool, is_high: bool,
+   142	             ev_hi: np.ndarray, ev_lo: np.ndarray) -> None:
+   143	    """Offer candle k's two events in the given order."""
+   144	    first, second = (HIGH, LOW) if high_first == 1 else (LOW, HIGH)
+   145	    for slot, kind in enumerate((first, second)):
+   146	        e = 2 * k + slot
+   147	        ev_hi[e], ev_lo[e] = (cd.h[k], np.inf) if kind == HIGH else (-np.inf, cd.l[k])
+   148	        if kind == LOW and is_low:
+   149	            _offer(stack, Point(LOW, int(cd.l[k]), k, e), ev_hi, ev_lo)
+   150	        elif kind == HIGH and is_high:
+   151	            _offer(stack, Point(HIGH, int(cd.h[k]), k, e), ev_hi, ev_lo)
+   152	
+   153	
+   154	def _record(stack: list[Point], state: dict[str, np.ndarray], k: int) -> None:
+   155	    """State after candle k: the newest and the previous swing high and swing low in the structure
+   156	    (points alternate, so they are the top four of the stack)."""
+   157	    state["newest"][k] = stack[-1].kind if stack else 0
+   158	    seen = {HIGH: 0, LOW: 0}
+   159	    for p in stack[-1:-5:-1]:
+   160	        key = ("sh" if p.kind == HIGH else "sl") + ("" if seen[p.kind] == 0 else "2")
+   161	        seen[p.kind] += 1
+   162	        state[f"{key}_price"][k], state[f"{key}_candle"][k] = p.price, p.candle
+   163	
+   164	
+   165	def detect(cd: Candles) -> tuple[list[Point], dict[str, np.ndarray]]:
+   166	    """Run the rule over all candles. Returns the final swing points and the state as known after each candle's
+   167	    processing (candle k is processed when candle k+1 closes): last swing high / low price (ticks) and candle
+   168	    (sh, sl) and the ones before them (sh2, sl2), or -1 when none; newest: kind of the newest point (0 when none)."""
+   169	    n = len(cd)
+   170	    ev_hi = np.full(2 * n, -np.inf)  # high of a high event; -inf on low events
+   171	    ev_lo = np.full(2 * n, np.inf)
+   172	    stack: list[Point] = []
+   173	    state = {f"{key}_{f}": np.full(n, -1, dtype=np.int64) for key in ("sh", "sl", "sh2", "sl2")
+   174	             for f in ("price", "candle")}
+   175	    state["newest"] = np.zeros(n, dtype=np.int64)
+   176	    for k in range(n):
+   177	        is_low = 0 < k < n - 1 and cd.l[k - 1] >= cd.l[k] and cd.l[k + 1] > cd.l[k]
+   178	        is_high = 0 < k < n - 1 and cd.h[k - 1] <= cd.h[k] and cd.h[k + 1] < cd.h[k]
+   179	        high_first = int(cd.high_first[k])
+   180	        if high_first == UNKNOWN:
+   181	            high_first = 1 if stack and stack[-1].kind == LOW else 0  # continue the order
+   182	            if is_low and is_high and stack:
+   183	                cut = max(len(stack) - UNDO_DEPTH, 0)
+   184	                saved, last = stack[cut:], stack[-1]
+   185	                _process(stack, cd, k, high_first, is_low, is_high, ev_hi, ev_lo)
+   186	                if len(stack) < cut:
+   187	                    raise RuntimeError(f"swing cascade deeper than {UNDO_DEPTH} points at candle {k}")
+   188	                if all(p is not last for p in stack[cut:]):  # that order breaks rule 4 for the last point
+   189	                    del stack[cut:]
+   190	                    stack.extend(saved)
+   191	                    high_first = 1 - high_first
+   192	                else:
+   193	                    _record(stack, state, k)
+   194	                    continue
+   195	        _process(stack, cd, k, high_first, is_low, is_high, ev_hi, ev_lo)
+   196	        _record(stack, state, k)
+   197	    return stack, state
+   198	
+   199	
+   200	def swing_points(df: pd.DataFrame, tf: str = "1m") -> pd.DataFrame:
+   201	    """Final swing points over the whole frame (for charts and studies, NOT for signals: later candles can
+   202	    replace a point). Columns: kind (SH/SL), price, ts (candle open), known_at (1m bar index)."""
+   203	    cd = build_candles(df, tf)
+   204	    pts, _ = detect(cd)
+   205	    return pd.DataFrame({
+   206	        "kind": ["SH" if p.kind == HIGH else "SL" for p in pts],
+   207	        "price": [round(p.price * TICK, 2) for p in pts],
+   208	        "ts": [cd.ts[p.candle] for p in pts],
+   209	        "known_at": [int(cd.avail[p.candle + 1]) for p in pts],
+   210	    })
+   211	
+   212	
+   213	def swing_state(df: pd.DataFrame, tf: str = "1m", prev: bool = False, newest: bool = False) -> pd.DataFrame:
+   214	    """Point-in-time swing state for every 1m bar of df: the last swing high and swing low as they were known at
+   215	    that bar's close. Safe for signals. NaN until a swing exists, and NaN again when rule 4 removes it. The newest
+   216	    point can still be replaced (rule 5). prev=True adds the swing high and low before them ({tf}_sh2, {tf}_sl2).
+   217	    newest=True adds {tf}_newest: 1 when the newest point is the swing high, -1 the swing low, 0 none. It settles
+   218	    which came last when one candle is both (same _ts)."""
+   219	    cols = ("sh", "sl", "sh2", "sl2") if prev else ("sh", "sl")
+   220	    cd = build_candles(df, tf)
+   221	    n = len(df)
+   222	    out = pd.DataFrame(index=df.index)
+   223	    if len(cd) == 0:  # warm-up: no candle is complete yet
+   224	        for col in cols:
+   225	            out[f"{tf}_{col}"] = np.nan
+   226	            out[f"{tf}_{col}_ts"] = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns, UTC]")
+   227	        if newest:
+   228	            out[f"{tf}_newest"] = 0
+   229	        return out
+   230	    _, st = detect(cd)
+   231	    when = np.full(len(cd), n, dtype=np.int64)  # candle k is processed when candle k+1 is complete
+   232	    when[:-1] = cd.avail[1:]
+   233	    updated = np.flatnonzero(when < n)
+   234	    src = np.full(n, -1, dtype=np.int64)
+   235	    src[when[updated]] = updated  # several candles on one bar: the last one wins
+   236	    src = np.maximum.accumulate(src)  # each bar shows the newest full snapshot, never a mix of old and new
+   237	    known = src >= 0
+   238	    for col in cols:
+   239	        candle = np.where(known, st[f"{col}_candle"][np.maximum(src, 0)], -1)
+   240	        ok = candle >= 0
+   241	        price = np.where(ok, st[f"{col}_price"][np.maximum(src, 0)] * TICK, np.nan)
+   242	        out[f"{tf}_{col}"] = np.round(price, 2)
+   243	        ts = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns, UTC]")
+   244	        ts.iloc[np.flatnonzero(ok)] = cd.ts[candle[ok]]
+   245	        out[f"{tf}_{col}_ts"] = ts
+   246	    if newest:
+   247	        out[f"{tf}_newest"] = np.where(known, st["newest"][np.maximum(src, 0)], 0)
+   248	    return out
+
+exec
+/bin/bash -lc "rg -n 'expire|kill|manage|roll|ct_minute|signal|ctx|trading_day' cltester/engine.py
+cat cltester/indicators.py
+nl -ba cltester/engine.py | sed -n '1,360p'
+rg --files studies/rlm
+cat PROTOCOL.md" in /home/mrullldhm/personal/tradingview-tester
+ exited 1 in 0ms:
+3:A strategy returns signals: one row per bar i where, after bar i closes, it places a limit entry order.
+5:expire (bars the order stays working, default 30) or expire_min (minutes of clock time after the signal bar's
+6:close; replaces expire, so missing minutes cannot stretch the order), hold (max bars in the trade, optional),
+7:qty (default 1), kill (optional: a price beyond the limit on the winning side, e.g. the target; a touch cancels
+11:Optional trade management: `manage(ctx)` is called on every held bar m after the fill bar, before that bar's
+16:`manage` sees those side-space prices too: for a short, ctx.E, ctx.S, ctx.best are negated ticks, and the stop it
+17:returns must be negated ticks as well (helpers: ctx.side, ctx.to_side(price_ticks)).
+43:    """What `manage` may look at on held bar m. Prices are integer ticks in side space (negated for shorts)."""
+45:    i: int  # signal bar
+60:TRADE_COLUMNS = ["signal_bar", "entry_bar", "exit_bar", "entry_ts", "exit_ts", "trading_day", "side", "qty",
+69:def _prepare(signals: pd.DataFrame, n: int) -> pd.DataFrame:
+70:    s = signals.copy()
+71:    for col, default in (("target", np.nan), ("expire", 30), ("expire_min", np.nan), ("hold", np.nan), ("qty", 1),
+72:                         ("part_qty", 0), ("part_target", np.nan), ("void", np.nan), ("kill", np.nan)):
+77:        raise ValueError(f"signals miss columns {sorted(missing)}")
+79:        raise ValueError("signal index must be unique bar positions inside the bars")
+84:    if not np.isfinite(s[["qty", "expire", "part_qty"]].to_numpy(float)).all():
+85:        raise ValueError("qty, expire and part_qty must be finite")
+86:    if (s["qty"] < 1).any() or (s["expire"] < 1).any() or (s["hold"] < 0).any() or (s["expire_min"] < 1).any():
+87:        raise ValueError("qty, expire and expire_min must be >= 1, hold >= 0")
+102:def _check_stop(stop, signal_bar: int) -> int:
+103:    """manage() must return a finite whole number of ticks (side space: use ctx.to_side for shorts)."""
+105:        raise ValueError(f"signal at bar {signal_bar}: manage returned stop {stop}; need whole side-space ticks")
+115:def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
+116:             manage: Callable[[Ctx], tuple[int, bool]] | None = None, overlap: bool = False,
+118:    """overlap=False: one order or position at a time. overlap=True: a new signal cancels an unfilled order but
+119:    open positions keep running, up to max_contracts open at once (a signal that would exceed it is ignored)."""
+121:    sig = _prepare(signals, n)
+128:    kill, kill_t = _ticks_or_zero(sig["kill"])
+131:    expires, holds = sig["expire"].to_numpy(np.int64), sig["hold"].to_numpy(float)
+132:    expire_min = sig["expire_min"].to_numpy(float)
+142:        cancel_at = n  # overlap: the next accepted signal's bar; this order works through it at most
+159:            raise ValueError(f"signal at bar {i}: void must be at or beyond the limit on the losing side")
+160:        K = None if np.isnan(kill[r]) else side * kill_t[r]
+162:            raise ValueError(f"signal at bar {i}: kill must be beyond the limit on the winning side")
+164:            raise ValueError(f"signal at bar {i}: stop must be on the losing side and targets on the winning side")
+167:        # --- working entry order: bars i+1 .. i+expire ---
+169:        timed = not np.isnan(expire_min[r])
+170:        deadline = minute[i] + 1 + int(expire_min[r]) if timed else 0  # first minute the order no longer works
+171:        for j in range(i + 1, n if timed else min(n, i + 1 + int(expires[r]))):
+184:                    if K is not None and o[j] > F and h[j] >= K:  # fill level and kill in one bar: order unknown
+194:            if K is not None and h[j] >= K:  # kill touched before any fill: cancelled
+199:            if voided >= 0:  # the order worked into bar j until the void or kill cancelled it: free from j's close
+214:        ctx = Ctx(i=int(i), j=j, m=j, side=side, E=int(E), S=int(S), T=None if T is None else int(T),
+215:                  qty=rem, best=int(best)) if manage is not None else None
+223:                if manage is not None and ctx is not None:
+224:                    ctx.m, ctx.S, ctx.qty, ctx.best = m, int(S), rem, int(best)
+225:                    new_s, close_now = manage(ctx)
+232:                    X, reason = o[m], "manage"
+271:                X, reason = c[m], "roll"
+282:        rows.append((i, entry_bar, exit_bar, bars.ts[entry_bar], bars.ts[exit_bar], bars.trading_day[entry_bar], side,
+"""Vectorised indicators and higher-timeframe candles for strategy signals.
+
+Higher timeframes come from cltester.swings.build_candles (same candles as the swing rule: clock aligned 5m-1h,
+4h blocks from 17:00 CT, CME trading day). A candle is usable only from the 1m bar at whose close it is complete
+(`avail`), so `on_1m` never shows an unfinished candle.
+
+Formulas follow TradingView where the name says so (RMA = Wilder smoothing); `rsi_sma` / `atr_sma` are the simple
+moving average variants some MT5 code uses.
+"""
+
+import numpy as np
+import pandas as pd
+
+from .config import TICK
+from .data import add_session
+from .swings import build_candles
+
+
+def tf_candles(df: pd.DataFrame, tf: str) -> pd.DataFrame:
+    """Completed candles of timeframe tf: open, high, low, close ($), avail (1m bar index where complete: use it
+    for timing only), first / last (1m bar indexes inside the candle) and day (CME trading day of the candle's own
+    bars; avail can fall in the next session when the candle's last minute is missing)."""
+    if "trading_day" not in df:
+        df = add_session(df)
+    cd = build_candles(df, tf)
+    day = df["trading_day"].to_numpy()[cd.first] if len(cd) else df["trading_day"].to_numpy()[:0]
+    return pd.DataFrame({"ts": cd.ts, "open": cd.o * TICK, "high": cd.h * TICK, "low": cd.l * TICK,
+                         "close": cd.c * TICK, "avail": cd.avail, "first": cd.first, "last": cd.last, "day": day})
+
+
+def in_session(df: pd.DataFrame, cd: pd.DataFrame) -> np.ndarray:
+    """Bool per candle: complete inside its own trading day. False when its last minute is missing and it only
+    completes on the next session's first bar: a signal then would trade a stale candle in a new session."""
+    av = cd["avail"].to_numpy()
+    ok = av < len(df)
+    out = np.zeros(len(cd), dtype=bool)
+    out[ok] = df["trading_day"].to_numpy()[av[ok]] == cd["day"].to_numpy()[ok]
+    return out
+
+
+def on_1m(values, avail: np.ndarray, n: int) -> np.ndarray:
+    """Per 1m bar, the value of the newest candle complete at that bar's close (NaN before the first)."""
+    v = np.asarray(values, dtype=float)
+    if len(v) == 0:  # warm-up: no candle complete yet
+        return np.full(n, np.nan)
+    src = np.full(n, -1, dtype=np.int64)
+    ok = avail < n
+    src[avail[ok]] = np.flatnonzero(ok)  # several candles on one bar: the last one wins
+    src = np.maximum.accumulate(src)
+    out = np.where(src >= 0, v[np.maximum(src, 0)], np.nan)
+    return out
+
+
+def new_candle(avail: np.ndarray, n: int) -> np.ndarray:
+    """Bool per 1m bar: a candle of this timeframe completed at this bar's close."""
+    m = np.zeros(n, dtype=bool)
+    m[avail[avail < n]] = True
+    return m
+
+
+def tf_minutes(tf: str) -> int:
+    from .swings import TIMEFRAMES
+    return TIMEFRAMES[tf]
+
+
+def close_ticks(df: pd.DataFrame) -> np.ndarray:
+    """1m closes as integer ticks (for trade management, which works in ticks)."""
+    return np.round(df["close"].to_numpy() / TICK).astype(np.int64)
+
+
+def _s(x) -> pd.Series:
+    return x if isinstance(x, pd.Series) else pd.Series(np.asarray(x, dtype=float))
+
+
+def sma(x, n: int) -> pd.Series:
+    return _s(x).rolling(n).mean()
+
+
+def ema(x, n: int) -> pd.Series:
+    return _s(x).ewm(span=n, adjust=False).mean()
+
+
+def rma(x, n: int) -> pd.Series:
+    """Wilder smoothing (TradingView ta.rma): seeded with the SMA of the first n values."""
+    series = _s(x)
+    s = series.to_numpy(float)
+    out = np.full(len(s), np.nan)
+    ok = np.flatnonzero(~np.isnan(s))
+    if len(ok) < n:
+        return pd.Series(out, index=series.index)
+    start = ok[0] + n - 1
+    out[start] = np.mean(s[ok[0]:start + 1])
+    a = 1.0 / n
+    for k in range(start + 1, len(s)):
+        out[k] = out[k - 1] + a * (s[k] - out[k - 1])
+    return pd.Series(out, index=series.index)
+
+
+def wma(x, n: int) -> pd.Series:
+    series = _s(x)
+    w = np.arange(1, n + 1, dtype=float)
+    v = series.to_numpy(float)
+    out = np.full(len(v), np.nan)
+    if len(v) >= n:
+        out[n - 1:] = np.lib.stride_tricks.sliding_window_view(v, n) @ w / w.sum()
+    return pd.Series(out, index=series.index)
+
+
+def true_range(h, l, c) -> pd.Series:
+    h, l, c = _s(h), _s(l), _s(c)
+    pc = c.shift()
+    return pd.concat([h - l, (h - pc).abs(), (l - pc).abs()], axis=1).max(axis=1)
+
+
+def atr_sma(h, l, c, n: int) -> pd.Series:
+    return true_range(h, l, c).rolling(n).mean()
+
+
+def atr_rma(h, l, c, n: int) -> pd.Series:
+    tr = true_range(h, l, c)
+    if len(tr):
+        tr.iloc[0] = (_s(h) - _s(l)).iloc[0]
+    return rma(tr, n)
+
+
+def rsi_sma(c, n: int) -> pd.Series:
+    d = _s(c).diff()
+    up, dn = d.clip(lower=0).rolling(n).mean(), (-d.clip(upper=0)).rolling(n).mean()
+    return 100 - 100 / (1 + up / dn)
+
+
+def rsi_wilder(c, n: int) -> pd.Series:
+    """TradingView ta.rsi."""
+    d = _s(c).diff()
+    up, dn = rma(d.clip(lower=0), n), rma(-d.clip(upper=0), n)
+    rs = up / dn
+    return pd.Series(np.where(dn == 0, 100.0, np.where(up == 0, 0.0, 100 - 100 / (1 + rs))), index=rs.index)
+
+
+def supertrend(h, l, c, n: int, mult: float) -> tuple[np.ndarray, np.ndarray]:
+    """TradingView ta.supertrend (Pine v5 reference code). Returns (direction +1 up / -1 down, line). ATR = RMA.
+    Pine's own direction is the opposite sign (-1 = up)."""
+    h, l, c = (_s(x).to_numpy(float) for x in (h, l, c))
+    atr = atr_rma(h, l, c, n).to_numpy()
+    hl2 = (h + l) / 2
+    k = len(c)
+    lower, upper, dirn, line = (np.full(k, np.nan) for _ in range(4))
+    for t in range(k):
+        if np.isnan(atr[t]):
+            continue
+        lo, up = hl2[t] - mult * atr[t], hl2[t] + mult * atr[t]
+        first = t == 0 or np.isnan(atr[t - 1])
+        if not first:
+            lo = lo if (lo > lower[t - 1] or c[t - 1] < lower[t - 1]) else lower[t - 1]
+            up = up if (up < upper[t - 1] or c[t - 1] > upper[t - 1]) else upper[t - 1]
+        lower[t], upper[t] = lo, up
+        if first:
+            dirn[t] = -1  # Pine starts in a downtrend
+        elif dirn[t - 1] == -1:  # previous line was the upper band
+            dirn[t] = 1 if c[t] > up else -1
+        else:
+            dirn[t] = -1 if c[t] < lo else 1
+        line[t] = lo if dirn[t] == 1 else up
+    return dirn, line
+
+
+def vortex(h, l, c, n: int = 14) -> tuple[pd.Series, pd.Series]:
+    """Vortex indicator (VI+, VI-), TradingView default length 14."""
+    h, l = _s(h), _s(l)
+    vmp, vmm = (h - l.shift()).abs(), (l - h.shift()).abs()
+    tr = true_range(h, l, c).rolling(n).sum()
+    return vmp.rolling(n).sum() / tr, vmm.rolling(n).sum() / tr
+
+
+def session_vwap(df: pd.DataFrame) -> np.ndarray:
+    """VWAP of the CME trading day so far, per 1m bar, from typical price (h+l+c)/3."""
+    tp = (df["high"] + df["low"] + df["close"]).to_numpy(float) / 3
+    v = df["volume"].to_numpy(float)
+    g = pd.factorize(df["trading_day"])[0]
+    pv = pd.Series(tp * v).groupby(g).cumsum().to_numpy()
+    cv = pd.Series(v).groupby(g).cumsum().to_numpy()
+    return np.where(cv > 0, pv / np.maximum(cv, 1e-12), tp)
+     1	"""Bar-by-bar backtest of limit-entry bracket orders on CL 1-minute bars. Rules: docs/ENGINE.md.
+     2	
+     3	A strategy returns signals: one row per bar i where, after bar i closes, it places a limit entry order.
+     4	Columns: side (+1 long / -1 short), limit, stop (required), target (optional, NaN = none),
+     5	expire (bars the order stays working, default 30) or expire_min (minutes of clock time after the signal bar's
+     6	close; replaces expire, so missing minutes cannot stretch the order), hold (max bars in the trade, optional),
+     7	qty (default 1), kill (optional: a price beyond the limit on the winning side, e.g. the target; a touch cancels
+     8	the unfilled order, see docs/ENGINE.md),
+     9	part_qty / part_target (optional partial exit: part_qty contracts leave at part_target, the rest runs on).
+    10	
+    11	Optional trade management: `manage(ctx)` is called on every held bar m after the fill bar, before that bar's
+    12	exits are checked, with data up to bar m-1 only. It returns (stop, close_now): the stop for bar m (any price, in
+    13	the trade's own side space, see below) and whether to close the whole position at bar m's open.
+    14	
+    15	Short trades run through the same code with prices negated, so every rule is written once, for longs.
+    16	`manage` sees those side-space prices too: for a short, ctx.E, ctx.S, ctx.best are negated ticks, and the stop it
+    17	returns must be negated ticks as well (helpers: ctx.side, ctx.to_side(price_ticks)).
+    18	"""
+    19	
+    20	from collections.abc import Callable
+    21	from dataclasses import dataclass, field
+    22	
+    23	import numpy as np
+    24	import pandas as pd
+    25	
+    26	from .config import COMBINE_50K, FEE_ROUND_TURN, TICK, TICK_VALUE
+    27	from .data import Bars, session_minute, to_ticks
+    28	
+    29	
+    30	@dataclass(frozen=True)
+    31	class Fills:
+    32	    fee: float = FEE_ROUND_TURN  # $ per contract round turn
+    33	    flatten: int = session_minute(COMBINE_50K.flatten)  # session minute: no orders or positions from here
+    34	    through: int = 0  # 0: a touch fills (owner rule). N: the bar must trade N ticks beyond the limit (sensitivity)
+    35	
+    36	    def __post_init__(self) -> None:
+    37	        if not isinstance(self.through, int) or isinstance(self.through, bool) or self.through < 0:
+    38	            raise ValueError(f"through must be a whole number of ticks >= 0, got {self.through!r}")
+    39	
+    40	
+    41	@dataclass
+    42	class Ctx:
+    43	    """What `manage` may look at on held bar m. Prices are integer ticks in side space (negated for shorts)."""
+    44	
+    45	    i: int  # signal bar
+    46	    j: int  # fill bar
+    47	    m: int  # bar about to be checked (data up to m-1 may be used)
+    48	    side: int
+    49	    E: int  # entry
+    50	    S: int  # current stop
+    51	    T: int | None  # target
+    52	    qty: int  # contracts still open
+    53	    best: int  # highest side-space high from the fill bar through bar m-1 (the fill bar's high may predate the fill)
+    54	    state: dict = field(default_factory=dict)  # free per-trade memory for the strategy
+    55	
+    56	    def to_side(self, ticks: int) -> int:
+    57	        return self.side * ticks
+    58	
+    59	
+    60	TRADE_COLUMNS = ["signal_bar", "entry_bar", "exit_bar", "entry_ts", "exit_ts", "trading_day", "side", "qty",
+    61	                 "entry", "exit", "reason", "ticks", "part_exit", "part_bar", "part_qty", "gross", "fee", "net", "mae",
+    62	                 "mfe", "path"]
+    63	# ticks: exit - entry of the final leg per contract (side-adjusted). part_exit: price of the partial exit or NaN;
+    64	# part_bar / part_qty: its bar and contracts (-1 / 0 without a partial).
+    65	# path: (open P&L per held bar, worst P&L per held bar) in $ incl. fee; first entry = the fill bar.
+    66	# The Combine simulator walks it so a gap through a loss limit executes at the open, not at the limit.
+    67	
+    68	
+    69	def _prepare(signals: pd.DataFrame, n: int) -> pd.DataFrame:
+    70	    s = signals.copy()
+    71	    for col, default in (("target", np.nan), ("expire", 30), ("expire_min", np.nan), ("hold", np.nan), ("qty", 1),
+    72	                         ("part_qty", 0), ("part_target", np.nan), ("void", np.nan), ("kill", np.nan)):
+    73	        if col not in s:
+    74	            s[col] = default
+    75	    missing = {"side", "limit", "stop"} - set(s.columns)
+    76	    if missing:
+    77	        raise ValueError(f"signals miss columns {sorted(missing)}")
+    78	    if not s.index.is_unique or s.index.min() < 0 or s.index.max() >= n:
+    79	        raise ValueError("signal index must be unique bar positions inside the bars")
+    80	    if not s["side"].isin([1, -1]).all():
+    81	        raise ValueError("side must be +1 or -1")
+    82	    if not np.isfinite(s[["limit", "stop"]].to_numpy(float)).all():
+    83	        raise ValueError("limit and stop must be finite prices")
+    84	    if not np.isfinite(s[["qty", "expire", "part_qty"]].to_numpy(float)).all():
+    85	        raise ValueError("qty, expire and part_qty must be finite")
+    86	    if (s["qty"] < 1).any() or (s["expire"] < 1).any() or (s["hold"] < 0).any() or (s["expire_min"] < 1).any():
+    87	        raise ValueError("qty, expire and expire_min must be >= 1, hold >= 0")
+    88	    pq, q = s["part_qty"].to_numpy(np.int64), s["qty"].to_numpy(np.int64)
+    89	    if (pq < 0).any() or ((pq > 0) & (pq >= q)).any():
+    90	        raise ValueError("part_qty must be 0 or below qty")
+    91	    if ((pq > 0) & ~np.isfinite(s["part_target"].to_numpy(float))).any():
+    92	        raise ValueError("part_qty needs a finite part_target")
+    93	    return s.sort_index()
+    94	
+    95	
+    96	def _ticks_or_zero(prices: pd.Series) -> tuple[np.ndarray, np.ndarray]:
+    97	    """Prices as float and as integer ticks; NaN (no order) becomes 0 ticks."""
+    98	    v = prices.to_numpy(float)
+    99	    return v, np.where(np.isnan(v), 0, np.round(np.nan_to_num(v) / TICK)).astype(np.int64)
+   100	
+   101	
+   102	def _check_stop(stop, signal_bar: int) -> int:
+   103	    """manage() must return a finite whole number of ticks (side space: use ctx.to_side for shorts)."""
+   104	    if not np.isfinite(stop) or stop != int(stop):
+   105	        raise ValueError(f"signal at bar {signal_bar}: manage returned stop {stop}; need whole side-space ticks")
+   106	    return int(stop)
+   107	
+   108	
+   109	def _open_qty(held: list[tuple[int, int, int, int, int]], bar: int) -> int:
+   110	    """Contracts still open at the close of `bar` (held: entry bar, exit bar, contracts, partial bar, partial
+   111	    contracts; partial bar -1 when none)."""
+   112	    return sum(q - (pq if 0 <= pb <= bar else 0) for e, x, q, pb, pq in held if e <= bar < x)
+   113	
+   114	
+   115	def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
+   116	             manage: Callable[[Ctx], tuple[int, bool]] | None = None, overlap: bool = False,
+   117	             max_contracts: int = COMBINE_50K.max_contracts) -> pd.DataFrame:
+   118	    """overlap=False: one order or position at a time. overlap=True: a new signal cancels an unfilled order but
+   119	    open positions keep running, up to max_contracts open at once (a signal that would exceed it is ignored)."""
+   120	    n = len(bars)
+   121	    sig = _prepare(signals, n)
+   122	    flat = fills.flatten
+   123	    views = {1: (bars.o, bars.h, bars.l, bars.c), -1: (-bars.o, -bars.l, -bars.h, -bars.c)}
+   124	    lim, stp = to_ticks(sig["limit"]), to_ticks(sig["stop"])
+   125	    tgt, tgt_t = _ticks_or_zero(sig["target"])
+   126	    _, ptg_t = _ticks_or_zero(sig["part_target"])
+   127	    void, void_t = _ticks_or_zero(sig["void"])
+   128	    kill, kill_t = _ticks_or_zero(sig["kill"])
+   129	    sides, qtys = sig["side"].to_numpy(np.int64), sig["qty"].to_numpy(np.int64)
+   130	    pqtys = sig["part_qty"].to_numpy(np.int64)
+   131	    expires, holds = sig["expire"].to_numpy(np.int64), sig["hold"].to_numpy(float)
+   132	    expire_min = sig["expire_min"].to_numpy(float)
+   133	    minute = bars.ts.as_unit("ns").asi8 // 60_000_000_000  # bar open, minutes since epoch
+   134	    rows = []
+   135	    next_free = -1
+   136	    sig_bars = sig.index.to_numpy()
+   137	    held: list[tuple[int, int, int, int, int]] = []  # overlap: trades that may be open (see _open_qty)
+   138	    for r, i in enumerate(sig_bars):
+   139	        if i + 1 >= n:
+   140	            continue
+   141	        side, qty, pq = int(sides[r]), int(qtys[r]), int(pqtys[r])
+   142	        cancel_at = n  # overlap: the next accepted signal's bar; this order works through it at most
+   143	        if overlap:
+   144	            held = [t for t in held if t[1] > i]
+   145	            if _open_qty(held, i) + qty > max_contracts:
+   146	                continue
+   147	            for r2 in range(r + 1, len(sig_bars)):
+   148	                if sig_bars[r2] + 1 < n and _open_qty(held, sig_bars[r2]) + qtys[r2] <= max_contracts:
+   149	                    cancel_at = int(sig_bars[r2])
+   150	                    break
+   151	        elif i < next_free:
+   152	            continue
+   153	        o, h, l, c = views[side]
+   154	        L, S = side * lim[r], side * stp[r]
+   155	        T = None if np.isnan(tgt[r]) else side * tgt_t[r]
+   156	        P = side * ptg_t[r] if pq > 0 else None
+   157	        V = None if np.isnan(void[r]) else side * void_t[r]
+   158	        if V is not None and V > L:
+   159	            raise ValueError(f"signal at bar {i}: void must be at or beyond the limit on the losing side")
+   160	        K = None if np.isnan(kill[r]) else side * kill_t[r]
+   161	        if K is not None and K <= L:
+   162	            raise ValueError(f"signal at bar {i}: kill must be beyond the limit on the winning side")
+   163	        if S >= L or (T is not None and T <= L) or (P is not None and (P <= L or (T is not None and P > T))):
+   164	            raise ValueError(f"signal at bar {i}: stop must be on the losing side and targets on the winning side")
+   165	        hold = None if np.isnan(holds[r]) else int(holds[r])
+   166	        day, sym = bars.day_id[i], bars.sym_id[i]
+   167	        # --- working entry order: bars i+1 .. i+expire ---
+   168	        entry_bar, last_active, voided = -1, i, -1
+   169	        timed = not np.isnan(expire_min[r])
+   170	        deadline = minute[i] + 1 + int(expire_min[r]) if timed else 0  # first minute the order no longer works
+   171	        for j in range(i + 1, n if timed else min(n, i + 1 + int(expires[r]))):
+   172	            if bars.day_id[j] != day or bars.sym_id[j] != sym or bars.sess_minute[j] >= flat:
+   173	                break
+   174	            if (timed and minute[j] >= deadline) or j > cancel_at:
+   175	                break
+   176	            F = L - fills.through  # a touch fills (owner rule); `through` asks for a trade beyond the limit
+   177	            if V is not None and o[j] < V:  # opened beyond the void: cancelled before any fill
+   178	                voided = j
+   179	                break
+   180	            if l[j] <= F:
+   181	                # From the open price falls through F before V - 1 (the void break) unless V - 1 >= F: then the
+   182	                # void breaks first (same price: order unknown, cancelled).
+   183	                if V is None or o[j] <= F or F >= V:
+   184	                    if K is not None and o[j] > F and h[j] >= K:  # fill level and kill in one bar: order unknown
+   185	                        voided = j
+   186	                        break
+   187	                    entry_bar, E = j, min(o[j], L)
+   188	                    break
+   189	                voided = j
+   190	                break
+   191	            if V is not None and l[j] < V:  # void broken without reaching the fill level: cancelled
+   192	                voided = j
+   193	                break
+   194	            if K is not None and h[j] >= K:  # kill touched before any fill: cancelled
+   195	                voided = j
+   196	                break
+   197	            last_active = j
+   198	        if entry_bar < 0:
+   199	            if voided >= 0:  # the order worked into bar j until the void or kill cancelled it: free from j's close
+   200	                next_free = voided
+   201	                continue
+   202	            next_free = last_active
+   203	            if timed and last_active + 1 < n and minute[last_active + 1] >= deadline \
+   204	                    and minute[last_active] + 1 < deadline:
+   205	                next_free = last_active + 1  # a gap spans the deadline: the order still worked at last_active's close
+   206	            continue
+   207	        # --- position: per held bar, the open and worst price feed the Combine path check ---
+   208	        j = entry_bar
+   209	        X, reason = None, ""
+   210	        rem, realized, PX, PB = qty, 0, None, -1  # contracts open, side-space ticks*contracts booked by the partial
+   211	        p_open, p_worst = [0], [(l[j] - E) * qty]
+   212	        best = h[j]
+   213	        best_pnl = (h[j] - E) * qty  # best open P&L (ticks x contracts) for mfe
+   214	        ctx = Ctx(i=int(i), j=j, m=j, side=side, E=int(E), S=int(S), T=None if T is None else int(T),
+   215	                  qty=rem, best=int(best)) if manage is not None else None
+   216	        if l[j] <= S:  # stop on the fill bar: assume it came after the fill
+   217	            X, reason = min(E, S), "stop"
+   218	            p_worst[0] = (X - E) * qty  # the bar low before the fill is not part of the trade
+   219	        m = j
+   220	        while X is None:
+   221	            if m > j:
+   222	                close_now = False
+   223	                if manage is not None and ctx is not None:
+   224	                    ctx.m, ctx.S, ctx.qty, ctx.best = m, int(S), rem, int(best)
+   225	                    new_s, close_now = manage(ctx)
+   226	                    S = _check_stop(new_s, i)
+   227	                real0, rem0 = realized, rem  # booked P&L and contracts at the bar's open
+   228	                part_at_open = False
+   229	                if bars.sess_minute[m] >= flat:
+   230	                    X, reason = o[m], "flatten"
+   231	                elif close_now:
+   232	                    X, reason = o[m], "manage"
+   233	                elif o[m] <= S:
+   234	                    X, reason = o[m], "stop"
+   235	                elif T is not None and o[m] >= T:
+   236	                    X, reason = o[m], "target"
+   237	                else:
+   238	                    if P is not None and PX is None and o[m] >= P:  # partial at the open (gap in our favour)
+   239	                        PX, PB, realized, rem = o[m], m, realized + (o[m] - E) * pq, rem - pq
+   240	                        part_at_open = True
+   241	                    if l[m] <= S:
+   242	                        X, reason = S, "stop"  # stop and any target in one bar: stop first
+   243	                    else:
+   244	                        if P is not None and PX is None and h[m] >= P:
+   245	                            PX, PB, realized, rem = P, m, realized + (P - E) * pq, rem - pq
+   246	                            best_pnl = max(best_pnl, realized + (P - E) * rem)
+   247	                        if T is not None and h[m] >= T:
+   248	                            X, reason = T, "target"
+   249	                p_open.append(real0 + (o[m] - E) * rem0)
+   250	                if X is not None and X == o[m]:
+   251	                    p_worst.append(real0 + (X - E) * rem0)  # exit at the open: nothing after it counts
+   252	                    best = max(best, X)
+   253	                    best_pnl = max(best_pnl, real0 + (X - E) * rem0)
+   254	                    break
+   255	                if reason == "stop":
+   256	                    p_worst.append(realized + (S - E) * rem)
+   257	                elif part_at_open:  # the open comes first, so the low counts only for what is left
+   258	                    p_worst.append(realized + (l[m] - E) * rem)
+   259	                else:  # order inside the bar unknown: the low counts with the contracts held at the bar's open
+   260	                    p_worst.append(real0 + (l[m] - E) * rem0)
+   261	                if X is None or reason == "target":
+   262	                    best = max(best, h[m])
+   263	                    best_pnl = max(best_pnl, realized + (h[m] - E) * rem)
+   264	                if X is not None:
+   265	                    break
+   266	            if m == n - 1:
+   267	                X, reason = c[m], "data_end"
+   268	            elif hold is not None and m - j >= hold:
+   269	                X, reason = c[m], "time"
+   270	            elif bars.last_of_sym[m]:
+   271	                X, reason = c[m], "roll"
+   272	            elif bars.last_of_day[m]:
+   273	                X, reason = c[m], "day_end"
+   274	            else:
+   275	                m += 1
+   276	        exit_bar = m
+   277	        p_worst[-1] = min(p_worst[-1], realized + (X - E) * rem)
+   278	        best_pnl = max(best_pnl, realized + (X - E) * rem)
+   279	        fee = fills.fee * qty
+   280	        total = realized + (X - E) * rem  # side-space ticks x contracts
+   281	        path = (np.array(p_open, dtype=float) * TICK_VALUE - fee, np.array(p_worst, dtype=float) * TICK_VALUE - fee)
+   282	        rows.append((i, entry_bar, exit_bar, bars.ts[entry_bar], bars.ts[exit_bar], bars.trading_day[entry_bar], side,
+   283	                     qty, side * E * TICK, side * X * TICK, reason, int(X - E),
+   284	                     np.nan if PX is None else side * PX * TICK, PB, 0 if PX is None else pq,
+   285	                     total * TICK_VALUE, fee, total * TICK_VALUE - fee,
+   286	                     float(path[1].min()), best_pnl * TICK_VALUE - fee, path))
+   287	        next_free = exit_bar
+   288	        if overlap:
+   289	            held.append((entry_bar, exit_bar, qty, PB, 0 if PX is None else pq))
+   290	    out = pd.DataFrame(rows, columns=TRADE_COLUMNS)
+   291	    for col in ("entry", "exit", "part_exit"):
+   292	        out[col] = out[col].astype(float).round(2)
+   293	    return out
+studies/rlm/__init__.py
+studies/rlm/grid.py
+studies/rlm/source_note.md
+studies/rlm/rlm_logic.pine
+studies/rlm/codex/reply1.md
+studies/rlm/codex/brief2.md
+studies/rlm/codex/round1.log
+studies/rlm/codex/round2.log
+studies/rlm/codex/brief1.md
+cat: PROTOCOL.md: No such file or directory
+
+codex
+The swing timestamps and `manage()` access appear correctly delayed. I found a definite roll-guard problem and suspect errors in confirm-mode withdrawals and strength accounting. I’ll check those with small reproductions before reporting them.
+exec
+/bin/bash -lc "rg -n 'def summary|pass_rate|profit_factor' cltester/topstep.py cltester/metrics.py
+rg --files | rg 'PROTOCOL|screen|bootstrap'
+git status --short
+cat studies/rlm/codex/brief2.md" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+cltester/metrics.py:21:def summary(trades: pd.DataFrame, days: list[pd.Timestamp]) -> dict:
+cltester/metrics.py:37:        "profit_factor": round(float(wins.sum() / -losses.sum()), 3) if losses.sum() < 0 else float("inf"),
+cltester/topstep.py:192:def summary(roll: pd.DataFrame, seq: pd.DataFrame, days: list[pd.Timestamp], rules: Combine = COMBINE_50K) -> dict:
+cltester/topstep.py:200:        "pass_rate": round(len(passed) / len(done), 4) if len(done) else float("nan"),
+studies/cbr/grid_dev_screened.csv
+studies/cbr/screen_dev.txt
+studies/cbr/screen.py
+docs/PROTOCOL.md
+ M strategies/cbr.py
+?? docs/strategies/rlm/
+?? strategies/rlm.py
+?? studies/cbr_optimize/
+?? studies/rlm/
+?? tests/test_rlm.py
+Round 2: code audit BEFORE the 13,824-version dev grid runs. Repo /home/mrullldhm/personal/tradingview-tester.
+READ ONLY for repo files; you may write scratch scripts only under studies/rlm/codex/. Python: .venv/bin/python
+(PYTHONPATH=.). Your round-1 reply: studies/rlm/codex/reply1.md (adopted: confirm mode with withdrawal, roll guard on
+the left reference candle, ATR reset per contract, expiry 1 S interval, BE ignores fill-bar high; NOT adopted: the
+48-config budget -- owner asked for every version, so full grid + your bootstrap family check, see the README).
+Read docs/strategies/rlm/README.md (spec, frozen) and audit strategies/rlm.py and studies/rlm/grid.py for:
+1. Look-ahead: swing_events known times (detect state[k] known at avail[k+1]), lock/confirm/withdraw logic, candle
+   avail vs signal bar, ATR, levels, manage() (data up to m-1 only), anything using future bars.
+2. Bugs vs the Pine logic (studies/rlm/rlm_logic.pine) and the README: aging/cross order, merge, eviction, nearest
+   selection, rejection tests, cooldown per combo, score, band refit, TF dedupe/upgrade/withdraw accounting
+   (Book.touch / withdraw / _shift / _merge), side-space mirroring in build_orders (entry/stop/target rounding for
+   shorts), kill/expiry, risk floor.
+3. Roll/session guards; anything that makes the screen misleading.
+Small read-only checks are fine (load_period('dev') ~1 s; trim to one year for speed; candidates() 5m on dev ~60 s).
+Reply: numbered findings, severity (bug / look-ahead / minor), file:line, concrete fix. <= 700 words.
+
+exec
+/bin/bash -lc "cat tests/test_rlm.py
+cat docs/PROTOCOL.md
+sed -n '1,110p' cltester/data.py" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+"""rlm: level book accounting (join, TF dedupe/upgrade, withdraw, cross penalty), order geometry for both sides,
+break-even management that ignores the fill-bar high, and swing-event timing (docs/strategies/rlm/README.md)."""
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from cltester.data import add_session
+from cltester.engine import Ctx
+from cltester.swings import HIGH, LOW
+from strategies.rlm import COMBOS, CROSS_PENALTY, Book, Strategy, build_orders, swing_events
+
+A = 10.0  # ATR34 in ticks
+
+
+def _book(tol: float = 0.6) -> Book:
+    return Book(len(COMBOS), tol)
+
+
+def test_two_touches_join_one_level_weighted_mean():
+    b = _book()
+    b.touch((0, LOW, 1), LOW, 1000, 10, 14, 1.0, A, 1010.0, 5)
+    b.touch((2, HIGH, 9), HIGH, 1004, 100, 159, 2.0, A, 990.0, 50)  # within 0.6 * 10 ticks
+    al = np.flatnonzero(b.alive)
+    assert len(al) == 1
+    s = al[0]
+    assert b.touches[s] == 2 and b.ht[s] == 1 and b.lt[s] == 1
+    assert b.mid[s] == pytest.approx((1000 * 1 + 1004 * 2) / 3)
+    assert b.strength[s] == pytest.approx(3.0) and b.maxw[s] == 2.0
+
+
+def test_same_extreme_on_higher_tf_upgrades_weight_not_touches():
+    b = _book()
+    b.touch((0, LOW, 3), LOW, 1000, 15, 19, 1.0, A, 1010.0, 5)  # 5m candle bars 15..19
+    b.touch((2, LOW, 0), LOW, 1000, 0, 59, 2.0, A, 1010.0, 9)  # 1h candle bars 0..59 holds the same low
+    s = np.flatnonzero(b.alive)[0]
+    assert b.touches[s] == 1 and b.strength[s] == pytest.approx(2.0) and b.maxw[s] == 2.0
+    b.touch((1, LOW, 1), LOW, 1000, 15, 29, 1.5, A, 1010.0, 9)  # a weaker TF of it later adds nothing
+    assert b.touches[s] == 1 and b.strength[s] == pytest.approx(2.0)
+
+
+def test_withdraw_drops_to_next_tf_then_removes():
+    b = _book()
+    b.touch((0, LOW, 3), LOW, 1000, 15, 19, 1.0, A, 1010.0, 5)
+    b.touch((2, LOW, 0), LOW, 1000, 0, 59, 2.0, A, 1010.0, 5)
+    s = np.flatnonzero(b.alive)[0]
+    b.withdraw((2, LOW, 0), A, 5)
+    assert b.alive[s] and b.touches[s] == 1 and b.strength[s] == pytest.approx(1.0)
+    b.withdraw((0, LOW, 3), A, 5)
+    assert not b.alive.any()
+
+
+def test_cross_flips_side_and_costs_strength_only_when_active():
+    b = _book()
+    b.touch((0, LOW, 1), LOW, 1000, 10, 14, 1.0, A, 1010.0, 5)
+    s = np.flatnonzero(b.alive)[0]
+    b.age_cross(980.0, 1.0, 6)  # one touch: side changes, no penalty
+    assert b.side[s] == -1 and b.strength[s] == pytest.approx(1.0) and b.crosses[s] == 0
+    b.touch((0, LOW, 7), LOW, 1001, 40, 44, 1.0, A, 980.0, 8)
+    b.age_cross(1020.0, 1.0, 9)
+    assert b.side[s] == 1 and b.crosses[s] == 1 and b.strength[s] == pytest.approx(2.0 * CROSS_PENALTY)
+
+
+def _cand(side: int) -> pd.DataFrame:
+    # support band 1000..1004 (long) / resistance band 1000..1004 (short); ATR14 10 ticks
+    if side == 1:
+        o, h, lo, c = 1003.0, 1012.0, 1001.0, 1010.0
+    else:
+        o, h, lo, c = 1001.0, 1003.0, 992.0, 994.0
+    return pd.DataFrame([{"c": 40, "bar": 5, "side": side, "combo": 0, "mid": 1002.0, "lo": 1000.0, "hi": 1004.0,
+                          "score": 60.0, "touches": 3, "polar": True, "maxw": 2.0, "strength": 5.0, "crosses": 0,
+                          "age": 10, "atr34": 10.0, "atr14": 10.0, "o": o, "h": h, "l": lo, "cl": c}])
+
+
+def _df() -> pd.DataFrame:
+    ts = pd.date_range("2024-12-09 15:00", periods=10, freq="1min", tz="UTC")
+    df = pd.DataFrame({"ts": ts, "raw_symbol": "CLF5", "open": 70.0, "high": 70.0, "low": 70.0, "close": 70.0})
+    return add_session(df)
+
+
+@pytest.mark.parametrize("side,entry,stop,target", [
+    (1, 1010, 998, 1022),     # long: wick stop min(1001 - 2.5, 1010 - 5) = 998.5 -> floor 998; r1 target 1010 + 12
+    (-1, -994, -1006, -982),  # short in side space: stop min(-992 - 2.5, -994 - 5) = -1005.5 -> floor -1006 (1006)
+])
+def test_order_geometry_close_entry_wick_stop(side, entry, stop, target):
+    p = {**Strategy.PARAMS, "clv": 0.6, "score": 0, "entry": "close", "stop": "wick", "exit": "r1"}
+    o = build_orders(_cand(side), _df(), p)
+    assert (o["E"].iat[0], o["S"].iat[0], o["T"].iat[0]) == (entry, stop, target)
+
+
+def test_band_entry_and_band_stop_long():
+    p = {**Strategy.PARAMS, "clv": 0.6, "score": 0, "entry": "band", "stop": "band", "exit": "r2"}
+    o = build_orders(_cand(1), _df(), p)
+    # limit at band top 1004; stop min(1000 - 2.5, 1004 - 5) = 997.5 -> 997; risk 7, target 1004 + 14
+    assert (o["E"].iat[0], o["S"].iat[0], o["T"].iat[0]) == (1004, 997, 1018)
+
+
+def test_break_even_ignores_fill_bar_high():
+    s = Strategy()
+    s._p = {"exit": "be3"}
+    hi = np.array([0, 0, 1020, 1005, 1011, 1000], dtype=np.int64)  # fill bar j=2 high 1020 (may predate the fill)
+    s._side_hi = {1: hi}
+    ctx = Ctx(i=1, j=2, m=3, side=1, E=1000, S=990, T=1030, qty=1, best=1020)
+    assert s.manage(ctx) == (990, False)  # only the fill bar seen so far: no BE
+    ctx.m = 4
+    assert s.manage(ctx) == (990, False)  # bar 3 high 1005 < 1000 + 10
+    ctx.m = 5
+    assert s.manage(ctx) == (1000, False)  # bar 4 high 1011 >= 1R: stop to entry from bar 5
+
+
+def _swing_df() -> pd.DataFrame:
+    """5m candles: down, swing low at candle 2, up to a swing high at candle 5, then down (locks the low)."""
+    lows = [10.0, 9.8, 9.5, 9.7, 9.9, 10.1, 9.9, 9.7, 9.6]
+    rows = []
+    t0 = pd.Timestamp("2024-12-09 18:00", tz="America/Chicago")
+    for k, lo in enumerate(lows):
+        hi = lo + 0.3
+        for i in range(5):
+            rows.append((t0 + pd.Timedelta(minutes=5 * k + i), "CLF5", lo + 0.1, hi if i == 2 else lo + 0.2,
+                         lo if i == 3 else lo + 0.1, lo + 0.15))
+    df = pd.DataFrame(rows, columns=["ts", "raw_symbol", "open", "high", "low", "close"])
+    df["ts"] = df["ts"].dt.tz_convert("UTC")
+    return add_session(df)
+
+
+def test_swing_event_timing_lock_after_confirm():
+    df = _swing_df()
+    conf = swing_events(df, "5m", "confirm")
+    lock = swing_events(df, "5m", "lock")
+    low_c = conf[(conf["kind"] == LOW) & (conf["op"] == 1)].iloc[0]
+    assert low_c["candle"] == 2 and low_c["known"] == 3 * 5 + 4  # known at the close of candle 3 (its right candle)
+    low_l = lock[lock["kind"] == LOW].iloc[0]
+    assert low_l["candle"] == 2 and low_l["known"] == 6 * 5 + 4  # locked when the swing high (candle 5) confirms
+# Research protocol
+
+Goal: find an intraday CL strategy that passes the Topstep 50K Combine consistently and keeps passing on data it
+was not built on. The protocol exists to stop curve-fitting: with enough tries, something always looks good
+in-sample.
+
+## Periods (`cltester/config.py`, by CME trading day, end exclusive)
+
+Periods are cut on `trading_day`, never mid-session. Any `test` period that overlaps holdout (`holdout`, `all`)
+needs the holdout guard.
+
+| Period | Range | Use |
+|---|---|---|
+| dev | 2010-06 to 2021-12 | build and tune. Unlimited looks, but every run is logged |
+| validation | 2022 to 2024 | frozen parameters, one run per candidate. No tuning after looking |
+| holdout | 2025 to 2026-11-12 | once per strategy (the CLI refuses a second run without `--unlock`) |
+| forward | after 2026-11-12 | new bars only, then paper/live on TopstepX |
+
+Honesty note: before the 2026-11-12 reset the owner had already researched every year up to 2026. Validation and
+holdout are therefore "not used in this repo", not truly unseen. Only **forward** is clean.
+
+## Stages
+
+1. **Hypothesis first.** Before any run, write `docs/strategies/<name>/README.md`: the idea, why CL should behave
+   that way, exact entry/exit rules, parameters, the trial budget (how many combinations will be tried) and the pass
+   criteria. Template: `docs/strategies/TEMPLATE.md`.
+2. **Dev.** `python -m cltester.cli test <name> --period dev`. Tune within the declared budget.
+3. **Robustness on dev.** Neighbouring parameters must also be profitable;
+   positive in most years; not carried by a few days.
+4. **Validation.** Frozen parameters, one run. Record the result whatever it is.
+5. **Holdout.** Once. A fail ends the candidate (a new idea is a new strategy, not a retune).
+6. **Forward.** New bars and paper trading on TopstepX before real money.
+
+## Proposed gates (owner may change)
+
+| Gate | dev | validation |
+|---|---|---|
+| Trades | ≥ 200 | ≥ 60 |
+| Profit factor (net) | ≥ 1.25 | ≥ 1.10 |
+| Years positive | ≥ 70% | — |
+| Combine rolling pass rate | ≥ 50% of finished attempts | ≥ 40% |
+| Sequential cost per pass | ≤ $500 | ≤ $750 |
+
+## Reporting rules
+
+- Every `test` run appends to `results/ledger.csv` (strategy, code+params hash, period, fills, key stats).
+  Never delete ledger rows.
+- Every reported number says its period and **in-sample**, and for tuned results **best of N** (N from the ledger).
+- Fills follow docs/ENGINE.md (touch fills, no exit slippage). Never call fees "slippage" or slippage "commission".
+- A result is not real until the trade list has been spot-checked against raw bars.
+"""CL1! 1-minute bars: storage, loading, Chicago session fields, and integer-tick arrays for the engine.
+
+Layout: data/cl1/year=YYYY.parquet, one row per minute, ts = bar open time (UTC), prices in $.
+Front month (raw_symbol) = Databento CL.v.0: highest previous-UTC-day volume, switching at 00:00 UTC.
+Prices are not back-adjusted: a raw_symbol change is a price jump, so the engine never holds across it.
+"""
+
+import os
+from dataclasses import dataclass
+from datetime import timedelta
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from .config import DATA_DIR, EXCHANGE_TZ, PERIODS, SESSION_OPEN, TICK
+
+COLUMNS = ["ts", "raw_symbol", "open", "high", "low", "close", "volume", "vendor"]
+
+
+def year_path(year: int) -> Path:
+    return DATA_DIR / f"year={year}.parquet"
+
+
+def write_year(df: pd.DataFrame, year: int) -> Path:
+    out = df[COLUMNS].sort_values("ts").reset_index(drop=True)
+    if not out["ts"].is_unique:
+        raise ValueError(f"duplicate bar times in {year}")
+    path = year_path(year)
+    tmp = path.with_suffix(".parquet.tmp")
+    out.to_parquet(tmp, index=False)
+    os.replace(tmp, path)  # readers never see a half-written file
+    return path
+
+
+def load_bars(start: str | None = None, end: str | None = None) -> pd.DataFrame:
+    """Bars with start <= ts < end (UTC dates or timestamps; end exclusive)."""
+    paths = sorted(DATA_DIR.glob("year=*.parquet"))
+    if not paths:
+        raise FileNotFoundError(f"no bars in {DATA_DIR}")
+    lo = pd.Timestamp(start, tz="UTC") if start else None
+    hi = pd.Timestamp(end, tz="UTC") if end else None
+    hi_year = None if hi is None else (hi - pd.Timedelta(microseconds=1)).year
+    keep = [p for p in paths if (lo is None or int(p.stem[5:]) >= lo.year)
+            and (hi_year is None or int(p.stem[5:]) <= hi_year)]
+    if not keep:
+        dtypes = ["datetime64[ns, UTC]", "str", *["float64"] * 4, "int64", "str"]
+        return pd.DataFrame({c: pd.Series(dtype=t) for c, t in zip(COLUMNS, dtypes, strict=True)})
+    df = pd.concat((pd.read_parquet(p) for p in keep), ignore_index=True)
+    if lo is not None:
+        df = df[df["ts"] >= lo]
+    if hi is not None:
+        df = df[df["ts"] < hi]
+    return df.sort_values("ts").reset_index(drop=True)
+
+
+def load_period(name: str) -> pd.DataFrame:
+    """Bars whose trading_day lies in [start, end). Periods cut on whole CME trading days, never mid-session."""
+    start, end = PERIODS[name]
+    pad = pd.Timedelta(days=1)
+    # trading day D runs 17:00 CT D-1 to 16:59 CT D, i.e. before 00:00 UTC D+1: only the start needs padding,
+    # so a period never reads the next period's year file (dev does not load 2022)
+    df = add_session(load_bars(str(pd.Timestamp(start) - pad) if start else None, end))
+    keep = np.ones(len(df), dtype=bool)
+    if start:
+        keep &= df["trading_day"] >= pd.Timestamp(start)
+    if end:
+        keep &= df["trading_day"] < pd.Timestamp(end)
+    return df[keep].reset_index(drop=True)
+
+
+def add_session(df: pd.DataFrame) -> pd.DataFrame:
+    """Add Chicago fields. trading_day = CME/Topstep day: 17:00 CT opens the next day's session
+    (Sunday 17:00 CT belongs to Monday)."""
+    out = df.copy()
+    ct = out["ts"].dt.tz_convert(EXCHANGE_TZ)
+    out["ct"] = ct
+    out["ct_minute"] = (ct.dt.hour * 60 + ct.dt.minute).astype("int32")
+    open_min = SESSION_OPEN.hour * 60 + SESSION_OPEN.minute
+    out["sess_minute"] = ((out["ct_minute"] - open_min) % 1440).astype("int32")  # minutes since 17:00 CT
+    day = ct.dt.tz_localize(None).dt.normalize()
+    out["trading_day"] = day.where(out["ct_minute"] < open_min, day + timedelta(days=1))
+    return out
+
+
+def session_minute(t) -> int:
+    """CT clock time -> minutes since the 17:00 CT session open."""
+    return (t.hour * 60 + t.minute - SESSION_OPEN.hour * 60 - SESSION_OPEN.minute) % 1440
+
+
+def to_ticks(prices) -> np.ndarray:
+    return np.round(np.asarray(prices, dtype=float) / TICK).astype(np.int64)
+
+
+@dataclass
+class Bars:
+    """Arrays the engine runs on. Index i = i-th bar. Prices in integer ticks so comparisons are exact."""
+
+    ts: pd.DatetimeIndex
+    o: np.ndarray
+    h: np.ndarray
+    l: np.ndarray  # noqa: E741
+    c: np.ndarray
+    sess_minute: np.ndarray  # minutes since 17:00 CT session open
+    trading_day: np.ndarray  # datetime64 date of the CME/Topstep trading day
+    day_id: np.ndarray  # trading day as an int code
+    sym_id: np.ndarray  # raw_symbol as an int code
+    last_of_day: np.ndarray  # last bar of its trading day
+    last_of_sym: np.ndarray  # last bar before raw_symbol changes
+
+
+apply patch
+patch: completed
+/home/mrullldhm/personal/tradingview-tester/studies/rlm/codex/audit_round2.py
+diff --git a/studies/rlm/codex/audit_round2.py b/studies/rlm/codex/audit_round2.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..3bc8770fa51041e7c096248ee38f959a542bdce4
+--- /dev/null
++++ b/studies/rlm/codex/audit_round2.py
+@@ -0,0 +1,59 @@
++"""Read-only audit probes; outputs only, no data/code mutations."""
++import numpy as np
++import pandas as pd
++import cltester.swings as sw
++from cltester.data import load_period
++from strategies.rlm import Book, COMBOS, swing_events
++
++df = load_period('dev')
++df = df[df.trading_day < pd.Timestamp('2011-01-01')].reset_index(drop=True)
++print('bars', len(df), flush=True)
++contract = np.cumsum(np.r_[False, df.raw_symbol.to_numpy()[1:] != df.raw_symbol.to_numpy()[:-1]])
++for tf in ('5m', '15m', '1h'):
++    cd = sw.build_candles(df, tf)
++    mixed = contract[cd.first] != contract[cd.last]
++    delayed_roll = contract[cd.last] != contract[cd.avail]
++    print('roll', tf, 'mixed', mixed.sum(), 'delayed', delayed_roll.sum(), flush=True)
++
++cd = sw.build_candles(df, '5m')
++orig = sw._record
++snap = []
++def record(stack, state, k):
++    snap.append(tuple((p.kind, p.candle) for p in stack))
++    orig(stack, state, k)
++sw._record = record
++sw.detect(cd)
++sw._record = orig
++ev = swing_events(df, '5m', 'confirm')
++actual = {(int(r.known), int(r.kind), int(r.candle)) for r in ev.itertuples() if r.op < 0}
++missed = []
++false = []
++for k in range(1, len(snap)-1):
++    old, new = snap[k-1], snap[k]
++    for pt in old[-4:]:
++        want = pt not in new
++        got = (int(cd.avail[k+1]), *pt) in actual
++        if want and not got:
++            missed.append((k, pt, old[-4:], new[-4:]))
++        if got and not want:
++            false.append((k, pt, old[-4:], new[-4:]))
++print('withdraw missed', len(missed), 'false', len(false), flush=True)
++print('examples', missed[:2], false[:2], flush=True)
++
++# Crossed contributions must be withdrawn at their remaining, rather than initial, strength.
++b = Book(len(COMBOS), .6)
++b.touch((0, sw.LOW, 1), sw.LOW, 1000, 10, 14, 1., 10., 1010., 0)
++b.touch((0, sw.LOW, 2), sw.LOW, 1001, 20, 24, 1., 10., 1010., 0)
++b.age_cross(980., b.decay, 1)
++b.withdraw((0, sw.LOW, 1), 10., 1)
++s = np.flatnonzero(b.alive)[0]
++print('withdraw_cross actual', b.strength[s], 'expected', b.decay * .7, flush=True)
++
++# Same TF may have two pids contained in the higher-TF representative.
++b = Book(len(COMBOS), .6)
++b.touch((2, sw.LOW, 0), sw.LOW, 1000, 0, 59, 2., 10., 1010., 0)
++b.touch((0, sw.LOW, 1), sw.LOW, 1000, 10, 14, 1., 10., 1010., 0)
++b.touch((0, sw.LOW, 2), sw.LOW, 1000, 20, 24, 1., 10., 1010., 0)
++b.withdraw((0, sw.LOW, 1), 10., 0)
++b.withdraw((2, sw.LOW, 0), 10., 0)
++print('dedupe surviving lower pid', (0, sw.LOW, 2) in b.pid, 'alive', b.alive.sum(), flush=True)
+
+exec
+/bin/bash -lc 'PYTHONPATH=. .venv/bin/python studies/rlm/codex/audit_round2.py' in /home/mrullldhm/personal/tradingview-tester
+exec
+/bin/bash -lc "ps -eo pid,rss,etime,args | rg 'audit_round2|PID'" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+  PID   RSS     ELAPSED COMMAND
+    1 19840       00:00 codex-linux-sandbox --sandbox-policy-cwd /home/mrullldhm/personal/tradingview-tester --command-cwd /home/mrullldhm/personal/tradingview-tester --permission-profile {"type":"managed","file_system":{"type":"restricted","entries":[{"path":{"type":"special","value":{"kind":"root"}},"access":"read"},{"path":{"type":"path","path":"/home/mrullldhm/personal/tradingview-tester"},"access":"write"},{"path":{"type":"special","value":{"kind":"slash_tmp"}},"access":"write"},{"path":{"type":"special","value":{"kind":"tmpdir"}},"access":"write"},{"path":{"type":"path","path":"/home/mrullldhm/personal/tradingview-tester/.git"},"access":"read","missing_path_behavior":"skip"},{"path":{"type":"path","path":"/home/mrullldhm/personal/tradingview-tester/.agents"},"access":"read","missing_path_behavior":"skip"},{"path":{"type":"path","path":"/home/mrullldhm/personal/tradingview-tester/.codex"},"access":"read","missing_path_behavior":"skip"},{"path":{"type":"path","path":"/home/mrullldhm/personal/tradingview-tester/.aws"},"access":"read","missing_path_behavior":"skip"}]},"network":"restricted"} --apply-seccomp-then-exec -- /bin/bash -c __CODEX_SNAPSHOT_OVERRIDE_SET_0="${CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS+x}" __CODEX_SNAPSHOT_OVERRIDE_0="${CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS-}" __CODEX_SNAPSHOT_OVERRIDE_SET_1="${CODEX_PERMISSION_PROFILE+x}" __CODEX_SNAPSHOT_OVERRIDE_1="${CODEX_PERMISSION_PROFILE-}" __CODEX_SNAPSHOT_OVERRIDE_SET_2="${CODEX_PLUGIN_METRICS_OUTPUT+x}" __CODEX_SNAPSHOT_OVERRIDE_2="${CODEX_PLUGIN_METRICS_OUTPUT-}" __CODEX_SNAPSHOT_OVERRIDE_SET_3="${CODEX_SESSION_ID+x}" __CODEX_SNAPSHOT_OVERRIDE_3="${CODEX_SESSION_ID-}" __CODEX_SNAPSHOT_OVERRIDE_SET_4="${CODEX_THREAD_ID+x}" __CODEX_SNAPSHOT_OVERRIDE_4="${CODEX_THREAD_ID-}" __CODEX_SNAPSHOT_OVERRIDE_SET_5="${CODEX_TOOL_CALL_ID+x}" __CODEX_SNAPSHOT_OVERRIDE_5="${CODEX_TOOL_CALL_ID-}" __CODEX_SNAPSHOT_OVERRIDE_SET_6="${CODEX_VERSION+x}" __CODEX_SNAPSHOT_OVERRIDE_6="${CODEX_VERSION-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_0="${ALL_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_0="${ALL_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_1="${BUNDLE_HTTPS_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_1="${BUNDLE_HTTPS_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_2="${BUNDLE_HTTP_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_2="${BUNDLE_HTTP_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_3="${BUNDLE_NO_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_3="${BUNDLE_NO_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_4="${BUNDLE_SSL_CA_CERT+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_4="${BUNDLE_SSL_CA_CERT-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_5="${CARGO_HTTP_CAINFO+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_5="${CARGO_HTTP_CAINFO-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_6="${CODEX_CA_CERTIFICATE+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_6="${CODEX_CA_CERTIFICATE-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_7="${CODEX_NETWORK_ALLOW_LOCAL_BINDING+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_7="${CODEX_NETWORK_ALLOW_LOCAL_BINDING-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_8="${CODEX_NETWORK_PROXY_ACTIVE+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_8="${CODEX_NETWORK_PROXY_ACTIVE-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_9="${CODEX_NETWORK_PROXY_ATTRIBUTION+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_9="${CODEX_NETWORK_PROXY_ATTRIBUTION-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_10="${CODEX_NETWORK_PROXY_BROKERED_CREDENTIALS+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_10="${CODEX_NETWORK_PROXY_BROKERED_CREDENTIALS-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_11="${CODEX_NETWORK_PROXY_CREDENTIAL_BROKER_ACTIVE+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_11="${CODEX_NETWORK_PROXY_CREDENTIAL_BROKER_ACTIVE-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_12="${CURL_CA_BUNDLE+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_12="${CURL_CA_BUNDLE-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_13="${DOCKER_HTTPS_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_13="${DOCKER_HTTPS_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_14="${DOCKER_HTTP_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_14="${DOCKER_HTTP_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_15="${ELECTRON_GET_USE_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_15="${ELECTRON_GET_USE_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_16="${FTP_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_16="${FTP_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_17="${GIT_SSL_CAINFO+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_17="${GIT_SSL_CAINFO-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_18="${HTTPS_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_18="${HTTPS_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_19="${HTTP_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_19="${HTTP_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_20="${NODE_EXTRA_CA_CERTS+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_20="${NODE_EXTRA_CA_CERTS-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_21="${NODE_USE_ENV_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_21="${NODE_USE_ENV_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_22="${NO_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_22="${NO_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_23="${NPM_CONFIG_CAFILE+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_23="${NPM_CONFIG_CAFILE-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_24="${NPM_CONFIG_HTTPS_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_24="${NPM_CONFIG_HTTPS_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_25="${NPM_CONFIG_HTTP_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_25="${NPM_CONFIG_HTTP_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_26="${NPM_CONFIG_NOPROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_26="${NPM_CONFIG_NOPROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_27="${NPM_CONFIG_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_27="${NPM_CONFIG_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_28="${PIP_CERT+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_28="${PIP_CERT-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_29="${PIP_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_29="${PIP_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_30="${REQUESTS_CA_BUNDLE+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_30="${REQUESTS_CA_BUNDLE-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_31="${SSL_CERT_FILE+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_31="${SSL_CERT_FILE-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_32="${WSS_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_32="${WSS_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_33="${WS_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_33="${WS_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_34="${YARN_HTTPS_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_34="${YARN_HTTPS_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_35="${YARN_HTTP_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_35="${YARN_HTTP_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_36="${YARN_NO_PROXY+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_36="${YARN_NO_PROXY-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_37="${all_proxy+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_37="${all_proxy-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_38="${ftp_proxy+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_38="${ftp_proxy-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_39="${http_proxy+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_39="${http_proxy-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_40="${https_proxy+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_40="${https_proxy-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_41="${no_proxy+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_41="${no_proxy-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_42="${npm_config_cafile+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_42="${npm_config_cafile-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_43="${npm_config_http_proxy+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_43="${npm_config_http_proxy-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_44="${npm_config_https_proxy+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_44="${npm_config_https_proxy-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_45="${npm_config_noproxy+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_45="${npm_config_noproxy-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_46="${npm_config_proxy+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_46="${npm_config_proxy-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_47="${ws_proxy+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_47="${ws_proxy-}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_48="${wss_proxy+x}" __CODEX_SNAPSHOT_PROXY_OVERRIDE_48="${wss_proxy-}" __CODEX_SNAPSHOT_PROXY_ENV_SET="${CODEX_NETWORK_PROXY_ACTIVE+x}"  if . '/home/mrullldhm/.codex/shell_snapshots/01a1f44f-4ad6-7f21-a27d-6554318e4f26.1795100199648328608.sh' >/dev/null 2>&1; then :; fi  if [ -n "${__CODEX_SNAPSHOT_OVERRIDE_SET_0}" ]; then   if [ -z "${CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS+x}" ] || [ "${CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS-}" != "${__CODEX_SNAPSHOT_OVERRIDE_0}" ]; then export CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS="${__CODEX_SNAPSHOT_OVERRIDE_0}"; else export CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS; fi else builtin unset CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS 2>/dev/null || command unset CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS; fi builtin unset __CODEX_SNAPSHOT_OVERRIDE_SET_0 __CODEX_SNAPSHOT_OVERRIDE_0 2>/dev/null || command unset __CODEX_SNAPSHOT_OVERRIDE_SET_0 __CODEX_SNAPSHOT_OVERRIDE_0 if [ -n "${__CODEX_SNAPSHOT_OVERRIDE_SET_1}" ]; then   if [ -z "${CODEX_PERMISSION_PROFILE+x}" ] || [ "${CODEX_PERMISSION_PROFILE-}" != "${__CODEX_SNAPSHOT_OVERRIDE_1}" ]; then export CODEX_PERMISSION_PROFILE="${__CODEX_SNAPSHOT_OVERRIDE_1}"; else export CODEX_PERMISSION_PROFILE; fi else builtin unset CODEX_PERMISSION_PROFILE 2>/dev/null || command unset CODEX_PERMISSION_PROFILE; fi builtin unset __CODEX_SNAPSHOT_OVERRIDE_SET_1 __CODEX_SNAPSHOT_OVERRIDE_1 2>/dev/null || command unset __CODEX_SNAPSHOT_OVERRIDE_SET_1 __CODEX_SNAPSHOT_OVERRIDE_1 if [ -n "${__CODEX_SNAPSHOT_OVERRIDE_SET_2}" ]; then   if [ -z "${CODEX_PLUGIN_METRICS_OUTPUT+x}" ] || [ "${CODEX_PLUGIN_METRICS_OUTPUT-}" != "${__CODEX_SNAPSHOT_OVERRIDE_2}" ]; then export CODEX_PLUGIN_METRICS_OUTPUT="${__CODEX_SNAPSHOT_OVERRIDE_2}"; else export CODEX_PLUGIN_METRICS_OUTPUT; fi else builtin unset CODEX_PLUGIN_METRICS_OUTPUT 2>/dev/null || command unset CODEX_PLUGIN_METRICS_OUTPUT; fi builtin unset __CODEX_SNAPSHOT_OVERRIDE_SET_2 __CODEX_SNAPSHOT_OVERRIDE_2 2>/dev/null || command unset __CODEX_SNAPSHOT_OVERRIDE_SET_2 __CODEX_SNAPSHOT_OVERRIDE_2 if [ -n "${__CODEX_SNAPSHOT_OVERRIDE_SET_3}" ]; then   if [ -z "${CODEX_SESSION_ID+x}" ] || [ "${CODEX_SESSION_ID-}" != "${__CODEX_SNAPSHOT_OVERRIDE_3}" ]; then export CODEX_SESSION_ID="${__CODEX_SNAPSHOT_OVERRIDE_3}"; else export CODEX_SESSION_ID; fi else builtin unset CODEX_SESSION_ID 2>/dev/null || command unset CODEX_SESSION_ID; fi builtin unset __CODEX_SNAPSHOT_OVERRIDE_SET_3 __CODEX_SNAPSHOT_OVERRIDE_3 2>/dev/null || command unset __CODEX_SNAPSHOT_OVERRIDE_SET_3 __CODEX_SNAPSHOT_OVERRIDE_3 if [ -n "${__CODEX_SNAPSHOT_OVERRIDE_SET_4}" ]; then   if [ -z "${CODEX_THREAD_ID+x}" ] || [ "${CODEX_THREAD_ID-}" != "${__CODEX_SNAPSHOT_OVERRIDE_4}" ]; then export CODEX_THREAD_ID="${__CODEX_SNAPSHOT_OVERRIDE_4}"; else export CODEX_THREAD_ID; fi else builtin unset CODEX_THREAD_ID 2>/dev/null || command unset CODEX_THREAD_ID; fi builtin unset __CODEX_SNAPSHOT_OVERRIDE_SET_4 __CODEX_SNAPSHOT_OVERRIDE_4 2>/dev/null || command unset __CODEX_SNAPSHOT_OVERRIDE_SET_4 __CODEX_SNAPSHOT_OVERRIDE_4 if [ -n "${__CODEX_SNAPSHOT_OVERRIDE_SET_5}" ]; then   if [ -z "${CODEX_TOOL_CALL_ID+x}" ] || [ "${CODEX_TOOL_CALL_ID-}" != "${__CODEX_SNAPSHOT_OVERRIDE_5}" ]; then export CODEX_TOOL_CALL_ID="${__CODEX_SNAPSHOT_OVERRIDE_5}"; else export CODEX_TOOL_CALL_ID; fi else builtin unset CODEX_TOOL_CALL_ID 2>/dev/null || command unset CODEX_TOOL_CALL_ID; fi builtin unset __CODEX_SNAPSHOT_OVERRIDE_SET_5 __CODEX_SNAPSHOT_OVERRIDE_5 2>/dev/null || command unset __CODEX_SNAPSHOT_OVERRIDE_SET_5 __CODEX_SNAPSHOT_OVERRIDE_5 if [ -n "${__CODEX_SNAPSHOT_OVERRIDE_SET_6}" ]; then   if [ -z "${CODEX_VERSION+x}" ] || [ "${CODEX_VERSION-}" != "${__CODEX_SNAPSHOT_OVERRIDE_6}" ]; then export CODEX_VERSION="${__CODEX_SNAPSHOT_OVERRIDE_6}"; else export CODEX_VERSION; fi else builtin unset CODEX_VERSION 2>/dev/null || command unset CODEX_VERSION; fi builtin unset __CODEX_SNAPSHOT_OVERRIDE_SET_6 __CODEX_SNAPSHOT_OVERRIDE_6 2>/dev/null || command unset __CODEX_SNAPSHOT_OVERRIDE_SET_6 __CODEX_SNAPSHOT_OVERRIDE_6 if [ -n "$__CODEX_SNAPSHOT_PROXY_ENV_SET" ] || [ -n "${CODEX_NETWORK_PROXY_ACTIVE+x}" ]; then if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_0}" ]; then   if [ -z "${ALL_PROXY+x}" ] || [ "${ALL_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_0}" ]; then export ALL_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_0}"; else export ALL_PROXY; fi else builtin unset ALL_PROXY 2>/dev/null || command unset ALL_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_0 __CODEX_SNAPSHOT_PROXY_OVERRIDE_0 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_0 __CODEX_SNAPSHOT_PROXY_OVERRIDE_0 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_1}" ]; then   if [ -z "${BUNDLE_HTTPS_PROXY+x}" ] || [ "${BUNDLE_HTTPS_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_1}" ]; then export BUNDLE_HTTPS_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_1}"; else export BUNDLE_HTTPS_PROXY; fi else builtin unset BUNDLE_HTTPS_PROXY 2>/dev/null || command unset BUNDLE_HTTPS_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_1 __CODEX_SNAPSHOT_PROXY_OVERRIDE_1 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_1 __CODEX_SNAPSHOT_PROXY_OVERRIDE_1 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_2}" ]; then   if [ -z "${BUNDLE_HTTP_PROXY+x}" ] || [ "${BUNDLE_HTTP_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_2}" ]; then export BUNDLE_HTTP_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_2}"; else export BUNDLE_HTTP_PROXY; fi else builtin unset BUNDLE_HTTP_PROXY 2>/dev/null || command unset BUNDLE_HTTP_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_2 __CODEX_SNAPSHOT_PROXY_OVERRIDE_2 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_2 __CODEX_SNAPSHOT_PROXY_OVERRIDE_2 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_3}" ]; then   if [ -z "${BUNDLE_NO_PROXY+x}" ] || [ "${BUNDLE_NO_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_3}" ]; then export BUNDLE_NO_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_3}"; else export BUNDLE_NO_PROXY; fi else builtin unset BUNDLE_NO_PROXY 2>/dev/null || command unset BUNDLE_NO_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_3 __CODEX_SNAPSHOT_PROXY_OVERRIDE_3 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_3 __CODEX_SNAPSHOT_PROXY_OVERRIDE_3 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_4}" ]; then   if [ -z "${BUNDLE_SSL_CA_CERT+x}" ] || [ "${BUNDLE_SSL_CA_CERT-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_4}" ]; then export BUNDLE_SSL_CA_CERT="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_4}"; else export BUNDLE_SSL_CA_CERT; fi else builtin unset BUNDLE_SSL_CA_CERT 2>/dev/null || command unset BUNDLE_SSL_CA_CERT; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_4 __CODEX_SNAPSHOT_PROXY_OVERRIDE_4 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_4 __CODEX_SNAPSHOT_PROXY_OVERRIDE_4 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_5}" ]; then   if [ -z "${CARGO_HTTP_CAINFO+x}" ] || [ "${CARGO_HTTP_CAINFO-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_5}" ]; then export CARGO_HTTP_CAINFO="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_5}"; else export CARGO_HTTP_CAINFO; fi else builtin unset CARGO_HTTP_CAINFO 2>/dev/null || command unset CARGO_HTTP_CAINFO; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_5 __CODEX_SNAPSHOT_PROXY_OVERRIDE_5 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_5 __CODEX_SNAPSHOT_PROXY_OVERRIDE_5 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_6}" ]; then   if [ -z "${CODEX_CA_CERTIFICATE+x}" ] || [ "${CODEX_CA_CERTIFICATE-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_6}" ]; then export CODEX_CA_CERTIFICATE="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_6}"; else export CODEX_CA_CERTIFICATE; fi else builtin unset CODEX_CA_CERTIFICATE 2>/dev/null || command unset CODEX_CA_CERTIFICATE; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_6 __CODEX_SNAPSHOT_PROXY_OVERRIDE_6 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_6 __CODEX_SNAPSHOT_PROXY_OVERRIDE_6 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_7}" ]; then   if [ -z "${CODEX_NETWORK_ALLOW_LOCAL_BINDING+x}" ] || [ "${CODEX_NETWORK_ALLOW_LOCAL_BINDING-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_7}" ]; then export CODEX_NETWORK_ALLOW_LOCAL_BINDING="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_7}"; else export CODEX_NETWORK_ALLOW_LOCAL_BINDING; fi else builtin unset CODEX_NETWORK_ALLOW_LOCAL_BINDING 2>/dev/null || command unset CODEX_NETWORK_ALLOW_LOCAL_BINDING; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_7 __CODEX_SNAPSHOT_PROXY_OVERRIDE_7 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_7 __CODEX_SNAPSHOT_PROXY_OVERRIDE_7 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_8}" ]; then   if [ -z "${CODEX_NETWORK_PROXY_ACTIVE+x}" ] || [ "${CODEX_NETWORK_PROXY_ACTIVE-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_8}" ]; then export CODEX_NETWORK_PROXY_ACTIVE="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_8}"; else export CODEX_NETWORK_PROXY_ACTIVE; fi else builtin unset CODEX_NETWORK_PROXY_ACTIVE 2>/dev/null || command unset CODEX_NETWORK_PROXY_ACTIVE; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_8 __CODEX_SNAPSHOT_PROXY_OVERRIDE_8 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_8 __CODEX_SNAPSHOT_PROXY_OVERRIDE_8 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_9}" ]; then   if [ -z "${CODEX_NETWORK_PROXY_ATTRIBUTION+x}" ] || [ "${CODEX_NETWORK_PROXY_ATTRIBUTION-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_9}" ]; then export CODEX_NETWORK_PROXY_ATTRIBUTION="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_9}"; else export CODEX_NETWORK_PROXY_ATTRIBUTION; fi else builtin unset CODEX_NETWORK_PROXY_ATTRIBUTION 2>/dev/null || command unset CODEX_NETWORK_PROXY_ATTRIBUTION; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_9 __CODEX_SNAPSHOT_PROXY_OVERRIDE_9 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_9 __CODEX_SNAPSHOT_PROXY_OVERRIDE_9 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_10}" ]; then   if [ -z "${CODEX_NETWORK_PROXY_BROKERED_CREDENTIALS+x}" ] || [ "${CODEX_NETWORK_PROXY_BROKERED_CREDENTIALS-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_10}" ]; then export CODEX_NETWORK_PROXY_BROKERED_CREDENTIALS="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_10}"; else export CODEX_NETWORK_PROXY_BROKERED_CREDENTIALS; fi else builtin unset CODEX_NETWORK_PROXY_BROKERED_CREDENTIALS 2>/dev/null || command unset CODEX_NETWORK_PROXY_BROKERED_CREDENTIALS; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_10 __CODEX_SNAPSHOT_PROXY_OVERRIDE_10 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_10 __CODEX_SNAPSHOT_PROXY_OVERRIDE_10 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_11}" ]; then   if [ -z "${CODEX_NETWORK_PROXY_CREDENTIAL_BROKER_ACTIVE+x}" ] || [ "${CODEX_NETWORK_PROXY_CREDENTIAL_BROKER_ACTIVE-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_11}" ]; then export CODEX_NETWORK_PROXY_CREDENTIAL_BROKER_ACTIVE="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_11}"; else export CODEX_NETWORK_PROXY_CREDENTIAL_BROKER_ACTIVE; fi else builtin unset CODEX_NETWORK_PROXY_CREDENTIAL_BROKER_ACTIVE 2>/dev/null || command unset CODEX_NETWORK_PROXY_CREDENTIAL_BROKER_ACTIVE; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_11 __CODEX_SNAPSHOT_PROXY_OVERRIDE_11 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_11 __CODEX_SNAPSHOT_PROXY_OVERRIDE_11 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_12}" ]; then   if [ -z "${CURL_CA_BUNDLE+x}" ] || [ "${CURL_CA_BUNDLE-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_12}" ]; then export CURL_CA_BUNDLE="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_12}"; else export CURL_CA_BUNDLE; fi else builtin unset CURL_CA_BUNDLE 2>/dev/null || command unset CURL_CA_BUNDLE; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_12 __CODEX_SNAPSHOT_PROXY_OVERRIDE_12 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_12 __CODEX_SNAPSHOT_PROXY_OVERRIDE_12 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_13}" ]; then   if [ -z "${DOCKER_HTTPS_PROXY+x}" ] || [ "${DOCKER_HTTPS_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_13}" ]; then export DOCKER_HTTPS_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_13}"; else export DOCKER_HTTPS_PROXY; fi else builtin unset DOCKER_HTTPS_PROXY 2>/dev/null || command unset DOCKER_HTTPS_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_13 __CODEX_SNAPSHOT_PROXY_OVERRIDE_13 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_13 __CODEX_SNAPSHOT_PROXY_OVERRIDE_13 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_14}" ]; then   if [ -z "${DOCKER_HTTP_PROXY+x}" ] || [ "${DOCKER_HTTP_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_14}" ]; then export DOCKER_HTTP_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_14}"; else export DOCKER_HTTP_PROXY; fi else builtin unset DOCKER_HTTP_PROXY 2>/dev/null || command unset DOCKER_HTTP_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_14 __CODEX_SNAPSHOT_PROXY_OVERRIDE_14 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_14 __CODEX_SNAPSHOT_PROXY_OVERRIDE_14 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_15}" ]; then   if [ -z "${ELECTRON_GET_USE_PROXY+x}" ] || [ "${ELECTRON_GET_USE_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_15}" ]; then export ELECTRON_GET_USE_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_15}"; else export ELECTRON_GET_USE_PROXY; fi else builtin unset ELECTRON_GET_USE_PROXY 2>/dev/null || command unset ELECTRON_GET_USE_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_15 __CODEX_SNAPSHOT_PROXY_OVERRIDE_15 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_15 __CODEX_SNAPSHOT_PROXY_OVERRIDE_15 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_16}" ]; then   if [ -z "${FTP_PROXY+x}" ] || [ "${FTP_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_16}" ]; then export FTP_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_16}"; else export FTP_PROXY; fi else builtin unset FTP_PROXY 2>/dev/null || command unset FTP_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_16 __CODEX_SNAPSHOT_PROXY_OVERRIDE_16 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_16 __CODEX_SNAPSHOT_PROXY_OVERRIDE_16 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_17}" ]; then   if [ -z "${GIT_SSL_CAINFO+x}" ] || [ "${GIT_SSL_CAINFO-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_17}" ]; then export GIT_SSL_CAINFO="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_17}"; else export GIT_SSL_CAINFO; fi else builtin unset GIT_SSL_CAINFO 2>/dev/null || command unset GIT_SSL_CAINFO; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_17 __CODEX_SNAPSHOT_PROXY_OVERRIDE_17 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_17 __CODEX_SNAPSHOT_PROXY_OVERRIDE_17 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_18}" ]; then   if [ -z "${HTTPS_PROXY+x}" ] || [ "${HTTPS_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_18}" ]; then export HTTPS_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_18}"; else export HTTPS_PROXY; fi else builtin unset HTTPS_PROXY 2>/dev/null || command unset HTTPS_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_18 __CODEX_SNAPSHOT_PROXY_OVERRIDE_18 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_18 __CODEX_SNAPSHOT_PROXY_OVERRIDE_18 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_19}" ]; then   if [ -z "${HTTP_PROXY+x}" ] || [ "${HTTP_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_19}" ]; then export HTTP_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_19}"; else export HTTP_PROXY; fi else builtin unset HTTP_PROXY 2>/dev/null || command unset HTTP_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_19 __CODEX_SNAPSHOT_PROXY_OVERRIDE_19 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_19 __CODEX_SNAPSHOT_PROXY_OVERRIDE_19 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_20}" ]; then   if [ -z "${NODE_EXTRA_CA_CERTS+x}" ] || [ "${NODE_EXTRA_CA_CERTS-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_20}" ]; then export NODE_EXTRA_CA_CERTS="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_20}"; else export NODE_EXTRA_CA_CERTS; fi else builtin unset NODE_EXTRA_CA_CERTS 2>/dev/null || command unset NODE_EXTRA_CA_CERTS; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_20 __CODEX_SNAPSHOT_PROXY_OVERRIDE_20 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_20 __CODEX_SNAPSHOT_PROXY_OVERRIDE_20 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_21}" ]; then   if [ -z "${NODE_USE_ENV_PROXY+x}" ] || [ "${NODE_USE_ENV_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_21}" ]; then export NODE_USE_ENV_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_21}"; else export NODE_USE_ENV_PROXY; fi else builtin unset NODE_USE_ENV_PROXY 2>/dev/null || command unset NODE_USE_ENV_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_21 __CODEX_SNAPSHOT_PROXY_OVERRIDE_21 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_21 __CODEX_SNAPSHOT_PROXY_OVERRIDE_21 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_22}" ]; then   if [ -z "${NO_PROXY+x}" ] || [ "${NO_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_22}" ]; then export NO_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_22}"; else export NO_PROXY; fi else builtin unset NO_PROXY 2>/dev/null || command unset NO_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_22 __CODEX_SNAPSHOT_PROXY_OVERRIDE_22 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_22 __CODEX_SNAPSHOT_PROXY_OVERRIDE_22 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_23}" ]; then   if [ -z "${NPM_CONFIG_CAFILE+x}" ] || [ "${NPM_CONFIG_CAFILE-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_23}" ]; then export NPM_CONFIG_CAFILE="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_23}"; else export NPM_CONFIG_CAFILE; fi else builtin unset NPM_CONFIG_CAFILE 2>/dev/null || command unset NPM_CONFIG_CAFILE; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_23 __CODEX_SNAPSHOT_PROXY_OVERRIDE_23 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_23 __CODEX_SNAPSHOT_PROXY_OVERRIDE_23 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_24}" ]; then   if [ -z "${NPM_CONFIG_HTTPS_PROXY+x}" ] || [ "${NPM_CONFIG_HTTPS_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_24}" ]; then export NPM_CONFIG_HTTPS_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_24}"; else export NPM_CONFIG_HTTPS_PROXY; fi else builtin unset NPM_CONFIG_HTTPS_PROXY 2>/dev/null || command unset NPM_CONFIG_HTTPS_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_24 __CODEX_SNAPSHOT_PROXY_OVERRIDE_24 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_24 __CODEX_SNAPSHOT_PROXY_OVERRIDE_24 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_25}" ]; then   if [ -z "${NPM_CONFIG_HTTP_PROXY+x}" ] || [ "${NPM_CONFIG_HTTP_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_25}" ]; then export NPM_CONFIG_HTTP_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_25}"; else export NPM_CONFIG_HTTP_PROXY; fi else builtin unset NPM_CONFIG_HTTP_PROXY 2>/dev/null || command unset NPM_CONFIG_HTTP_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_25 __CODEX_SNAPSHOT_PROXY_OVERRIDE_25 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_25 __CODEX_SNAPSHOT_PROXY_OVERRIDE_25 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_26}" ]; then   if [ -z "${NPM_CONFIG_NOPROXY+x}" ] || [ "${NPM_CONFIG_NOPROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_26}" ]; then export NPM_CONFIG_NOPROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_26}"; else export NPM_CONFIG_NOPROXY; fi else builtin unset NPM_CONFIG_NOPROXY 2>/dev/null || command unset NPM_CONFIG_NOPROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_26 __CODEX_SNAPSHOT_PROXY_OVERRIDE_26 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_26 __CODEX_SNAPSHOT_PROXY_OVERRIDE_26 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_27}" ]; then   if [ -z "${NPM_CONFIG_PROXY+x}" ] || [ "${NPM_CONFIG_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_27}" ]; then export NPM_CONFIG_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_27}"; else export NPM_CONFIG_PROXY; fi else builtin unset NPM_CONFIG_PROXY 2>/dev/null || command unset NPM_CONFIG_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_27 __CODEX_SNAPSHOT_PROXY_OVERRIDE_27 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_27 __CODEX_SNAPSHOT_PROXY_OVERRIDE_27 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_28}" ]; then   if [ -z "${PIP_CERT+x}" ] || [ "${PIP_CERT-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_28}" ]; then export PIP_CERT="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_28}"; else export PIP_CERT; fi else builtin unset PIP_CERT 2>/dev/null || command unset PIP_CERT; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_28 __CODEX_SNAPSHOT_PROXY_OVERRIDE_28 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_28 __CODEX_SNAPSHOT_PROXY_OVERRIDE_28 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_29}" ]; then   if [ -z "${PIP_PROXY+x}" ] || [ "${PIP_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_29}" ]; then export PIP_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_29}"; else export PIP_PROXY; fi else builtin unset PIP_PROXY 2>/dev/null || command unset PIP_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_29 __CODEX_SNAPSHOT_PROXY_OVERRIDE_29 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_29 __CODEX_SNAPSHOT_PROXY_OVERRIDE_29 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_30}" ]; then   if [ -z "${REQUESTS_CA_BUNDLE+x}" ] || [ "${REQUESTS_CA_BUNDLE-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_30}" ]; then export REQUESTS_CA_BUNDLE="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_30}"; else export REQUESTS_CA_BUNDLE; fi else builtin unset REQUESTS_CA_BUNDLE 2>/dev/null || command unset REQUESTS_CA_BUNDLE; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_30 __CODEX_SNAPSHOT_PROXY_OVERRIDE_30 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_30 __CODEX_SNAPSHOT_PROXY_OVERRIDE_30 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_31}" ]; then   if [ -z "${SSL_CERT_FILE+x}" ] || [ "${SSL_CERT_FILE-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_31}" ]; then export SSL_CERT_FILE="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_31}"; else export SSL_CERT_FILE; fi else builtin unset SSL_CERT_FILE 2>/dev/null || command unset SSL_CERT_FILE; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_31 __CODEX_SNAPSHOT_PROXY_OVERRIDE_31 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_31 __CODEX_SNAPSHOT_PROXY_OVERRIDE_31 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_32}" ]; then   if [ -z "${WSS_PROXY+x}" ] || [ "${WSS_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_32}" ]; then export WSS_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_32}"; else export WSS_PROXY; fi else builtin unset WSS_PROXY 2>/dev/null || command unset WSS_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_32 __CODEX_SNAPSHOT_PROXY_OVERRIDE_32 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_32 __CODEX_SNAPSHOT_PROXY_OVERRIDE_32 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_33}" ]; then   if [ -z "${WS_PROXY+x}" ] || [ "${WS_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_33}" ]; then export WS_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_33}"; else export WS_PROXY; fi else builtin unset WS_PROXY 2>/dev/null || command unset WS_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_33 __CODEX_SNAPSHOT_PROXY_OVERRIDE_33 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_33 __CODEX_SNAPSHOT_PROXY_OVERRIDE_33 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_34}" ]; then   if [ -z "${YARN_HTTPS_PROXY+x}" ] || [ "${YARN_HTTPS_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_34}" ]; then export YARN_HTTPS_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_34}"; else export YARN_HTTPS_PROXY; fi else builtin unset YARN_HTTPS_PROXY 2>/dev/null || command unset YARN_HTTPS_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_34 __CODEX_SNAPSHOT_PROXY_OVERRIDE_34 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_34 __CODEX_SNAPSHOT_PROXY_OVERRIDE_34 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_35}" ]; then   if [ -z "${YARN_HTTP_PROXY+x}" ] || [ "${YARN_HTTP_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_35}" ]; then export YARN_HTTP_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_35}"; else export YARN_HTTP_PROXY; fi else builtin unset YARN_HTTP_PROXY 2>/dev/null || command unset YARN_HTTP_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_35 __CODEX_SNAPSHOT_PROXY_OVERRIDE_35 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_35 __CODEX_SNAPSHOT_PROXY_OVERRIDE_35 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_36}" ]; then   if [ -z "${YARN_NO_PROXY+x}" ] || [ "${YARN_NO_PROXY-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_36}" ]; then export YARN_NO_PROXY="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_36}"; else export YARN_NO_PROXY; fi else builtin unset YARN_NO_PROXY 2>/dev/null || command unset YARN_NO_PROXY; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_36 __CODEX_SNAPSHOT_PROXY_OVERRIDE_36 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_36 __CODEX_SNAPSHOT_PROXY_OVERRIDE_36 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_37}" ]; then   if [ -z "${all_proxy+x}" ] || [ "${all_proxy-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_37}" ]; then export all_proxy="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_37}"; else export all_proxy; fi else builtin unset all_proxy 2>/dev/null || command unset all_proxy; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_37 __CODEX_SNAPSHOT_PROXY_OVERRIDE_37 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_37 __CODEX_SNAPSHOT_PROXY_OVERRIDE_37 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_38}" ]; then   if [ -z "${ftp_proxy+x}" ] || [ "${ftp_proxy-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_38}" ]; then export ftp_proxy="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_38}"; else export ftp_proxy; fi else builtin unset ftp_proxy 2>/dev/null || command unset ftp_proxy; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_38 __CODEX_SNAPSHOT_PROXY_OVERRIDE_38 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_38 __CODEX_SNAPSHOT_PROXY_OVERRIDE_38 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_39}" ]; then   if [ -z "${http_proxy+x}" ] || [ "${http_proxy-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_39}" ]; then export http_proxy="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_39}"; else export http_proxy; fi else builtin unset http_proxy 2>/dev/null || command unset http_proxy; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_39 __CODEX_SNAPSHOT_PROXY_OVERRIDE_39 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_39 __CODEX_SNAPSHOT_PROXY_OVERRIDE_39 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_40}" ]; then   if [ -z "${https_proxy+x}" ] || [ "${https_proxy-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_40}" ]; then export https_proxy="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_40}"; else export https_proxy; fi else builtin unset https_proxy 2>/dev/null || command unset https_proxy; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_40 __CODEX_SNAPSHOT_PROXY_OVERRIDE_40 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_40 __CODEX_SNAPSHOT_PROXY_OVERRIDE_40 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_41}" ]; then   if [ -z "${no_proxy+x}" ] || [ "${no_proxy-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_41}" ]; then export no_proxy="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_41}"; else export no_proxy; fi else builtin unset no_proxy 2>/dev/null || command unset no_proxy; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_41 __CODEX_SNAPSHOT_PROXY_OVERRIDE_41 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_41 __CODEX_SNAPSHOT_PROXY_OVERRIDE_41 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_42}" ]; then   if [ -z "${npm_config_cafile+x}" ] || [ "${npm_config_cafile-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_42}" ]; then export npm_config_cafile="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_42}"; else export npm_config_cafile; fi else builtin unset npm_config_cafile 2>/dev/null || command unset npm_config_cafile; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_42 __CODEX_SNAPSHOT_PROXY_OVERRIDE_42 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_42 __CODEX_SNAPSHOT_PROXY_OVERRIDE_42 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_43}" ]; then   if [ -z "${npm_config_http_proxy+x}" ] || [ "${npm_config_http_proxy-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_43}" ]; then export npm_config_http_proxy="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_43}"; else export npm_config_http_proxy; fi else builtin unset npm_config_http_proxy 2>/dev/null || command unset npm_config_http_proxy; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_43 __CODEX_SNAPSHOT_PROXY_OVERRIDE_43 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_43 __CODEX_SNAPSHOT_PROXY_OVERRIDE_43 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_44}" ]; then   if [ -z "${npm_config_https_proxy+x}" ] || [ "${npm_config_https_proxy-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_44}" ]; then export npm_config_https_proxy="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_44}"; else export npm_config_https_proxy; fi else builtin unset npm_config_https_proxy 2>/dev/null || command unset npm_config_https_proxy; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_44 __CODEX_SNAPSHOT_PROXY_OVERRIDE_44 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_44 __CODEX_SNAPSHOT_PROXY_OVERRIDE_44 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_45}" ]; then   if [ -z "${npm_config_noproxy+x}" ] || [ "${npm_config_noproxy-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_45}" ]; then export npm_config_noproxy="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_45}"; else export npm_config_noproxy; fi else builtin unset npm_config_noproxy 2>/dev/null || command unset npm_config_noproxy; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_45 __CODEX_SNAPSHOT_PROXY_OVERRIDE_45 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_45 __CODEX_SNAPSHOT_PROXY_OVERRIDE_45 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_46}" ]; then   if [ -z "${npm_config_proxy+x}" ] || [ "${npm_config_proxy-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_46}" ]; then export npm_config_proxy="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_46}"; else export npm_config_proxy; fi else builtin unset npm_config_proxy 2>/dev/null || command unset npm_config_proxy; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_46 __CODEX_SNAPSHOT_PROXY_OVERRIDE_46 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_46 __CODEX_SNAPSHOT_PROXY_OVERRIDE_46 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_47}" ]; then   if [ -z "${ws_proxy+x}" ] || [ "${ws_proxy-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_47}" ]; then export ws_proxy="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_47}"; else export ws_proxy; fi else builtin unset ws_proxy 2>/dev/null || command unset ws_proxy; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_47 __CODEX_SNAPSHOT_PROXY_OVERRIDE_47 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_47 __CODEX_SNAPSHOT_PROXY_OVERRIDE_47 if [ -n "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_48}" ]; then   if [ -z "${wss_proxy+x}" ] || [ "${wss_proxy-}" != "${__CODEX_SNAPSHOT_PROXY_OVERRIDE_48}" ]; then export wss_proxy="${__CODEX_SNAPSHOT_PROXY_OVERRIDE_48}"; else export wss_proxy; fi else builtin unset wss_proxy 2>/dev/null || command unset wss_proxy; fi builtin unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_48 __CODEX_SNAPSHOT_PROXY_OVERRIDE_48 2>/dev/null || command unset __CODEX_SNAPSHOT_PROXY_OVERRIDE_SET_48 __CODEX_SNAPSHOT_PROXY_OVERRIDE_48 fi if [ -n "${PATH:-}" ]; then export PATH='/home/mrullldhm/.nvm/versions/node/v26.13.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path':"$PATH"; else export PATH='/home/mrullldhm/.nvm/versions/node/v26.13.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path'; fi  exec '/bin/bash' -c 'ps -eo pid,rss,etime,args | rg '"'"'audit_round2|PID'"'"''
+    2  3456       00:00 /bin/bash -c ps -eo pid,rss,etime,args | rg 'audit_round2|PID'
+    4   384       00:00 rg audit_round2|PID
+

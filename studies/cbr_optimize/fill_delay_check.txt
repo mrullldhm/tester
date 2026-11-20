@@ -1,0 +1,5 @@
+fill_delay <= 2 bars (skip) vs > 2 (keep): mean net R, dev setup level, in-sample
+  H1: skip n=390 +0.125R | keep n=395 +0.224R | diff +0.099 [95% -0.109,+0.295]
+  H2: skip n=423 -0.044R | keep n=487 +0.072R | diff +0.116 [95% -0.058,+0.302]
+  dev: skip n=813 +0.037R | keep n=882 +0.140R | diff +0.103 [95% -0.041,+0.238]
+  validation 2022-24 (CONTAMINATED sanity): all n=519 +0.053R | skip n=239 +0.103R | keep n=280 +0.010R

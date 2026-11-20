@@ -1,0 +1,116 @@
+versions 13824; net > 0: 39.1%; PF median 0.980
+  trades>=200      10899
+  PF>=1.25           594
+  years>=70%         746
+  pass>=50%          431
+  cost<=500         1711
+  halves>0          2283
+  neighbours>=60%   3413
+  ALL gates            4
+
+Top 15 by PF (trades >= 200):
+sig_tf     reg sources weight  tol  score  clv entry stop exit session  trades      net    pf    win  years_pos_all  pass_rate  cost_per_pass   net_h1   net_h2  nb_pos
+    1h    lock     htf     tf  0.4     50 0.75  band band  be3     all     231 13256.76 1.669 0.2381          0.667     0.9343        1764.00  8273.68  4983.08  0.6875
+    1h confirm     all     tf  0.4     50 0.60  band band   r1     rth     255 12389.80 1.559 0.6039          0.750     1.0000        1764.00  9966.72  2423.08  0.9375
+    1h confirm     all   flat  0.4     50 0.75 close band   r1     rth     223 20089.08 1.543 0.5516          0.833     0.6484        1043.00 14267.52  5821.56  0.8750
+    1h confirm     all   flat  0.4     50 0.60 close band   r2     rth     306 29753.76 1.541 0.5033          0.750     0.4945         774.20 23091.48  6662.28  0.8125
+    1h confirm     all   flat  0.4     50 0.60 close band   r1     rth     312 27219.52 1.534 0.5641          0.833     0.7596         816.67 17521.28  9698.24  0.9375
+    1h confirm     all   flat  0.4     50 0.60 close band  be3     rth     310 25967.60 1.517 0.4194          0.750     0.5976         943.25 16819.36  9148.24  0.8750
+    1h confirm     all   flat  0.4     50 0.75 close band   r2     rth     222 20563.12 1.508 0.5045          0.750     0.6383        1050.00 16867.52  3695.60  0.8125
+    1h confirm     htf   flat  0.6      0 0.75  band band  be3     rth     216 10297.36 1.480 0.2778          0.833     0.8159        2352.00  6975.60  3321.76  0.6875
+    1h confirm     all   flat  0.4     50 0.75 close band  be3     rth     223 17329.08 1.467 0.4350          0.833     0.5992        1460.20 12947.52  4381.56  0.8125
+    1h confirm     all   flat  0.4     50 0.60 close band   r3     rth     305 25017.80 1.445 0.4885          0.667     0.5235         860.22 16375.52  8642.28  0.8125
+   15m    lock     all   flat  0.4     70 0.60 close band   r1     rth     235 11800.60 1.444 0.5745          0.750     0.7203        1776.25 10244.20  1556.40  0.7500
+   15m    lock     all   flat  0.4     70 0.60 close wick   r1     rth     236 12886.56 1.438 0.5720          0.667     0.6611        1470.00  9954.20  2932.36  0.8125
+    1h confirm     htf     tf  0.4     70 0.60 close wick  be3     all     220 17541.20 1.432 0.3545          0.667     0.6867         931.00  6717.32 10823.88  0.8125
+   15m    lock     htf     tf  0.6     50 0.60  band band   r1     rth     251  7095.96 1.431 0.5936          0.583     1.0000        3479.00  6244.80   851.16  0.8125
+    1h confirm     htf     tf  0.6      0 0.75  band band  be3     rth     239 10464.44 1.430 0.2762          0.750     0.6738        2335.67  7677.12  2787.32  0.8125
+
+Top 15 by pass rate (trades >= 100):
+sig_tf     reg sources weight  tol  score  clv entry stop exit session  trades      net    pf    win  years_pos_all  pass_rate  cost_per_pass  net_h1  net_h2  nb_pos
+    5m    lock     htf     tf  0.6     70 0.60  band wick   r1     all     455  3051.80 1.141 0.5187          0.667        1.0         6958.0 3114.88  -63.08  0.5625
+    5m confirm     all   flat  0.4     70 0.60  band wick   r1     rth     232  4962.72 1.337 0.5733          0.750        1.0         6958.0 4587.44  375.28  0.7500
+    1h confirm     htf     tf  0.4     50 0.60  band band  be3     rth     123  4183.08 1.420 0.2195          0.667        1.0         6958.0 3099.52 1083.56  0.6875
+    1h confirm     all   flat  0.4     50 0.60  band band   r3     rth     109  6269.64 1.473 0.4037          0.583        1.0         3479.0 6607.40 -337.76  0.8125
+    1h    lock     htf   flat  0.4      0 0.75  band band  be3     rth     174  8047.04 1.499 0.2586          0.917        1.0         3479.0 5448.32 2598.72  0.7500
+    5m    lock     all     tf  0.4     70 0.60  band band   r1     rth     413  2841.48 1.143 0.5424          0.583        1.0            NaN 1655.16 1186.32  0.6250
+    5m    lock     all     tf  0.4     70 0.60  band wick   r1     rth     522  1951.12 1.052 0.5172          0.667        1.0            NaN 2116.20 -165.08  0.7500
+    5m confirm     htf   flat  0.6     70 0.75 close band   r3     all     165  3783.40 1.249 0.3030          0.583        1.0         6958.0 3102.68  680.72  0.4375
+    5m confirm     htf   flat  0.6     50 0.75  band band   r1     all     941  2628.36 1.069 0.5303          0.667        1.0         6958.0 2826.84 -198.48  0.3125
+    1h confirm     htf     tf  0.6      0 0.60  band band   r1     rth     161  6929.56 1.417 0.5652          0.667        1.0         3479.0 4745.08 2184.48  0.8750
+    1h confirm     all     tf  0.4     50 0.75  band band   r1     rth     122  3537.12 1.304 0.5574          0.667        1.0         6909.0 3153.76  383.36  0.7500
+    5m    lock     htf   flat  0.6     50 0.60  band band   r2     rth     232  5412.72 1.330 0.3922          0.667        1.0         6958.0 3139.76 2272.96  0.8750
+    5m confirm     all     tf  0.4     70 0.60  band band   r1     rth     430  3422.80 1.167 0.5442          0.750        1.0         6958.0 2790.92  631.88  0.8125
+   15m confirm     htf     tf  0.6     50 0.60  band band   r1     rth     269  2283.24 1.115 0.5353          0.500        1.0         6958.0 1332.48  950.76  0.6875
+    1h confirm     all     tf  0.4     50 0.60  band band   r1     rth     255 12389.80 1.559 0.6039          0.750        1.0         1764.0 9966.72 2423.08  0.9375
+
+by sig_tf: median PF / share net>0 / median trades
+           pf    pos  trades
+sig_tf                      
+15m     0.990  0.416  2511.0
+1h      1.011  0.511   535.5
+5m      0.946  0.245  6853.5
+
+by reg: median PF / share net>0 / median trades
+            pf    pos  trades
+reg                          
+confirm  0.978  0.383  1743.0
+lock     0.982  0.398  1656.0
+
+by sources: median PF / share net>0 / median trades
+            pf    pos  trades
+sources                      
+all      0.984  0.406  3644.5
+htf      0.974  0.375   571.0
+
+by weight: median PF / share net>0 / median trades
+           pf    pos  trades
+weight                      
+flat    0.978  0.382  1035.0
+tf      0.982  0.399  2315.5
+
+by tol: median PF / share net>0 / median trades
+        pf    pos  trades
+tol                      
+0.4  0.990  0.435  1059.0
+0.6  0.982  0.392  1685.5
+1.0  0.970  0.345  2439.0
+
+by score: median PF / share net>0 / median trades
+          pf    pos  trades
+score                      
+0      0.990  0.431  6080.0
+50     0.975  0.395  1479.0
+70     0.968  0.346   345.0
+
+by clv: median PF / share net>0 / median trades
+         pf    pos  trades
+clv                       
+0.60  0.985  0.415  2040.0
+0.75  0.976  0.366  1506.5
+
+by entry: median PF / share net>0 / median trades
+          pf    pos  trades
+entry                      
+band   0.999  0.475  1019.0
+close  0.962  0.306  2418.5
+
+by stop: median PF / share net>0 / median trades
+         pf    pos  trades
+stop                      
+band  0.981  0.387  1718.5
+wick  0.979  0.394  1675.5
+
+by exit: median PF / share net>0 / median trades
+         pf    pos  trades
+exit                      
+be3   0.934  0.249  1791.0
+r1    1.004  0.505  1565.5
+r2    0.994  0.456  1714.5
+r3    0.976  0.353  1739.5
+
+by session: median PF / share net>0 / median trades
+            pf    pos  trades
+session                      
+all      0.974  0.340  3418.0
+rth      0.989  0.441   852.0

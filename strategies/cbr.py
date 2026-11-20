@@ -83,7 +83,8 @@ def _extension(h, lo, c, l2c: int, start_min: int, dur: int, retr: float, eff: f
 
 _CACHE: dict[str, pd.DataFrame] = {}
 CAND_COLS = ["side", "signal", "window", "l1c", "l2c", "h1c", "L2", "L1", "ll", "H1", "U", "close", "ws", "l2_rel",
-             "sig_rel", "ref_lo", "sweep_fh", "sweep_30", "body", "engulf", "struct", *(f"A_{e}" for e in EXTENSIONS)]
+             "sig_rel", "ref_lo", "sweep_fh", "sweep_30", "body", "engulf", "struct", *(f"A_{e}" for e in EXTENSIONS),
+             *(f"T_{e}" for e in EXTENSIONS)]
 
 
 def _content_key(df: pd.DataFrame) -> str:
@@ -219,6 +220,7 @@ def _candidates(df: pd.DataFrame) -> pd.DataFrame:
                 for e, (dur, retr, eff) in EXTENSIONS.items():
                     t = _extension(h, lo, c, l2c, int(seg_start[i]), dur, retr, eff)  # bounded before choosing
                     rec[f"A_{e}"] = int(h[t]) if t >= 0 else np.nan
+                    rec[f"T_{e}"] = int(t) if t >= 0 else np.nan  # origin bar (studies)
     return pd.DataFrame(rows, columns=CAND_COLS)  # same schema when nothing qualifies
 
 

@@ -1,0 +1,41 @@
+setups filled: 1695 (H1 785, H2 910); dev, in-sample, setup level
+fills better than the limit (open through it): 18; their bracket stays frozen at the limit (fixed 2026-11-20, Codex adversarial review)
+fills at or through the stop (exit at the fill, fee only): 1
+all outcomes finite
+
+EXIT RULES: mean net R (H1 / H2 / all), win share
+  tp1R                             +0.140 / -0.009 / +0.060  win 54.6%
+  tp1.5R                           +0.137 / +0.017 / +0.073  win 44.0%
+  tp2R (base)                      +0.174 / +0.022 / +0.092  win 37.7%
+  tp3R                             +0.162 / +0.026 / +0.089  win 28.4%
+  tp4R                             +0.151 / +0.032 / +0.087  win 23.5%
+  2R + BE at 1R                    +0.045 / +0.024 / +0.034  win 26.5%
+  2R + time stop 10                +0.174 / +0.014 / +0.088  win 40.1%
+  2R + time stop 20                +0.149 / +0.005 / +0.071  win 38.0%
+  2R + time stop 30                +0.157 / +0.014 / +0.080  win 38.0%
+  2R, runner 4R if 1R within 5     +0.160 / +0.004 / +0.077  win 28.3%
+  2R, runner 4R if 1R within 10    +0.166 / -0.007 / +0.073  win 26.2%
+
+ENTRY FEATURES vs base mean R. Terciles from H1. q1 / q2 / q3 (H1 | H2)
+  risk           cuts   11.00   15.00 | +0.088 +0.261 +0.203 | -0.001 +0.146 -0.009
+  risk_atr       cuts    1.10    1.45 | +0.263 +0.089 +0.169 | -0.090 +0.122 +0.015
+  room           cuts    3.55    5.33 | +0.245 +0.127 +0.149 | -0.017 +0.101 -0.004
+  dur            cuts   41.00   55.00 | +0.032 +0.253 +0.249 | +0.055 -0.012 +0.013
+  bounce         cuts    0.49    0.78 | +0.179 +0.133 +0.209 | +0.058 +0.039 -0.051
+  eff            cuts    0.15    0.26 | +0.251 +0.129 +0.141 | -0.029 +0.044 +0.035
+  sweep_depth    cuts    0.27    0.50 | +0.259 +0.104 +0.159 | +0.013 +0.017 +0.031
+  minute         cuts   19.00   40.00 | +0.092 +0.159 +0.275 | +0.005 -0.025 +0.092
+  ref_range_atr  cuts    6.23    8.61 | +0.251 +0.069 +0.201 | -0.021 +0.006 +0.055
+  fill_delay     cuts    2.00    4.00 | +0.130 +0.145 +0.284 | -0.038 +0.067 +0.080   QUALIFIES (skip q1)
+
+FLAGS: mean R when False / True (H1 | H2)
+  side           short/long +0.230 +0.118 | +0.053 -0.009  n(H1) [391, 394]
+  e20            F/T        +0.181 +0.157 | -0.030 +0.101  n(H1) [559, 226]
+  wed            F/T        +0.145 +0.286 | +0.015 +0.046  n(H1) [625, 160]
+  trend_aligned  F/T        +0.241 +0.088 | +0.011 +0.035  n(H1) [439, 346]
+  body           F/T        +0.187 +0.154 | -0.042 +0.118  n(H1) [466, 319]
+  struct         F/T        +0.132 +0.297 | +0.044 -0.032  n(H1) [586, 199]
+  sweep_fh       F/T        +0.226 -0.015 | +0.002 +0.086  n(H1) [614, 171]
+  sweep_30       F/T        +0.149 +0.214 | +0.020 +0.023  n(H1) [485, 300]
+
+qualifying continuous filters: [('fill_delay', 'skip q1')]

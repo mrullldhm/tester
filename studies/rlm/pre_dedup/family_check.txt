@@ -1,0 +1,9 @@
+family 13824 versions x 2976 days (dev, in-sample); stationary bootstrap 1000, block 5.0
+observed max t 4.19; lead t 4.07 (rank 4)
+bootstrap max t: median 3.76, 95% 4.67, 99% 5.04
+p(max t* >= observed max) = 0.1800; p(max t* >= lead t) = 0.2470
+  t 4.19 {'sig_tf': '15m', 'reg': 'lock', 'sources': 'all', 'weight': 'tf', 'tol': 0.4, 'score': 0, 'clv': 0.6, 'entry': 'band', 'stop': 'band', 'exit': 'r2', 'session': 'rth'}
+  t 4.14 {'sig_tf': '15m', 'reg': 'confirm', 'sources': 'all', 'weight': 'flat', 'tol': 0.4, 'score': 0, 'clv': 0.6, 'entry': 'band', 'stop': 'band', 'exit': 'r2', 'session': 'rth'}
+  t 4.13 {'sig_tf': '5m', 'reg': 'confirm', 'sources': 'htf', 'weight': 'flat', 'tol': 0.6, 'score': 0, 'clv': 0.6, 'entry': 'band', 'stop': 'band', 'exit': 'r2', 'session': 'rth'}
+  t 4.07 {'sig_tf': '1h', 'reg': 'confirm', 'sources': 'all', 'weight': 'flat', 'tol': 0.4, 'score': 50, 'clv': 0.6, 'entry': 'close', 'stop': 'band', 'exit': 'r1', 'session': 'all'}
+  t 3.98 {'sig_tf': '5m', 'reg': 'lock', 'sources': 'htf', 'weight': 'tf', 'tol': 0.4, 'score': 0, 'clv': 0.6, 'entry': 'band', 'stop': 'band', 'exit': 'r2', 'session': 'rth'}

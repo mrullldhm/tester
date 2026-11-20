@@ -1,0 +1,64 @@
+rlm [2851bcbfb212] period=dev params={'sig_tf': '1h', 'reg': 'confirm', 'sources': 'all', 'weight': 'flat', 'tol': 0.4, 'score': 50, 'clv': 0.6, 'entry': 'close', 'stop': 'band', 'exit': 'r1', 'session': 'all'}
+fills: limit touch, no exit slippage, fee=$4.04/RT  (in-sample unless period is holdout/forward)
+  trades             1249
+  net                66184.04
+  gross              71230.0
+  fees               5045.96
+  win_rate           0.5532
+  profit_factor      1.345
+  avg_trade          52.99
+  avg_win            373.07
+  avg_loss           -343.38
+  max_drawdown       -6407.24
+  worst_day          -1774.04
+  best_day           2051.92
+  sharpe_daily_ann   1.301
+  years_positive     11/12
+  exit_reasons       {'target': 581, 'stop': 465, 'flatten': 193, 'day_end': 5, 'roll': 5}
+50K Trading Combine:
+  rolling_attempts       2957
+  pass_rate              0.5573
+  median_days_to_pass    73.0
+  median_days_to_fail    53.0
+  seq_passes             27
+  seq_fails              20
+  seq_cost_usd           8673.0
+  seq_cost_per_pass_usd  321.22
+rlm [d5975c0524dc] period=dev params={'sig_tf': '1h', 'reg': 'confirm', 'sources': 'all', 'weight': 'flat', 'tol': 0.4, 'score': 50, 'clv': 0.6, 'entry': 'close', 'stop': 'band', 'exit': 'r1', 'session': 'all'}
+fills: limit trades 1 tick(s) through, no exit slippage, fee=$4.04/RT  (in-sample unless period is holdout/forward)
+  trades             1218
+  net                57849.28
+  gross              62770.0
+  fees               4920.72
+  win_rate           0.5435
+  profit_factor      1.303
+  avg_trade          47.5
+  avg_win            375.6
+  avg_loss           -343.16
+  max_drawdown       -7315.12
+  worst_day          -1774.04
+  best_day           2051.92
+  sharpe_daily_ann   1.148
+  years_positive     11/12
+  exit_reasons       {'target': 554, 'stop': 463, 'flatten': 191, 'day_end': 5, 'roll': 5}
+50K Trading Combine:
+  rolling_attempts       2957
+  pass_rate              0.5391
+  median_days_to_pass    76.0
+  median_days_to_fail    53.0
+  seq_passes             23
+  seq_fails              21
+  seq_cost_usd           8575.0
+  seq_cost_per_pass_usd  372.83
+0
+50
+100
+150
+200
+250
+{'sig_tf': '1h', 'reg': 'confirm', 'sources': 'all', 'weight': 'flat', 'tol': 0.4, 'score': 50, 'clv': 0.6, 'entry': 'close', 'stop': 'band', 'exit': 'r1', 'session': 'all'}
+real: trades 1249 net 66184 PF 1.345  (dev, in-sample)
+null: median PF 0.972, share net>0 36.7%, runs with PF >= real 0.0% of 300
+/home/mrullldhm/personal/tradingview-tester/studies/rlm/trades.py:39: Pandas4Warning: The 'lsuffix' and 'rsuffix' keywords in DataFrame.join are deprecated and will be removed in a future version. Use the 'suffixes' keyword instead.
+  t = tr.drop(columns="path").join(o, on="signal_bar", rsuffix="_o")
+FOLLOWUP DONE

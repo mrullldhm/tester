@@ -1,0 +1,3408 @@
+Reading additional input from stdin...
+OpenAI Codex v0.167.0
+--------
+workdir: /home/mrullldhm/personal/tradingview-tester
+model: gpt-6.1-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a1f523-3dbb-7613-b03e-79a0d06fc59e
+--------
+user
+Round 3: independent read of the RLM dev result. Repo /home/mrullldhm/personal/tradingview-tester.
+MEMORY RULES (machine has 11 GB; it crashed twice): wrap every python run as
+`bash -c 'ulimit -v 3000000; PYTHONPATH=. .venv/bin/python ...'`; ONE python process at a time; load_period('dev')
+is allowed (~1.1 GB) but nothing else heavy beside it; never store full swing stacks. Write only under
+studies/rlm/codex/. Do not edit other files.
+Context: docs/strategies/rlm/README.md (spec + declared screen), your audit fixes applied (reply2.md),
+studies/rlm/screen_dev.txt (13,824-version dev screen), studies/rlm/grid_dev_9a2fa27f50_screened.csv.
+Result: exactly 1 version passes all gates: sig_tf=1h reg=confirm sources=all weight=flat tol=0.4 score=50 clv=0.6
+entry=close stop=band exit=r1 session=all. Dev (in-sample, best of 13,824): 1,281 trades, PF 1.309, 11/12 years,
+pass 52%, $332/pass (ledger 0c7941f8774a); --through 1: PF 1.267, pass 50%. Random-date null
+(studies/rlm/null.py, 300 runs, same CT minute/side/offset/risk/target): median PF 0.974, max 1.17, z = 5.2.
+Trade features: studies/rlm/trades/lead_dev_features.csv (no strong monotone filter). Grid medians: PF 0.98, 39% net>0.
+Observation: weight=tf sibling (same params) gives 5,190 trades and PF 1.07: with flat weights, score>=50 needs ~5
+touches, so the score threshold is a different filter per weight scheme.
+Tasks:
+1. Try to break it: look-ahead or engine artefacts specific to entry=close (limit at the 1h close, next 1m bar),
+   e.g. fills where the next bar opens through the limit, trades after 14:00 CT that only flatten, 1h candle
+   completion vs signal bar, session/holiday candles, roll weeks. Quantify each.
+2. Is the null fair? Does a random-date null miss structure (e.g. 1h-close momentum/reversal at the same minute
+   on the same day, volatility regime)? Build one stronger null you think is fairer (e.g. same day, random other
+   1h close in the session; or the version's signals with the level test removed: every 1h candle with clv>=0.6
+   rejection shape) and report PF distribution vs 1.309.
+3. Verdict: does this version deserve ONE frozen validation run (2022-2024)? Any pre-registered change you
+   would make BEFORE validation (none is fine)? Sizing for the Combine (max 5 CL, $2,000 trailing MLL)?
+Reply <= 800 words, numbers labelled in-sample. Save scripts/outputs under studies/rlm/codex/.
+warning: Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. See the sandbox prerequisites: https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex will use the bundled bubblewrap in the meantime.
+hook: SessionStart
+hook: SessionStart Completed
+codex
+I’ll inspect the spec and execution path, quantify close-entry edge cases, and run a stronger null. I’ll keep Python runs sequential and memory-limited, with all new files under `studies/rlm/codex/`.
+exec
+/bin/bash -lc "pwd && rg --files -g 'AGENTS.md' -g '*reply2*' -g '*rlm*' -g '"'!*.csv'"' -g '"'!*.parquet'"' | head -70" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+/home/mrullldhm/personal/tradingview-tester
+studies/cbr/codex/reply2.md
+tests/test_rlm.py
+studies/rlm/codex/reply2.md
+studies/rlm/rlm_logic.pine
+strategies/rlm.py
+
+exec
+/bin/bash -lc 'cat docs/strategies/rlm/README.md; ls studies/rlm; ls studies/rlm/codex' in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+# rlm (Reaction Level Matrix, WillyAlgoTrader, mapped to CL)
+
+Status: dev
+Code: `strategies/rlm.py`. Study: `studies/rlm/` (grid, screen, trade study, Codex briefs/replies in `codex/`).
+Source: TradingView indicator "Reaction Level Matrix [WillyAlgoTrader]" v1.0.0 (Pine v6, an indicator, not a
+strategy), pasted by the owner 2026-11-19. Logic excerpt: `studies/rlm/rlm_logic.pine`. Mapped by Claude, reviewed by
+Codex (`studies/rlm/codex/reply1.md`). Swing points: owner rule only (`cltester/swings.py`).
+
+## What the original claims, and what its numbers really are
+The indicator clusters swing highs/lows into price bands ("levels"), scores them, and signals a rejection candle at
+the nearest strong level. Its dashboard "win rate" is **the share of trades that touched TP1 (1R)**, not the share
+that made money: a trade that touches 1R and then stops at break-even counts as a win (it loses the fee). Intrabar it
+gives targets priority over stops (a bar that touches both counts the target), it enters at the signal close (market),
+and it has no fees, slippage or P&L. Its displayed stats cannot show profitability. Here every trade is a real 1-CL
+bracket with fees and the engine's worst-case intrabar order (stop first).
+
+## Hypothesis
+Prices where CL turned several times (and on bigger timeframes) hold orders: resting limit orders and stop clusters
+of earlier participants. When price comes back to such a level and the candle closes strongly away from it, the
+level held again; buying the retest/close with a stop beyond the wick should have positive expectancy.
+Who is on the other side: breakout traders who sold into support (bought into resistance) and get trapped.
+
+## Rules (long; short is the mirror)
+| Original (Pine) | CL version | Note |
+|---|---|---|
+| Swings: `ta.pivothigh/low(6, 6)` on the chart TF | owner-rule swing points on several TFs (`sources`): `all` = S..1d of {5m, 15m, 1h, 4h, 1d}, `htf` = only TFs above S | owner rule mandatory; no swing length |
+| Touch weight = 1 + reaction size (≤ 2.5 ATR) in the 6 confirmation bars | **weight = TF** (owner: the bigger the TF, the stronger the swing): 5m 1, 15m 1.5, 1h 2, 4h 3, 1d 3.5 (same 1..3.5 range as the original). Control `flat`: every TF weight 1 | ladder numbers are an assumption; only the order is the owner's |
+| A pivot counts once | one turning point counts once: same kind, same price, one candle nested in the other = same extreme; a higher TF confirming it later upgrades the weight (strength + Δw from then on, no backdating), no extra touch | Codex: keep `touches` an event count |
+| Swing known 6 bars after the extreme | `reg = lock`: touch when the point is locked (a newer opposite point exists above it, so rule 5 can no longer replace it). `reg = confirm`: touch when the point first appears (candle k+1 close); when it later leaves the structure (rule 5/4, while still in the top four points) its weight is withdrawn from the level from then on | lock is later but stable; confirm is earlier. Rule-4 removal of an already locked point is not withdrawn in lock mode (43 of 14,561 5m points in 2010) |
+| Level engine per chart bar | per completed candle of the signal TF `sig_tf` S ∈ {5m, 15m, 1h}: age (half-life 500 S bars) and cross (close beyond the band: ×0.7 strength) with the candle close, register touches known by its completion, merge overlapping bands (5 passes), cap 60 levels, drop strength < 0.25, pick the 3 nearest active (≥ 2 touches) levels per side | constants as original |
+| Band: weighted mean ± weighted std, clamped to [0.15, tol] × ATR34; join radius tol × ATR34 | same, ATR34 of S | `tol` ∈ {0.4, 0.6, 1.0} |
+| Score = 100·(1 − e^(−strength·polar/6)), polar ×1.25 if touched by highs and lows | same | `score` ∈ {0, 50, 70} minimum |
+| Buy rejection: price above the band before this bar, low into the band, close above the band, (close − low)/range ≥ clv, cooldown 10 bars per level, nearest level first, long wins a tie | same | `clv` ∈ {0.6, 0.75} |
+| Entry at the signal close (market) | limit only (`entry`): `close` = limit at the signal candle close; `band` = limit at the band top (retest). Works one S interval (clock minutes) from the next 1m bar; killed by a target touch; engine cancels at day change / roll / 15:10 CT | owner rule: limit entries, touch fills |
+| SL wick-anchored: min(low − 0.25·ATR14, entry − 0.5·ATR14) | `stop`: `wick` = same (ATR14 of S, vs the limit price); `band` = min(band low − 0.25·ATR14, entry − 0.5·ATR14) | risk < 5 ticks skipped |
+| TP 1R/2R/3R, BE after TP1, close at TP3 or reversal | `exit`: `r1`, `r2`, `r3` fixed target; `be3` = 3R target, stop to entry once a bar after the fill bar reached 1R (effective next bar; the fill-bar high is ignored because it may predate the fill). Opposite-signal reversal not modelled (one position at a time) | 1 contract |
+| any time | `session`: `all` (any signal 17:00..15:10 CT) or `rth` (signal candle completes 08:30..13:30 CT). Levels always evolve on all hours | RTH known from earlier studies (post-hoc prior) |
+
+Point-in-time: a swing candle k's state is known when candle k+1 completes (`avail`); orders work from the next 1m
+bar. A signal candle that straddles a roll or completes in the next session is skipped.
+Rolls (prices not back-adjusted): levels, ATR and touches reset at every contract change; a touch needs its extreme
+candle and its left reference candle inside the current contract. Owner swing structure itself runs on unchanged.
+
+Code audit before the grid (Codex round 2, `studies/rlm/codex/reply2.md`; all fixed, tests in `tests/test_rlm.py`):
+a touch keeps the weight of every swing point (pid) that confirmed its extreme, not one per TF; a level's death
+purges its touches (no stale strength shares); a withdrawal takes back the touch's current share (decays and cross
+penalties included); BE triggers at the frozen TP1 (intended limit + intended 1R) and moves the stop to the actual
+fill; candles that straddle a roll are skipped and left out of ATR; grid parts carry a code fingerprint and the merge
+refuses an incomplete family. Known approximation: confirm-mode withdrawals are inferred from the top-4 state (2010
+5m check vs the true stack: 0 missed, 3 spurious of 2,107).
+
+## Parameters and trial budget
+| Parameter | Values |
+|---|---|
+| `sig_tf` | 5m, 15m, 1h |
+| `reg` | lock, confirm |
+| `sources` | all, htf |
+| `weight` | tf, flat |
+| `tol` | 0.4, 0.6, 1.0 |
+| `score` | 0, 50, 70 |
+| `clv` | 0.6, 0.75 |
+| `entry` | close, band |
+| `stop` | wick, band |
+| `exit` | r1, r2, r3, be3 |
+| `session` | all, rth |
+
+Owner asked for every version: **13,824 combinations**, all run once on dev as a screen (`studies/rlm/grid.py`, every
+row kept). Codex recommended 48 (`codex/reply1.md`); the full grid is run because the owner asked, so the guard
+below must carry the multiple-testing load. Every dev number is **best of 13,824**.
+
+Disclosure: before this file was written, one smoke run of the default version on dev 2010-06..2011 (15m, lock,
+be3) was looked at: 2,418 trades, PF 0.91. The spec above was not changed because of it.
+
+## Screen and guard (declared before the grid)
+1. Dev gates (PROTOCOL.md): trades ≥ 200, PF ≥ 1.25, years positive ≥ 70% (all dev years; no-trade year = not
+   positive), Combine pass ≥ 50%, cost/pass ≤ $500; plus both halves (2010-06..2015, 2016..2021) net > 0, plus ≥ 60% of
+   one-step neighbours net > 0.
+2. Family check (Codex): day-block bootstrap of the max PF across the screened family vs a random-entry null
+   (same times, sides, brackets on random dates) to see if the best version beats what selection alone produces.
+3. Survivors (max 3, ranked by pass rate): `cli test --period dev` (ledger) and `--through 1` (PF must stay ≥ 1.10),
+   trade spot-checks against raw bars.
+4. Trade study (wins vs losses): predeclared features (TF of the strongest touch, touches, score, polarity, age,
+   crosses, band width/ATR, CLV, risk ticks, CT hour, side, ATR); any filter found there is a new trial and needs data
+   it was not found on.
+5. Validation 2022-2024 once per survivor, frozen. Holdout only with the owner's yes.
+If nothing survives step 1, the strategy is dropped on dev.
+
+## Pass criteria
+PROTOCOL.md dev gates (above), validation PF ≥ 1.10 and pass ≥ 40%.
+
+## Results
+| Date | Period | Fills | Trades | Net | PF | Pass rate | Cost/pass | Note |
+|---|---|---|---|---|---|---|---|---|
+| 2026-11-20 | dev | touch | — | — | median 0.98 | — | — | 13,824-version screen (`studies/rlm/screen_dev.txt`): 38.9% net > 0; **1 passes all gates** |
+| 2026-11-20 | dev | touch, no exit slip | 1,281 | $61,525 | 1.309 | 52.3% | $332 | lead: 1h/confirm/all/flat/tol 0.4/score 50/clv 0.6/close/band/r1/all; best of 13,824; 11/12 years; ledger 0c7941f8774a |
+| 2026-11-20 | dev | through 1 | 1,250 | $53,020 | 1.267 | 50.0% | $375 | same version, strict fills; 10/12 years |
+All results in-sample unless the period is holdout or forward; tuned rows say best of N.
+__init__.py
+__pycache__
+codex
+grid.py
+grid_1h.log
+grid_all.log
+grid_dev_9a2fa27f50.csv
+grid_dev_9a2fa27f50_screened.csv
+grid_parts
+grid_parts_old
+null
+null.py
+rlm_logic.pine
+screen.py
+screen_dev.txt
+source_note.md
+trades
+trades.py
+audit_round2.py
+brief1.md
+brief2.md
+brief2b.md
+brief3.md
+reply1.md
+reply2.md
+round1.log
+round2.log
+round2b.log
+round3.log
+
+exec
+/bin/bash -lc 'find .. -name AGENTS.md -print; cat studies/rlm/null.py; cat studies/rlm/codex/reply2.md; cat studies/rlm/trades.py' in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 118ms:
+find: ‘../money4band/.data/.gradient/AmountExtractionHeuristicRegexes’: Permission denied
+find: ‘../money4band/.data/.gradient/WidevineCdm’: Permission denied
+find: ‘../money4band/.data/.gradient/Subresource Filter’: Permission denied
+find: ‘../money4band/.data/.gradient/CaptchaProviders’: Permission denied
+find: ‘../money4band/.data/.gradient/hyphen-data’: Permission denied
+find: ‘../money4band/.data/.gradient/FirstPartySetsPreloaded’: Permission denied
+find: ‘../money4band/.data/.gradient/ActorSafetyLists’: Permission denied
+find: ‘../money4band/.data/.gradient/ShaderCache’: Permission denied
+find: ‘../money4band/.data/.gradient/SSLErrorAssistant’: Permission denied
+find: ‘../money4band/.data/.gradient/PKIMetadata’: Permission denied
+find: ‘../money4band/.data/.gradient/WasmTtsEngine’: Permission denied
+find: ‘../money4band/.data/.gradient/TrustTokenKeyCommitments’: Permission denied
+find: ‘../money4band/.data/.gradient/OriginTrials’: Permission denied
+find: ‘../money4band/.data/.gradient/Default’: Permission denied
+find: ‘../money4band/.data/.gradient/component_crx_cache’: Permission denied
+find: ‘../money4band/.data/.gradient/SafetyTips’: Permission denied
+find: ‘../money4band/.data/.gradient/Crowd Deny’: Permission denied
+find: ‘../money4band/.data/.gradient/extensions_crx_cache’: Permission denied
+find: ‘../money4band/.data/.gradient/OptimizationHints’: Permission denied
+find: ‘../money4band/.data/.gradient/segmentation_platform’: Permission denied
+find: ‘../money4band/.data/.gradient/GrShaderCache’: Permission denied
+find: ‘../money4band/.data/.gradient/FileTypePolicies’: Permission denied
+find: ‘../money4band/.data/.gradient/Dictionaries’: Permission denied
+find: ‘../money4band/.data/.gradient/NativeMessagingHosts’: Permission denied
+find: ‘../money4band/.data/.gradient/PrivacySandboxAttestationsPreloaded’: Permission denied
+find: ‘../money4band/.data/.gradient/GraphiteDawnCache’: Permission denied
+find: ‘../money4band/.data/.gradient/CertificateRevocation’: Permission denied
+find: ‘../money4band/.data/.gradient/MEIPreload’: Permission denied
+find: ‘../money4band/.data/.gradient/ZxcvbnData’: Permission denied
+find: ‘../money4band/.data/.gradient/OnDeviceHeadSuggestModel’: Permission denied
+"""Random-entry null for one RLM version (README step 2, Codex round 1).
+
+Keeps everything of the version's orders except the level logic: each signal keeps its CT minute of day, side,
+entry offset from the signal close (0 for `close`, band edge - close for `band`), risk ticks, target multiple,
+expiry and the BE rule, but is moved to a random dev trading day (same CT minute, bar must exist). The engine runs
+these brackets as usual. If the real version is not better than most null runs, the levels add nothing.
+Run: .venv/bin/python -m studies.rlm.null --set sig_tf=1h ... [--runs 500] [--through 0]
+Memory: one dev frame (~1.1 GB); keep it alone beside a running grid.
+"""
+
+import argparse
+
+import numpy as np
+import pandas as pd
+
+from cltester.config import ROOT, TICK
+from cltester.data import Bars, load_period, to_ticks
+from cltester.engine import Fills, backtest
+from cltester.swings import TIMEFRAMES
+from strategies.rlm import EXPIRE_BARS, Strategy
+from studies.rlm.trades import parse
+
+OUT = ROOT / "studies" / "rlm" / "null"
+
+
+def pf(net: pd.Series) -> float:
+    loss = -net[net < 0].sum()
+    return float(net[net > 0].sum() / loss) if loss else np.nan
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--set", nargs="*", default=[])
+    ap.add_argument("--runs", type=int, default=500)
+    ap.add_argument("--through", type=int, default=0)
+    ap.add_argument("--tag", default="null")
+    a = ap.parse_args()
+    p = {**Strategy.PARAMS, **parse(a.set)}
+    df = load_period("dev")
+    bars, fills = Bars.from_frame(df), Fills(through=a.through)
+    s = Strategy()
+    real = backtest(bars, s.signals(df, p), fills, s.manage)
+    o = s.orders(df, p)
+    side = o["side"].to_numpy()
+    k = {"r1": 1, "r2": 2, "r3": 3, "be3": 3}[p["exit"]]
+    off = (o["E"] - side * o["cl"]).to_numpy()  # side space: limit - signal close
+    risk = o["R"].to_numpy().astype(np.int64)
+    minute = o["ct_min"].to_numpy()
+    close = to_ticks(df["close"])
+    day = df["trading_day"].to_numpy()
+    days = np.unique(day)
+    ctm = df["ct_minute"].to_numpy()
+    # bar index of (trading day, CT minute)
+    key = pd.Series(np.arange(len(df)), index=pd.MultiIndex.from_arrays([day, ctm]))
+    side_hi = {1: to_ticks(df["high"]), -1: -to_ticks(df["low"])}
+    rng = np.random.default_rng(11)
+    exp = EXPIRE_BARS * TIMEFRAMES[p["sig_tf"]]
+    rows = []
+    for r in range(a.runs):
+        pick = days[rng.integers(0, len(days), len(o) * 2)]
+        bar = key.reindex(pd.MultiIndex.from_arrays([pick, np.r_[minute, minute]])).to_numpy()
+        bar = np.where(np.isnan(bar[: len(o)]), bar[len(o):], bar[: len(o)])  # one retry when the minute is missing
+        ok = ~np.isnan(bar)
+        b = bar[ok].astype(np.int64)
+        sd, E = side[ok], side[ok] * close[b] + off[ok]
+        S, T = E - risk[ok], E + k * risk[ok]
+        sig = pd.DataFrame({"side": sd, "limit": sd * E * TICK, "stop": sd * S * TICK, "target": sd * T * TICK,
+                            "expire_min": exp, "kill": sd * T * TICK, "bar": b, "tp1": E + risk[ok]})
+        sig = sig.drop_duplicates("bar").set_index("bar").sort_index()
+        s._p, s._side_hi = p, side_hi
+        s._tp1 = dict(zip(sig.index, sig["tp1"].astype(int), strict=True))
+        t = backtest(bars, sig[["side", "limit", "stop", "target", "expire_min", "kill"]], fills, s.manage)
+        rows.append({"run": r, "trades": len(t), "net": t["net"].sum(), "pf": pf(t["net"])})
+        if r % 50 == 0:
+            print(r, flush=True)
+    n = pd.DataFrame(rows)
+    OUT.mkdir(parents=True, exist_ok=True)
+    n.to_csv(OUT / f"{a.tag}.csv", index=False)
+    rpf = pf(real["net"])
+    print(p)
+    print(f"real: trades {len(real)} net {real['net'].sum():.0f} PF {rpf:.3f}  (dev, in-sample)")
+    print(f"null: median PF {n['pf'].median():.3f}, share net>0 {(n['net'] > 0).mean():.1%}, "
+          f"runs with PF >= real {(n['pf'] >= rpf).mean():.1%} of {len(n)}")
+
+
+if __name__ == "__main__":
+    main()
+No look-ahead found in swing availability, candidate processing, order construction, or management’s `m-1` reads. Short rounding and kill/expiry handling match the documented execution rules. Ten existing tests passed; bounded probes reproduced the issues below. No files changed.
+
+1. **bug — `strategies/rlm.py:227,281` — TF provenance overwrites surviving points.** A registry entry stores one weight per TF, but multiple point IDs from that TF can reference it. Withdrawing either deletes that TF’s entire contribution. Reproduction: one HTF point plus two nested lower-TF points; withdrawing the first lower point and HTF point leaves the second PID registered but no live level. **Fix:** store contributions by full PID; derive the touch’s maximum weight from surviving PIDs.
+
+2. **bug — `strategies/rlm.py:164,181,284` — stale strength shares survive level death.** `_kill()` removes ownership but retains `base`; withdrawing an ownerless point leaves its registry entry behind. Re-registering that extreme can reuse its old base. Probe: level strength was 2 while recorded shares totaled 3; withdrawing one touch left another touch with zero strength. **Fix:** delete bases on death/full withdrawal, clean empty registry entries, and initialize a resurrected touch’s base from zero.
+
+3. **bug — `strategies/rlm.py:498` — improved fills distort the break-even threshold.** `(T-E)//3` reconstructs risk using the actual fill and a target calculated from the intended limit. Example: limit 1000, stop 990, target 1030, fill 995 gives “R” 11, versus intended risk 10 and actual risk 5. **Fix:** preserve the signal’s frozen TP1 (`limit + intended risk`) and move the stop to actual entry after that threshold; explicitly document any alternative convention.
+
+4. **bug — `strategies/rlm.py:354,360,386` — mixed-contract rejection is ineffective.** `c_start` selects the contract containing `cd.first`, making `cd.first < c_start` impossible. ATR grouping by the last bar can also include mixed-contract OHLC. The bounded sample contained six mixed 4h and six mixed daily candles; none were rejected by this comparison. No mixed signal-TF candles occurred in that sample. **Fix:** explicitly require matching contracts at `first`, `last`, and signal availability; exclude mixed candles before ATR seeding and validate source extreme/reference candle endpoints.
+
+5. **bug — `studies/rlm/grid.py:58,84`; `studies/rlm/screen.py:29` — screen integrity is unchecked.** Resume trusts filenames without a code/data fingerprint. Merge accepts incomplete families; missing neighbours disappear from the denominator. Consequently, stale or partial results can appear comparable and pass screening. **Fix:** fingerprint strategy/engine/data/configuration, reject incompatible parts, and require exactly 13,824 unique expected combinations before screening.
+
+6. **minor — `strategies/rlm.py:286,297` — strongest-touch feature remains stale.** Downgrading a 3.5-weight touch to 1 leaves `maxw=3.5`. This mislabels the predeclared trade-study feature. **Fix:** recompute `maxw` from surviving touch weights after withdrawals.
+
+7. **minor — `strategies/rlm.py:121` — withdrawal reconciliation remains heuristic.** The reported three spurious withdrawals still remove valid contributions prospectively, although no withdrawals were missed in that check. **Fix:** expose exact removal events from the swing engine, retaining only bounded state, rather than infer removals from fresh-point counts."""RLM trade study: every filled trade of one version joined to its signal features, then win/loss correlations.
+
+Features are the predeclared list in docs/strategies/rlm/README.md (step 4). Outcome: net $ and R (net / risk $).
+Per feature: quintile (or category) table of trades, win rate, avg R, PF, and a day-clustered bootstrap CI of avg R.
+Any filter read off this table is a NEW trial; it needs data it was not found on (validation once, or forward).
+Run: .venv/bin/python -m studies.rlm.trades --set sig_tf=15m exit=r2 ... [--period dev] [--tag name]
+"""
+
+import argparse
+
+import numpy as np
+import pandas as pd
+
+from cltester.config import ROOT, TICK_VALUE
+from cltester.data import Bars, load_period
+from cltester.engine import Fills, backtest
+from strategies.rlm import Strategy
+
+OUT = ROOT / "studies" / "rlm" / "trades"
+FEATURES = ["maxw", "touches", "score", "polar", "age", "crosses", "band_atr", "clv", "risk", "ct_hour", "side",
+            "atr14", "pen_atr", "dist_atr"]
+
+
+def parse(items: list[str]) -> dict:
+    out = {}
+    for it in items:
+        k, v = it.split("=")
+        try:
+            out[k] = float(v) if "." in v else int(v)
+        except ValueError:
+            out[k] = v
+    return out
+
+
+def study(df: pd.DataFrame, p: dict, through: int = 0) -> pd.DataFrame:
+    s = Strategy()
+    o = s.orders(df, p).set_index("bar")
+    tr = backtest(Bars.from_frame(df), s.signals(df, p), Fills(through=through), s.manage)
+    t = tr.drop(columns="path").join(o, on="signal_bar", rsuffix="_o")
+    rng = (t["h"] - t["l"]).replace(0, np.nan)
+    t["clv"] = np.where(t["side"] == 1, (t["cl"] - t["l"]) / rng, (t["h"] - t["cl"]) / rng)
+    t["band_atr"] = (t["hi"] - t["lo"]) / t["atr34"]
+    t["pen_atr"] = np.where(t["side"] == 1, t["hi"] - t["l"], t["h"] - t["lo"]) / t["atr34"]  # wick depth into band
+    t["dist_atr"] = np.where(t["side"] == 1, t["cl"] - t["hi"], t["lo"] - t["cl"]) / t["atr34"]  # close away
+    t["risk"] = t["R"]
+    t["ct_hour"] = t["ct_min"] // 60
+    t["Rmult"] = t["net"] / (t["R"] * TICK_VALUE)
+    t["year"] = pd.to_datetime(t["trading_day"]).dt.year
+    return t
+
+
+def table(t: pd.DataFrame, f: str, rng: np.random.Generator, boots: int = 300) -> pd.DataFrame:
+    x = t[f]
+    grp = pd.qcut(x.rank(method="first"), 5, labels=False) if x.nunique() > 6 else x
+    rows = []
+    for g, d in t.groupby(grp):
+        days = d["trading_day"].to_numpy()
+        ud = np.unique(days)
+        by = d.groupby("trading_day")["Rmult"].agg(["sum", "count"])
+        bs = []
+        for _ in range(boots):  # day-clustered bootstrap of avg R
+            pick = by.iloc[rng.integers(0, len(by), len(by))]
+            bs.append(pick["sum"].sum() / pick["count"].sum())
+        win, loss = d.loc[d["net"] > 0, "net"].sum(), -d.loc[d["net"] < 0, "net"].sum()
+        rows.append({"feature": f, "bin": g, "lo": round(float(d[f].min()), 3), "hi": round(float(d[f].max()), 3),
+                     "trades": len(d), "days": len(ud), "win": round((d["net"] > 0).mean(), 3),
+                     "avgR": round(d["Rmult"].mean(), 3), "ci05": round(np.quantile(bs, 0.05), 3),
+                     "ci95": round(np.quantile(bs, 0.95), 3), "pf": round(win / loss, 3) if loss else np.nan,
+                     "net": round(d["net"].sum())})
+    return pd.DataFrame(rows)
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--set", nargs="*", default=[])
+    ap.add_argument("--period", default="dev", choices=["dev"])
+    ap.add_argument("--through", type=int, default=0)
+    ap.add_argument("--tag", default="study")
+    a = ap.parse_args()
+    p = {**Strategy.PARAMS, **parse(a.set)}
+    df = load_period(a.period)
+    t = study(df, p, a.through)
+    OUT.mkdir(parents=True, exist_ok=True)
+    t.to_csv(OUT / f"{a.tag}_{a.period}.csv", index=False)
+    rng = np.random.default_rng(7)
+    tabs = pd.concat([table(t, f, rng) for f in FEATURES], ignore_index=True)
+    tabs.to_csv(OUT / f"{a.tag}_{a.period}_features.csv", index=False)
+    print(p, f"\ntrades {len(t)} net {t['net'].sum():.0f} avgR {t['Rmult'].mean():.3f} (in-sample, {a.period})")
+    with pd.option_context("display.width", 200, "display.max_rows", 200):
+        print(tabs.to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()
+
+exec
+/bin/bash -lc 'cat cltester/engine.py' in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+"""Bar-by-bar backtest of limit-entry bracket orders on CL 1-minute bars. Rules: docs/ENGINE.md.
+
+A strategy returns signals: one row per bar i where, after bar i closes, it places a limit entry order.
+Columns: side (+1 long / -1 short), limit, stop (required), target (optional, NaN = none),
+expire (bars the order stays working, default 30) or expire_min (minutes of clock time after the signal bar's
+close; replaces expire, so missing minutes cannot stretch the order), hold (max bars in the trade, optional),
+qty (default 1), kill (optional: a price beyond the limit on the winning side, e.g. the target; a touch cancels
+the unfilled order, see docs/ENGINE.md),
+part_qty / part_target (optional partial exit: part_qty contracts leave at part_target, the rest runs on).
+
+Optional trade management: `manage(ctx)` is called on every held bar m after the fill bar, before that bar's
+exits are checked, with data up to bar m-1 only. It returns (stop, close_now): the stop for bar m (any price, in
+the trade's own side space, see below) and whether to close the whole position at bar m's open.
+
+Short trades run through the same code with prices negated, so every rule is written once, for longs.
+`manage` sees those side-space prices too: for a short, ctx.E, ctx.S, ctx.best are negated ticks, and the stop it
+returns must be negated ticks as well (helpers: ctx.side, ctx.to_side(price_ticks)).
+"""
+
+from collections.abc import Callable
+from dataclasses import dataclass, field
+
+import numpy as np
+import pandas as pd
+
+from .config import COMBINE_50K, FEE_ROUND_TURN, TICK, TICK_VALUE
+from .data import Bars, session_minute, to_ticks
+
+
+@dataclass(frozen=True)
+class Fills:
+    fee: float = FEE_ROUND_TURN  # $ per contract round turn
+    flatten: int = session_minute(COMBINE_50K.flatten)  # session minute: no orders or positions from here
+    through: int = 0  # 0: a touch fills (owner rule). N: the bar must trade N ticks beyond the limit (sensitivity)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.through, int) or isinstance(self.through, bool) or self.through < 0:
+            raise ValueError(f"through must be a whole number of ticks >= 0, got {self.through!r}")
+
+
+@dataclass
+class Ctx:
+    """What `manage` may look at on held bar m. Prices are integer ticks in side space (negated for shorts)."""
+
+    i: int  # signal bar
+    j: int  # fill bar
+    m: int  # bar about to be checked (data up to m-1 may be used)
+    side: int
+    E: int  # entry
+    S: int  # current stop
+    T: int | None  # target
+    qty: int  # contracts still open
+    best: int  # highest side-space high from the fill bar through bar m-1 (the fill bar's high may predate the fill)
+    state: dict = field(default_factory=dict)  # free per-trade memory for the strategy
+
+    def to_side(self, ticks: int) -> int:
+        return self.side * ticks
+
+
+TRADE_COLUMNS = ["signal_bar", "entry_bar", "exit_bar", "entry_ts", "exit_ts", "trading_day", "side", "qty",
+                 "entry", "exit", "reason", "ticks", "part_exit", "part_bar", "part_qty", "gross", "fee", "net", "mae",
+                 "mfe", "path"]
+# ticks: exit - entry of the final leg per contract (side-adjusted). part_exit: price of the partial exit or NaN;
+# part_bar / part_qty: its bar and contracts (-1 / 0 without a partial).
+# path: (open P&L per held bar, worst P&L per held bar) in $ incl. fee; first entry = the fill bar.
+# The Combine simulator walks it so a gap through a loss limit executes at the open, not at the limit.
+
+
+def _prepare(signals: pd.DataFrame, n: int) -> pd.DataFrame:
+    s = signals.copy()
+    for col, default in (("target", np.nan), ("expire", 30), ("expire_min", np.nan), ("hold", np.nan), ("qty", 1),
+                         ("part_qty", 0), ("part_target", np.nan), ("void", np.nan), ("kill", np.nan)):
+        if col not in s:
+            s[col] = default
+    missing = {"side", "limit", "stop"} - set(s.columns)
+    if missing:
+        raise ValueError(f"signals miss columns {sorted(missing)}")
+    if not s.index.is_unique or s.index.min() < 0 or s.index.max() >= n:
+        raise ValueError("signal index must be unique bar positions inside the bars")
+    if not s["side"].isin([1, -1]).all():
+        raise ValueError("side must be +1 or -1")
+    if not np.isfinite(s[["limit", "stop"]].to_numpy(float)).all():
+        raise ValueError("limit and stop must be finite prices")
+    if not np.isfinite(s[["qty", "expire", "part_qty"]].to_numpy(float)).all():
+        raise ValueError("qty, expire and part_qty must be finite")
+    if (s["qty"] < 1).any() or (s["expire"] < 1).any() or (s["hold"] < 0).any() or (s["expire_min"] < 1).any():
+        raise ValueError("qty, expire and expire_min must be >= 1, hold >= 0")
+    pq, q = s["part_qty"].to_numpy(np.int64), s["qty"].to_numpy(np.int64)
+    if (pq < 0).any() or ((pq > 0) & (pq >= q)).any():
+        raise ValueError("part_qty must be 0 or below qty")
+    if ((pq > 0) & ~np.isfinite(s["part_target"].to_numpy(float))).any():
+        raise ValueError("part_qty needs a finite part_target")
+    return s.sort_index()
+
+
+def _ticks_or_zero(prices: pd.Series) -> tuple[np.ndarray, np.ndarray]:
+    """Prices as float and as integer ticks; NaN (no order) becomes 0 ticks."""
+    v = prices.to_numpy(float)
+    return v, np.where(np.isnan(v), 0, np.round(np.nan_to_num(v) / TICK)).astype(np.int64)
+
+
+def _check_stop(stop, signal_bar: int) -> int:
+    """manage() must return a finite whole number of ticks (side space: use ctx.to_side for shorts)."""
+    if not np.isfinite(stop) or stop != int(stop):
+        raise ValueError(f"signal at bar {signal_bar}: manage returned stop {stop}; need whole side-space ticks")
+    return int(stop)
+
+
+def _open_qty(held: list[tuple[int, int, int, int, int]], bar: int) -> int:
+    """Contracts still open at the close of `bar` (held: entry bar, exit bar, contracts, partial bar, partial
+    contracts; partial bar -1 when none)."""
+    return sum(q - (pq if 0 <= pb <= bar else 0) for e, x, q, pb, pq in held if e <= bar < x)
+
+
+def backtest(bars: Bars, signals: pd.DataFrame, fills: Fills = Fills(),
+             manage: Callable[[Ctx], tuple[int, bool]] | None = None, overlap: bool = False,
+             max_contracts: int = COMBINE_50K.max_contracts) -> pd.DataFrame:
+    """overlap=False: one order or position at a time. overlap=True: a new signal cancels an unfilled order but
+    open positions keep running, up to max_contracts open at once (a signal that would exceed it is ignored)."""
+    n = len(bars)
+    sig = _prepare(signals, n)
+    flat = fills.flatten
+    views = {1: (bars.o, bars.h, bars.l, bars.c), -1: (-bars.o, -bars.l, -bars.h, -bars.c)}
+    lim, stp = to_ticks(sig["limit"]), to_ticks(sig["stop"])
+    tgt, tgt_t = _ticks_or_zero(sig["target"])
+    _, ptg_t = _ticks_or_zero(sig["part_target"])
+    void, void_t = _ticks_or_zero(sig["void"])
+    kill, kill_t = _ticks_or_zero(sig["kill"])
+    sides, qtys = sig["side"].to_numpy(np.int64), sig["qty"].to_numpy(np.int64)
+    pqtys = sig["part_qty"].to_numpy(np.int64)
+    expires, holds = sig["expire"].to_numpy(np.int64), sig["hold"].to_numpy(float)
+    expire_min = sig["expire_min"].to_numpy(float)
+    minute = bars.ts.as_unit("ns").asi8 // 60_000_000_000  # bar open, minutes since epoch
+    rows = []
+    next_free = -1
+    sig_bars = sig.index.to_numpy()
+    held: list[tuple[int, int, int, int, int]] = []  # overlap: trades that may be open (see _open_qty)
+    for r, i in enumerate(sig_bars):
+        if i + 1 >= n:
+            continue
+        side, qty, pq = int(sides[r]), int(qtys[r]), int(pqtys[r])
+        cancel_at = n  # overlap: the next accepted signal's bar; this order works through it at most
+        if overlap:
+            held = [t for t in held if t[1] > i]
+            if _open_qty(held, i) + qty > max_contracts:
+                continue
+            for r2 in range(r + 1, len(sig_bars)):
+                if sig_bars[r2] + 1 < n and _open_qty(held, sig_bars[r2]) + qtys[r2] <= max_contracts:
+                    cancel_at = int(sig_bars[r2])
+                    break
+        elif i < next_free:
+            continue
+        o, h, l, c = views[side]
+        L, S = side * lim[r], side * stp[r]
+        T = None if np.isnan(tgt[r]) else side * tgt_t[r]
+        P = side * ptg_t[r] if pq > 0 else None
+        V = None if np.isnan(void[r]) else side * void_t[r]
+        if V is not None and V > L:
+            raise ValueError(f"signal at bar {i}: void must be at or beyond the limit on the losing side")
+        K = None if np.isnan(kill[r]) else side * kill_t[r]
+        if K is not None and K <= L:
+            raise ValueError(f"signal at bar {i}: kill must be beyond the limit on the winning side")
+        if S >= L or (T is not None and T <= L) or (P is not None and (P <= L or (T is not None and P > T))):
+            raise ValueError(f"signal at bar {i}: stop must be on the losing side and targets on the winning side")
+        hold = None if np.isnan(holds[r]) else int(holds[r])
+        day, sym = bars.day_id[i], bars.sym_id[i]
+        # --- working entry order: bars i+1 .. i+expire ---
+        entry_bar, last_active, voided = -1, i, -1
+        timed = not np.isnan(expire_min[r])
+        deadline = minute[i] + 1 + int(expire_min[r]) if timed else 0  # first minute the order no longer works
+        for j in range(i + 1, n if timed else min(n, i + 1 + int(expires[r]))):
+            if bars.day_id[j] != day or bars.sym_id[j] != sym or bars.sess_minute[j] >= flat:
+                break
+            if (timed and minute[j] >= deadline) or j > cancel_at:
+                break
+            F = L - fills.through  # a touch fills (owner rule); `through` asks for a trade beyond the limit
+            if V is not None and o[j] < V:  # opened beyond the void: cancelled before any fill
+                voided = j
+                break
+            if l[j] <= F:
+                # From the open price falls through F before V - 1 (the void break) unless V - 1 >= F: then the
+                # void breaks first (same price: order unknown, cancelled).
+                if V is None or o[j] <= F or F >= V:
+                    if K is not None and o[j] > F and h[j] >= K:  # fill level and kill in one bar: order unknown
+                        voided = j
+                        break
+                    entry_bar, E = j, min(o[j], L)
+                    break
+                voided = j
+                break
+            if V is not None and l[j] < V:  # void broken without reaching the fill level: cancelled
+                voided = j
+                break
+            if K is not None and h[j] >= K:  # kill touched before any fill: cancelled
+                voided = j
+                break
+            last_active = j
+        if entry_bar < 0:
+            if voided >= 0:  # the order worked into bar j until the void or kill cancelled it: free from j's close
+                next_free = voided
+                continue
+            next_free = last_active
+            if timed and last_active + 1 < n and minute[last_active + 1] >= deadline \
+                    and minute[last_active] + 1 < deadline:
+                next_free = last_active + 1  # a gap spans the deadline: the order still worked at last_active's close
+            continue
+        # --- position: per held bar, the open and worst price feed the Combine path check ---
+        j = entry_bar
+        X, reason = None, ""
+        rem, realized, PX, PB = qty, 0, None, -1  # contracts open, side-space ticks*contracts booked by the partial
+        p_open, p_worst = [0], [(l[j] - E) * qty]
+        best = h[j]
+        best_pnl = (h[j] - E) * qty  # best open P&L (ticks x contracts) for mfe
+        ctx = Ctx(i=int(i), j=j, m=j, side=side, E=int(E), S=int(S), T=None if T is None else int(T),
+                  qty=rem, best=int(best)) if manage is not None else None
+        if l[j] <= S:  # stop on the fill bar: assume it came after the fill
+            X, reason = min(E, S), "stop"
+            p_worst[0] = (X - E) * qty  # the bar low before the fill is not part of the trade
+        m = j
+        while X is None:
+            if m > j:
+                close_now = False
+                if manage is not None and ctx is not None:
+                    ctx.m, ctx.S, ctx.qty, ctx.best = m, int(S), rem, int(best)
+                    new_s, close_now = manage(ctx)
+                    S = _check_stop(new_s, i)
+                real0, rem0 = realized, rem  # booked P&L and contracts at the bar's open
+                part_at_open = False
+                if bars.sess_minute[m] >= flat:
+                    X, reason = o[m], "flatten"
+                elif close_now:
+                    X, reason = o[m], "manage"
+                elif o[m] <= S:
+                    X, reason = o[m], "stop"
+                elif T is not None and o[m] >= T:
+                    X, reason = o[m], "target"
+                else:
+                    if P is not None and PX is None and o[m] >= P:  # partial at the open (gap in our favour)
+                        PX, PB, realized, rem = o[m], m, realized + (o[m] - E) * pq, rem - pq
+                        part_at_open = True
+                    if l[m] <= S:
+                        X, reason = S, "stop"  # stop and any target in one bar: stop first
+                    else:
+                        if P is not None and PX is None and h[m] >= P:
+                            PX, PB, realized, rem = P, m, realized + (P - E) * pq, rem - pq
+                            best_pnl = max(best_pnl, realized + (P - E) * rem)
+                        if T is not None and h[m] >= T:
+                            X, reason = T, "target"
+                p_open.append(real0 + (o[m] - E) * rem0)
+                if X is not None and X == o[m]:
+                    p_worst.append(real0 + (X - E) * rem0)  # exit at the open: nothing after it counts
+                    best = max(best, X)
+                    best_pnl = max(best_pnl, real0 + (X - E) * rem0)
+                    break
+                if reason == "stop":
+                    p_worst.append(realized + (S - E) * rem)
+                elif part_at_open:  # the open comes first, so the low counts only for what is left
+                    p_worst.append(realized + (l[m] - E) * rem)
+                else:  # order inside the bar unknown: the low counts with the contracts held at the bar's open
+                    p_worst.append(real0 + (l[m] - E) * rem0)
+                if X is None or reason == "target":
+                    best = max(best, h[m])
+                    best_pnl = max(best_pnl, realized + (h[m] - E) * rem)
+                if X is not None:
+                    break
+            if m == n - 1:
+                X, reason = c[m], "data_end"
+            elif hold is not None and m - j >= hold:
+                X, reason = c[m], "time"
+            elif bars.last_of_sym[m]:
+                X, reason = c[m], "roll"
+            elif bars.last_of_day[m]:
+                X, reason = c[m], "day_end"
+            else:
+                m += 1
+        exit_bar = m
+        p_worst[-1] = min(p_worst[-1], realized + (X - E) * rem)
+        best_pnl = max(best_pnl, realized + (X - E) * rem)
+        fee = fills.fee * qty
+        total = realized + (X - E) * rem  # side-space ticks x contracts
+        path = (np.array(p_open, dtype=float) * TICK_VALUE - fee, np.array(p_worst, dtype=float) * TICK_VALUE - fee)
+        rows.append((i, entry_bar, exit_bar, bars.ts[entry_bar], bars.ts[exit_bar], bars.trading_day[entry_bar], side,
+                     qty, side * E * TICK, side * X * TICK, reason, int(X - E),
+                     np.nan if PX is None else side * PX * TICK, PB, 0 if PX is None else pq,
+                     total * TICK_VALUE, fee, total * TICK_VALUE - fee,
+                     float(path[1].min()), best_pnl * TICK_VALUE - fee, path))
+        next_free = exit_bar
+        if overlap:
+            held.append((entry_bar, exit_bar, qty, PB, 0 if PX is None else pq))
+    out = pd.DataFrame(rows, columns=TRADE_COLUMNS)
+    for col in ("entry", "exit", "part_exit"):
+        out[col] = out[col].astype(float).round(2)
+    return out
+
+exec
+/bin/bash -lc "cat cltester/data.py; sed -n '320,560p' strategies/rlm.py; cat cltester/config.py; cat studies/rlm/screen_dev.txt; head -2 studies/rlm/trades/lead_dev.csv; cat docs/ENGINE.md" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+"""CL1! 1-minute bars: storage, loading, Chicago session fields, and integer-tick arrays for the engine.
+
+Layout: data/cl1/year=YYYY.parquet, one row per minute, ts = bar open time (UTC), prices in $.
+Front month (raw_symbol) = Databento CL.v.0: highest previous-UTC-day volume, switching at 00:00 UTC.
+Prices are not back-adjusted: a raw_symbol change is a price jump, so the engine never holds across it.
+"""
+
+import os
+from dataclasses import dataclass
+from datetime import timedelta
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from .config import DATA_DIR, EXCHANGE_TZ, PERIODS, SESSION_OPEN, TICK
+
+COLUMNS = ["ts", "raw_symbol", "open", "high", "low", "close", "volume", "vendor"]
+
+
+def year_path(year: int) -> Path:
+    return DATA_DIR / f"year={year}.parquet"
+
+
+def write_year(df: pd.DataFrame, year: int) -> Path:
+    out = df[COLUMNS].sort_values("ts").reset_index(drop=True)
+    if not out["ts"].is_unique:
+        raise ValueError(f"duplicate bar times in {year}")
+    path = year_path(year)
+    tmp = path.with_suffix(".parquet.tmp")
+    out.to_parquet(tmp, index=False)
+    os.replace(tmp, path)  # readers never see a half-written file
+    return path
+
+
+def load_bars(start: str | None = None, end: str | None = None) -> pd.DataFrame:
+    """Bars with start <= ts < end (UTC dates or timestamps; end exclusive)."""
+    paths = sorted(DATA_DIR.glob("year=*.parquet"))
+    if not paths:
+        raise FileNotFoundError(f"no bars in {DATA_DIR}")
+    lo = pd.Timestamp(start, tz="UTC") if start else None
+    hi = pd.Timestamp(end, tz="UTC") if end else None
+    hi_year = None if hi is None else (hi - pd.Timedelta(microseconds=1)).year
+    keep = [p for p in paths if (lo is None or int(p.stem[5:]) >= lo.year)
+            and (hi_year is None or int(p.stem[5:]) <= hi_year)]
+    if not keep:
+        dtypes = ["datetime64[ns, UTC]", "str", *["float64"] * 4, "int64", "str"]
+        return pd.DataFrame({c: pd.Series(dtype=t) for c, t in zip(COLUMNS, dtypes, strict=True)})
+    df = pd.concat((pd.read_parquet(p) for p in keep), ignore_index=True)
+    if lo is not None:
+        df = df[df["ts"] >= lo]
+    if hi is not None:
+        df = df[df["ts"] < hi]
+    return df.sort_values("ts").reset_index(drop=True)
+
+
+def load_period(name: str) -> pd.DataFrame:
+    """Bars whose trading_day lies in [start, end). Periods cut on whole CME trading days, never mid-session."""
+    start, end = PERIODS[name]
+    pad = pd.Timedelta(days=1)
+    # trading day D runs 17:00 CT D-1 to 16:59 CT D, i.e. before 00:00 UTC D+1: only the start needs padding,
+    # so a period never reads the next period's year file (dev does not load 2022)
+    df = add_session(load_bars(str(pd.Timestamp(start) - pad) if start else None, end))
+    keep = np.ones(len(df), dtype=bool)
+    if start:
+        keep &= df["trading_day"] >= pd.Timestamp(start)
+    if end:
+        keep &= df["trading_day"] < pd.Timestamp(end)
+    return df[keep].reset_index(drop=True)
+
+
+def add_session(df: pd.DataFrame) -> pd.DataFrame:
+    """Add Chicago fields. trading_day = CME/Topstep day: 17:00 CT opens the next day's session
+    (Sunday 17:00 CT belongs to Monday)."""
+    out = df.copy()
+    ct = out["ts"].dt.tz_convert(EXCHANGE_TZ)
+    out["ct"] = ct
+    out["ct_minute"] = (ct.dt.hour * 60 + ct.dt.minute).astype("int32")
+    open_min = SESSION_OPEN.hour * 60 + SESSION_OPEN.minute
+    out["sess_minute"] = ((out["ct_minute"] - open_min) % 1440).astype("int32")  # minutes since 17:00 CT
+    day = ct.dt.tz_localize(None).dt.normalize()
+    out["trading_day"] = day.where(out["ct_minute"] < open_min, day + timedelta(days=1))
+    return out
+
+
+def session_minute(t) -> int:
+    """CT clock time -> minutes since the 17:00 CT session open."""
+    return (t.hour * 60 + t.minute - SESSION_OPEN.hour * 60 - SESSION_OPEN.minute) % 1440
+
+
+def to_ticks(prices) -> np.ndarray:
+    return np.round(np.asarray(prices, dtype=float) / TICK).astype(np.int64)
+
+
+@dataclass
+class Bars:
+    """Arrays the engine runs on. Index i = i-th bar. Prices in integer ticks so comparisons are exact."""
+
+    ts: pd.DatetimeIndex
+    o: np.ndarray
+    h: np.ndarray
+    l: np.ndarray  # noqa: E741
+    c: np.ndarray
+    sess_minute: np.ndarray  # minutes since 17:00 CT session open
+    trading_day: np.ndarray  # datetime64 date of the CME/Topstep trading day
+    day_id: np.ndarray  # trading day as an int code
+    sym_id: np.ndarray  # raw_symbol as an int code
+    last_of_day: np.ndarray  # last bar of its trading day
+    last_of_sym: np.ndarray  # last bar before raw_symbol changes
+
+    def __len__(self) -> int:
+        return len(self.o)
+
+    @classmethod
+    def from_frame(cls, df: pd.DataFrame) -> "Bars":
+        if "trading_day" not in df:
+            df = add_session(df)
+        day = pd.factorize(df["trading_day"])[0]
+        sym = pd.factorize(df["raw_symbol"])[0]
+        n = len(df)
+        last_day = np.ones(n, dtype=bool)
+        last_sym = np.ones(n, dtype=bool)
+        last_day[:-1] = day[:-1] != day[1:]
+        last_sym[:-1] = sym[:-1] != sym[1:]
+        return cls(ts=pd.DatetimeIndex(df["ts"]), o=to_ticks(df["open"]), h=to_ticks(df["high"]),
+                   l=to_ticks(df["low"]), c=to_ticks(df["close"]), sess_minute=df["sess_minute"].to_numpy(),
+                   trading_day=df["trading_day"].to_numpy(), day_id=day, sym_id=sym,
+                   last_of_day=last_day, last_of_sym=last_sym)
+        self.ls[al] += np.log(decay)
+        new = np.where(close > self.hi, 1.0, np.where(close < self.lo, -1.0, self.side))
+        ch = al & (new != self.side)
+        hit = ch & (self.touches >= MIN_TOUCHES)
+        self.crosses[hit] += 1
+        self.strength[hit] *= CROSS_PENALTY
+        self.ls[hit] += np.log(CROSS_PENALTY)
+        self.side[ch] = new[ch]
+        self.sidebar[ch] = c
+        for s in np.flatnonzero(al & (self.strength < MIN_STRENGTH)):
+            self._kill(int(s))
+
+    def score(self, s) -> np.ndarray:
+        polar = (self.ht[s] > 0) & (self.lt[s] > 0)
+        return 100.0 * (1.0 - np.exp(-self.strength[s] * np.where(polar, POLARITY_BONUS, 1.0) / SCORE_SCALE))
+
+    def nearest(self, side: int, close: float) -> np.ndarray:
+        cand = np.flatnonzero(self.alive & (self.touches >= MIN_TOUCHES) & (self.side == side))
+        if not len(cand):
+            return cand
+        order = np.argsort(np.abs(close - self.mid[cand]), kind="stable")
+        return cand[order[:PER_SIDE]]
+
+
+def candidates(df: pd.DataFrame, sig_tf: str, reg: str, sources: str, weight: str, tol: float) -> pd.DataFrame:
+    """Every rejection signal of the level engine, for all COMBOS at once (one row per candle, side and combo)."""
+    key = _content_key(df)
+    ck = (key, sig_tf, reg, sources, weight, tol)
+    if ck in _CANDS:
+        return _CANDS[ck]
+    cd = build_candles(df, sig_tf)
+    n_c = len(cd)
+    m_sig = TIMEFRAMES[sig_tf]
+    tfs = [t for t in SOURCES if (TIMEFRAMES[t] >= m_sig if sources == "all" else TIMEFRAMES[t] > m_sig)]
+    ev = pd.concat([swing_events(df, t, reg, key).assign(tf=i, w=TF_WEIGHT[t] if weight == "tf" else 1.0)
+                    for i, t in enumerate(tfs)], ignore_index=True)
+    ev = ev.sort_values(["known", "tf", "op"], kind="stable")  # same bar: lower TF first, withdrawals first
+    lk = ev[["known", "op", "kind", "price", "first", "last", "ref_first", "candle", "tf", "w"]].to_numpy()
+    lk_known = ev["known"].to_numpy()
+    h, lo, cl, opn = (cd.h.astype(float), cd.l.astype(float), cd.c.astype(float), cd.o.astype(float))
+    sym = pd.factorize(df["raw_symbol"])[0]
+    contract = np.cumsum(np.r_[False, sym[1:] != sym[:-1]])
+    c_contract = contract[cd.last]
+    mixed = contract[cd.first] != c_contract  # candle straddles a roll
+    a34, a14 = np.full(n_c, np.nan), np.full(n_c, np.nan)  # ATR restarts with each contract (no roll gap in TR)
+    for g in np.split(np.arange(n_c), np.flatnonzero(np.diff(c_contract)) + 1):
+        g = g[~mixed[g]]
+        if len(g):
+            a34[g] = atr_rma(h[g], lo[g], cl[g], STRUCT_ATR_LEN).to_numpy()
+            a14[g] = atr_rma(h[g], lo[g], cl[g], RISK_ATR_LEN).to_numpy()
+    c_start = np.r_[0, np.flatnonzero(np.diff(contract)) + 1][c_contract]  # 1m bar where the candle's contract began
+    tday = pd.factorize(df["trading_day"])[0]
+    decay = 0.5 ** (1.0 / HALF_LIFE)
+    book = Book(len(COMBOS), tol)
+    rows = []
+    p = 0  # next lock to register
+    for c in range(n_c):
+        if c and c_contract[c] != c_contract[c - 1]:
+            book.clear()
+        av = int(cd.avail[c])
+        close = cl[c]
+        a = a34[c] if np.isfinite(a34[c]) else 0.0
+        if a > 0:
+            book.age_cross(close, decay, c)
+        while p < len(lk_known) and lk_known[p] <= av:
+            kn, op, kind, price, first, last, ref_first, cnd, tfi, w = lk[p]
+            p += 1
+            pid = (int(tfi), int(kind), int(cnd))
+            if op < 0:
+                book.withdraw(pid, a, c)
+                continue
+            # the extreme and its left reference candle must be in the current contract (unadjusted prices)
+            if a <= 0 or ref_first < c_start[c] or contract[int(kn)] != c_contract[c]:
+                continue
+            book.touch(pid, int(kind), int(price), int(first), int(last), float(w), a, close, c)
+        # no signal from a candle that straddles a roll or completes in the next session (missing last minute)
+        if a <= 0 or mixed[c] or contract[av] != c_contract[c] or not np.isfinite(a14[c]) \
+                or tday[cd.first[c]] != tday[av]:
+            continue
+        rng = h[c] - lo[c]
+        for side in (1, -1):
+            sel = book.nearest(side, close)
+            if not len(sel):
+                continue
+            if side == 1:
+                clv = (close - lo[c]) / rng if rng > 0 else 0.5
+                geo = (book.sidebar[sel] < c) & (lo[c] <= book.hi[sel]) & (close > book.hi[sel])
+            else:
+                clv = (h[c] - close) / rng if rng > 0 else 0.5
+                geo = (book.sidebar[sel] < c) & (h[c] >= book.lo[sel]) & (close < book.lo[sel])
+            if not geo.any():
+                continue
+            sc = book.score(sel)
+            for ci, (cmin, smin) in enumerate(COMBOS):
+                if clv < cmin:
+                    continue
+                ok = geo & (sc >= smin) & (c - book.lastsig[sel, ci] >= COOLDOWN)
+                hit = np.flatnonzero(ok)
+                if not len(hit):
+                    continue
+                s = int(sel[hit[0]])
+                book.lastsig[s, ci] = c
+                rows.append((c, av, side, ci, book.mid[s], book.lo[s], book.hi[s], float(sc[hit[0]]),
+                             book.touches[s], bool(book.ht[s] > 0 and book.lt[s] > 0), book.maxw[s],
+                             book.strength[s], book.crosses[s], c - book.first_c[s], a, a14[c], opn[c], h[c], lo[c],
+                             close))
+    out = pd.DataFrame(rows, columns=CAND_COLS)
+    out["sig_tf"] = sig_tf
+    _CANDS[ck] = out
+    return out
+
+
+def build_orders(cand: pd.DataFrame, df: pd.DataFrame, p: dict) -> pd.DataFrame:
+    """Orders (ticks, side space resolved) from the candidates of one combo. One row per signal bar; a long and a
+    short on one candle: long only (original). Columns include features for the trade study."""
+    ci = COMBOS.index((float(p["clv"]), int(p["score"])))
+    s = cand[cand["combo"] == ci].copy()
+    if s.empty:
+        return s
+    s = s.sort_values(["bar", "side"], ascending=[True, False], kind="stable").drop_duplicates("bar", keep="first")
+    ctm = df["ct_minute"].to_numpy()[s["bar"].to_numpy()]
+    s["ct_min"] = ctm
+    if p["session"] == "rth":
+        s = s[(s["ct_min"] >= RTH[0]) & (s["ct_min"] < RTH[1])]
+    side = s["side"].to_numpy()
+    # side space: long as is, short negated
+    cl, lo_c = (side * s["cl"]).to_numpy(), np.where(side == 1, s["l"], -s["h"])
+    lvl_near = np.where(side == 1, s["hi"], -s["lo"])  # band edge price came back to
+    lvl_far = np.where(side == 1, s["lo"], -s["hi"])
+    a14 = s["atr14"].to_numpy()
+    entry = np.where(p["entry"] == "close", cl, np.floor(lvl_near)).astype(float)
+    if p["stop"] == "wick":
+        raw = np.minimum(lo_c - WICK_BUFFER_ATR * a14, entry - WICK_MIN_ATR * a14)
+    else:
+        raw = np.minimum(lvl_far - WICK_BUFFER_ATR * a14, entry - WICK_MIN_ATR * a14)
+    stop = np.floor(raw)
+    risk = entry - stop
+    k = {"r1": 1, "r2": 2, "r3": 3, "be3": 3, "be3opp": 3}[p["exit"]]
+    target = entry + np.ceil(k * risk)
+    s = s.assign(E=entry, S=stop, R=risk, T=target)
+    return s[s["R"] >= MIN_RISK]
+
+
+class Strategy(Base):
+    NAME = "rlm"
+    ABOUT = ("Reaction Level Matrix (WillyAlgoTrader) on CL: price levels from owner-rule swing points weighted by "
+             "timeframe; buy a rejection candle at support (sell at resistance) with a limit, wick or band stop, "
+             "R-multiple target.")
+    PARAMS = {"sig_tf": "15m", "reg": "lock", "sources": "all", "weight": "tf", "tol": 0.6, "score": 50, "clv": 0.6,
+              "entry": "close", "stop": "wick", "exit": "be3", "session": "all"}
+    GRID = {"sig_tf": ["5m", "15m", "1h"], "reg": ["lock", "confirm"], "sources": ["all", "htf"],
+            "weight": ["tf", "flat"], "tol": [0.4, 0.6, 1.0], "score": [0, 50, 70], "clv": [0.6, 0.75],
+            "entry": ["close", "band"],
+            "stop": ["wick", "band"], "exit": ["r1", "r2", "r3", "be3"], "session": ["all", "rth"]}
+
+    def __init__(self) -> None:
+        self._p: dict = {}
+        self._opp: dict[int, list[int]] = {}
+        self._side_hi: dict[int, np.ndarray] = {}
+
+    def orders(self, df: pd.DataFrame, p: dict) -> pd.DataFrame:
+        cand = candidates(df, p["sig_tf"], p["reg"], p["sources"], p["weight"], float(p["tol"]))
+        return build_orders(cand, df, p)
+
+    def signals(self, df: pd.DataFrame, p: dict) -> pd.DataFrame:
+        self._p = p
+        o = self.orders(df, p)
+        cols = ["side", "limit", "stop", "target", "expire_min", "kill"]
+        if o.empty:
+            return pd.DataFrame(columns=cols)
+        side = o["side"].to_numpy()
+        self._opp = {sd: sorted(o.loc[o["side"] == -sd, "bar"].astype(int)) for sd in (1, -1)}
+        self._side_hi = {1: to_ticks(df["high"]), -1: -to_ticks(df["low"])}
+        # frozen TP1 per signal (side-space ticks): intended limit + intended risk
+        self._tp1 = dict(zip(o["bar"].astype(int), (o["E"] + o["R"]).astype(int), strict=True))
+        tgt = side * o["T"].to_numpy() * TICK
+        return pd.DataFrame({"side": side, "limit": np.round(side * o["E"].to_numpy() * TICK, 2),
+                             "stop": np.round(side * o["S"].to_numpy() * TICK, 2), "target": np.round(tgt, 2),
+                             "expire_min": EXPIRE_BARS * TIMEFRAMES[p["sig_tf"]], "kill": np.round(tgt, 2)},
+                            index=o["bar"].astype(int).to_numpy())
+
+    def manage(self, ctx):
+        """be3: stop to the actual fill price once a bar after the fill bar reached the frozen TP1 (intended limit + 1R
+        of the intended risk), effective from the next bar. be3opp (not in the grid): also close at the open after an
+        opposite signal bar at or after the fill bar (original reversal exit)."""
+        ex = self._p.get("exit")
+        if ex not in ("be3", "be3opp"):
+            return ctx.S, False
+        st = ctx.state
+        if "mx" not in st:
+            st["mx"] = -10**12
+        if ctx.m - 1 > ctx.j:
+            st["mx"] = max(st["mx"], int(self._side_hi[ctx.side][ctx.m - 1]))
+        stop = ctx.E if st["mx"] >= self._tp1[ctx.i] else ctx.S
+        stop = max(stop, ctx.S)
+        if ex == "be3opp":
+            opp = self._opp[ctx.side]
+            k = bisect_left(opp, ctx.j)
+            if k < len(opp) and opp[k] <= ctx.m - 1:
+                return stop, True
+        return stop, False
+"""Fixed facts: paths, the CL contract, Topstep costs and rules, research periods.
+
+Topstep numbers come from third-party guides of 2026 (Topstep's help centre could not be read on 2026-11-12).
+Every value marked VERIFY must be checked against the owner's Topstep dashboard; docs/TOPSTEP.md lists them.
+"""
+
+from dataclasses import dataclass
+from datetime import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = ROOT / "data" / "cl1"
+MANIFEST = ROOT / "data" / "manifest.json"
+RESULTS = ROOT / "results"
+LEDGER = RESULTS / "ledger.csv"
+
+# --- CL (NYMEX Light Sweet Crude, 1,000 barrels). MCL is banned in this repo. ---
+TICK = 0.01  # $ per barrel
+TICK_VALUE = 10.0  # $ per tick per contract
+EXCHANGE_TZ = "America/Chicago"
+SESSION_OPEN = time(17, 0)  # CT; bars from 17:00 belong to the next trading day
+
+# --- Topstep costs ---
+FEE_ROUND_TURN = 4.04  # $ per contract, TopstepX CL incl. exchange+NFA. VERIFY (exchange fees changed 2026-10-01)
+
+
+@dataclass(frozen=True)
+class Combine:
+    """Topstep Trading Combine rules. Defaults = 50K Combine."""
+
+    name: str = "50K Trading Combine"
+    start_balance: float = 50_000.0
+    profit_target: float = 3_000.0
+    max_loss: float = 2_000.0  # trails the highest end-of-day balance, checked against intraday equity
+    mll_lock: float = 50_000.0  # MLL stops trailing at this level. VERIFY
+    daily_loss: float | None = None  # optional DLL on TopstepX ($1,000 when enabled); None = off. VERIFY
+    consistency: float = 0.55  # best day <= 55% of total profit; else target rises to best_day / 0.55. VERIFY
+    max_contracts: int = 5  # CL minis
+    flatten: time = time(15, 10)  # CT: Topstep closes every position at 3:10 PM CT. VERIFY for CL
+    monthly_fee: float = 49.0  # $ subscription. VERIFY
+    reset_fee: float = 49.0  # $ per reset after a failure. VERIFY
+
+
+COMBINE_50K = Combine()
+
+# --- Research periods: trading_day dates, end exclusive. See docs/PROTOCOL.md. ---
+RESET_DATE = "2026-11-12"  # repo restarted from zero; bars after this date are the only truly unseen data
+PERIODS: dict[str, tuple[str | None, str | None]] = {
+    "dev": ("2010-06-01", "2022-01-01"),
+    "validation": ("2022-01-01", "2025-01-01"),
+    "holdout": ("2025-01-01", RESET_DATE),
+    "forward": (RESET_DATE, None),
+    "all": (None, None),
+}
+versions 13824; net > 0: 38.9%; PF median 0.980
+  trades>=200      10912
+  PF>=1.25           599
+  years>=70%         751
+  pass>=50%          425
+  cost<=500         1731
+  halves>0          2325
+  neighbours>=60%   3422
+  ALL gates            1
+
+Top 15 by PF (trades >= 200):
+sig_tf     reg sources weight  tol  score  clv entry stop exit session  trades      net    pf    win  years_pos_all  pass_rate  cost_per_pass   net_h1   net_h2  nb_pos
+    1h    lock     htf     tf  0.4     50 0.75  band band  be3     all     231 13256.76 1.669 0.2381          0.667     0.9343        1764.00  8273.68  4983.08  0.6875
+    1h confirm     all     tf  0.4     50 0.60  band band   r1     rth     258 12757.68 1.572 0.6047          0.750     1.0000        1751.75 10448.64  2309.04  0.9375
+    1h confirm     htf   flat  0.6      0 0.75  band band  be3     rth     215 10541.40 1.497 0.2791          0.833     0.8159        2335.67  7219.64  3321.76  0.6250
+   15m    lock     all   flat  0.4     70 0.60 close wick   r1     rth     241 14216.36 1.483 0.5768          0.667     0.7127        1460.20 10634.00  3582.36  0.8125
+   15m    lock     all   flat  0.4     70 0.60 close band   r1     rth     240 12540.40 1.470 0.5792          0.750     0.7872        1764.00 10364.00  2176.40  0.6875
+    1h confirm     all   flat  0.4     50 0.60 close band   r1     rth     324 24881.04 1.456 0.5556          0.833     0.7028         827.56 15141.08  9739.96  0.9375
+    1h confirm     all   flat  0.4     50 0.75 close band   r1     rth     234 18384.64 1.455 0.5470          0.833     0.7218        1192.33 12583.28  5801.36  0.8750
+   15m confirm     all   flat  0.4     70 0.60 close wick   r1     rth     245 13790.20 1.454 0.5755          0.833     0.7595        1800.75  8639.36  5150.84  0.8125
+    1h confirm     all   flat  0.4     50 0.60 close band   r2     rth     318 26575.28 1.453 0.4937          0.750     0.5183         712.73 20841.28  5734.00  0.8125
+   15m    lock     all   flat  0.4     70 0.60 close wick  be3     rth     241 13196.36 1.451 0.3237          0.583     0.6470        1776.25  4868.04  8328.32  0.5000
+    1h confirm     htf     tf  0.6      0 0.75  band band  be3     rth     237 10712.52 1.445 0.2785          0.750     0.6738        2335.67  7925.20  2787.32  0.8125
+   15m    lock     all   flat  0.4     70 0.60 close band  be3     rth     241 11516.36 1.434 0.3029          0.833     0.7136        2401.00  6024.00  5492.36  0.5625
+    1h confirm     htf     tf  0.4     70 0.60 close wick  be3     all     219 17545.24 1.432 0.3562          0.667     0.6867         931.00  6721.36 10823.88  0.8125
+   15m    lock     htf     tf  0.6     50 0.60  band band   r1     rth     251  7095.96 1.431 0.5936          0.583     1.0000        3479.00  6244.80   851.16  0.8125
+    1h confirm     all   flat  0.4     50 0.60 close band  be3     rth     322 22939.12 1.427 0.4130          0.750     0.5415         838.44 14499.16  8439.96  0.8750
+
+Top 15 by pass rate (trades >= 100):
+sig_tf     reg sources weight  tol  score  clv entry stop exit session  trades     net    pf    win  years_pos_all  pass_rate  cost_per_pass  net_h1  net_h2  nb_pos
+    5m    lock     htf     tf  1.0     70 0.60  band band   r1     rth     472 5403.12 1.168 0.5530          0.750        1.0         3503.5 5321.52   81.60  0.5625
+   15m    lock     htf     tf  0.6     50 0.60  band band   r1     rth     251 7095.96 1.431 0.5936          0.583        1.0         3479.0 6244.80  851.16  0.8125
+    5m    lock     htf   flat  0.6     50 0.60  band band   r2     rth     233 5258.68 1.317 0.3906          0.667        1.0         6958.0 2985.72 2272.96  0.8125
+    5m    lock     htf   flat  1.0     50 0.60  band band   r1     rth     581 6652.76 1.165 0.5508          0.583        1.0         3479.0 6744.88  -92.12  0.8750
+   15m confirm     htf     tf  0.6     50 0.60  band band   r1     rth     271 3045.16 1.156 0.5424          0.667        1.0         6958.0 1958.44 1086.72  0.6875
+    1h    lock     all     tf  0.4     70 0.60  band band   r1     rth     103 4853.88 1.552 0.6019          0.583        1.0         6958.0 4565.88  288.00  0.8750
+   15m    lock     all   flat  0.4     70 0.60  band wick   r1     all     352 2347.92 1.105 0.5369          0.583        1.0         6958.0 2408.48  -60.56  0.8125
+    1h confirm     all   flat  0.4     50 0.60  band band   r3     rth     115 6935.40 1.501 0.4174          0.583        1.0         3503.5 7791.24 -855.84  0.8125
+    1h confirm     htf     tf  0.6      0 0.60  band band   r1     rth     162 6545.52 1.385 0.5617          0.667        1.0         3479.0 4361.04 2184.48  0.8750
+    1h confirm     htf     tf  0.6     70 0.60  band band   r1     all     105 5655.80 1.561 0.6286          0.667        1.0         6958.0  592.24 5063.56  0.8125
+    5m    lock     all     tf  0.4     70 0.60  band band   r1     rth     418 3211.28 1.163 0.5431          0.667        1.0         6958.0 2113.24 1098.04  0.6250
+    5m confirm     htf     tf  0.6     70 0.60  band band  be3     rth     239 3674.44 1.326 0.1925          0.667        1.0         6958.0 3713.20  -38.76  0.5000
+    1h confirm     htf   flat  0.6      0 0.60  band band   r1     rth     137 5476.52 1.372 0.5693          0.750        1.0         6909.0 2091.64 3384.88  0.8750
+    5m confirm     all   flat  0.4     70 0.60  band wick   r1     rth     233 1668.68 1.103 0.5365          0.750        1.0            NaN 1851.68 -183.00  0.7500
+    1h    lock     htf     tf  0.6     50 0.75  band band  be3     rth     103 6233.88 1.637 0.2816          0.750        1.0         6958.0 5243.96  989.92  0.7500
+
+by sig_tf: median PF / share net>0 / median trades
+           pf    pos  trades
+sig_tf                      
+15m     0.990  0.416  2525.0
+1h      1.012  0.513   537.5
+5m      0.945  0.239  6888.5
+
+by reg: median PF / share net>0 / median trades
+            pf    pos  trades
+reg                          
+confirm  0.979  0.384  1755.5
+lock     0.982  0.395  1660.5
+
+by sources: median PF / share net>0 / median trades
+            pf    pos  trades
+sources                      
+all      0.983  0.401  3650.5
+htf      0.974  0.378   573.0
+
+by weight: median PF / share net>0 / median trades
+           pf    pos  trades
+weight                      
+flat    0.977  0.379  1039.5
+tf      0.982  0.400  2327.0
+
+by tol: median PF / share net>0 / median trades
+        pf    pos  trades
+tol                      
+0.4  0.990  0.435  1075.5
+0.6  0.982  0.385  1691.5
+1.0  0.971  0.348  2450.0
+
+by score: median PF / share net>0 / median trades
+          pf    pos  trades
+score                      
+0      0.990  0.432  6104.0
+50     0.975  0.390  1488.5
+70     0.969  0.346   348.0
+
+by clv: median PF / share net>0 / median trades
+         pf    pos  trades
+clv                       
+0.60  0.985  0.413  2056.0
+0.75  0.976  0.366  1513.5
+
+by entry: median PF / share net>0 / median trades
+          pf    pos  trades
+entry                      
+band   0.997  0.468  1027.0
+close  0.962  0.310  2435.5
+
+by stop: median PF / share net>0 / median trades
+        pf    pos  trades
+stop                     
+band  0.98  0.387  1725.0
+wick  0.98  0.392  1687.0
+
+by exit: median PF / share net>0 / median trades
+         pf    pos  trades
+exit                      
+be3   0.934  0.247  1792.0
+r1    1.004  0.503  1574.0
+r2    0.994  0.458  1725.5
+r3    0.977  0.350  1741.5
+
+by session: median PF / share net>0 / median trades
+            pf    pos  trades
+session                      
+all      0.974  0.339  3440.5
+rth      0.989  0.440   863.0
+signal_bar,entry_bar,exit_bar,entry_ts,exit_ts,trading_day,side,qty,entry,exit,reason,ticks,part_exit,part_bar,part_qty,gross,fee,net,mae,mfe,c,side_o,combo,mid,lo,hi,score,touches,polar,maxw,strength,crosses,age,atr34,atr14,o,h,l,cl,sig_tf,ct_min,E,S,R,T,clv,band_atr,pen_atr,dist_atr,risk,ct_hour,Rmult,year
+8416,8417,8545,2010-06-15 06:00:00+00:00,2010-06-15 08:09:00+00:00,2010-06-15,-1,1,75.06,75.5,stop,-44,,-1,0,-440.0,4.04,-444.04,-444.04,435.96,149,-1,1,7531.6,7524.40000000027,7538.799999999731,52.76564054053732,5.0,True,1.0,3.6002332971716124,2.0,40.0,46.602340111533046,41.15904454872776,7518.0,7525.0,7501.0,7505.0,1h,59,-7505.0,-7550.0,45.0,-7460.0,0.8333333333333334,0.308997358608984,0.012874889936734253,0.41628810814735645,45.0,0,-0.9867555555555556,2010
+# Engine fill rules
+
+Code: `cltester/engine.py`. Tests: `tests/test_engine.py` (one test per rule). Change this file with the code.
+
+Owner rules: **entries are limit orders only**, a **touch fills** a limit, and **exits have no slippage**: every
+exit fills at the stated price. A gap is not slippage: when the bar opens beyond a stop, the open is the first
+traded price, so the stop fills there.
+
+## Order life
+
+| Step | Rule |
+|---|---|
+| Signal | Computed on bar *i* using data up to bar *i* close. The order works from bar *i+1*. Rows with a missing or non-finite limit/stop are refused. |
+| Working | Up to `expire` bars (default 30), or with `expire_min` until that many minutes after the signal bar's close (clock time: missing minutes do not stretch it). Cancelled at the trading-day change, contract change or 3:10 PM CT. |
+| One at a time | A signal is ignored while an order works or a position is open. A signal on the exit bar is accepted. |
+| Overlap mode | Strategy `OVERLAP = True` (`backtest(..., overlap=True)`): a new signal cancels an order that has not filled (it still works through the new signal's bar); open positions keep running. A signal is ignored when its contracts plus those open at its close would exceed 5 (Combine max); an ignored signal cancels nothing. Contracts that left at a partial exit no longer count after that bar (trades record `part_bar`, `part_qty`). |
+| Size | `qty` contracts (default 1); the Combine simulator refuses more than 5. |
+| Partial exit | Optional `part_qty` contracts leave at `part_target` (a limit between entry and target); the rest runs on. |
+| Daily rules | Optional strategy `day_rules(trades, p)` after the backtest: may only drop the rest of a day once a rule trips (trades are one at a time and flat each day, so that equals stopping live). |
+| Management | Optional `manage(ctx)`: on every held bar *m* after the fill bar, before *m*'s exits, using data up to *m*−1 only. Returns the stop for bar *m* and whether to close everything at *m*'s open. |
+
+## Fills (long side; shorts are the mirror image)
+
+| Event | Condition on bar *j* | Fill price |
+|---|---|---|
+| Limit entry | low ≤ limit (a touch fills) | min(open, limit) |
+| Limit entry, strict sensitivity (`--through N`) | low ≤ limit − N ticks (price traded through) | min(open, limit) |
+| Void (optional `void` price, at or beyond the limit) | open beyond void: cancelled. Otherwise price reaches the fill level before the void (it lies between), so a bar that reaches both fills; once filled the void no longer matters. Only when the void break comes first (strict fills with the fill level at or past the void break) is the order cancelled; the same price counts as cancelled. A cancelled order still worked on the bar that cancelled it, so a new signal is accepted only from that bar's close | — |
+| Kill (optional `kill` price, beyond the limit on the winning side, e.g. the target) | high ≥ kill cancels the unfilled order. An open at or through the fill level fills first (the kill is touched later). Otherwise a bar that reaches both the fill level and the kill: order unknown, cancelled, no fill. With `--through N` the fill level is limit − N ticks. A cancelled order worked on that bar, so a new signal is accepted from its close | — |
+| Stop on the fill bar | low of the fill bar ≤ stop (assume the low came after the fill) | min(entry, stop) |
+| Flatten | first bar at or after 3:10 PM CT | open |
+| Stop at the open | open ≤ stop | open (gap) |
+| Target at the open | open ≥ target | open (gap in our favour) |
+| Stop | low ≤ stop | stop |
+| Partial at the open | open ≥ part_target | open |
+| Partial (limit) | high ≥ part_target and the stop is not hit in that bar | part_target |
+| Target (limit) | high ≥ target (a touch fills) | target |
+| Manage close | `manage` returns close_now (after the flatten check) | open |
+| Stop and target both inside one bar | stop first (worst case) | stop |
+| Stop and partial both inside one bar | stop first, no partial (worst case) | stop, all contracts |
+| Target on the fill bar | not allowed (unknown order inside the bar) | — |
+| Time exit (`hold`) | `hold` bars after the fill bar | close |
+| Contract change | last bar before `raw_symbol` changes | close |
+| Day end | last bar of the trading day (early-close holidays end before 3:10 PM) | close |
+| End of data | last bar loaded, position still open | close |
+
+Check order per bar after the fill bar: `manage` (sets the stop), flatten, manage close, stop at open, target at
+open, partial at open, stop inside the bar, partial inside the bar, target inside the bar, then end of data / time /
+roll / day end at the close. A stop moved by `manage` to or beyond the open exits at the open. `manage` must
+return whole ticks in side space (negated for shorts, `ctx.to_side`); a fraction or NaN raises. `ctx.best` starts at the fill bar's
+high, which may have printed before the fill. The open is the first price of the bar, so an exit
+there happens before anything else in that bar.
+
+Strict fills are a sensitivity check, not the owner rule: a touch-only fill may not happen live (queue position).
+`--through` must be 0 or more (negative values are refused). `cli test --through 1` records `"fills": "through1"` in the ledger params and gets its own hash and trade file.
+
+## Money
+
+- CL: tick $0.01 = $10 per contract. Prices are compared as integer ticks.
+- Fee $4.04 per contract round turn, charged in `net`, `mae` and `mfe`.
+- With a partial exit, `net` adds both legs; `ticks` is the final leg per contract, `part_exit` the partial price.
+  The worst P&L of a bar with a partial inside it counts the bar low with every contract held at the bar's open
+  (order unknown, conservative); after a partial at the open, only the contracts left. `mfe` counts the partial
+  leg at its exit price.
+- `mae`: worst open P&L during the trade from bar lows (longs) incl. fee, used by the Combine MLL check.
+  An exit at the open counts only the open; a stop inside the bar counts the stop; other exit bars count the whole bar.
+- `path`: per held bar, (open P&L, worst P&L) incl. fee. The Combine simulator walks it so a gap through a loss
+  limit executes at the open price. Not written to the trade CSV.
+  The exit price always counts, so MAE is never better than the realized result.
+
+## Why these rules
+
+- Touch fills and no exit slippage are owner rules. Both are optimistic: in live trading a limit at the touch can
+  sit in the queue unfilled, and a stop can fill a tick or more worse. Keep that in mind when a result depends on
+  many small wins at exact limit prices.
+- Worst-case intrabar order: 1-minute bars do not show the order of high and low. Assuming stop first can only make
+  results worse, never better.
+- Flat by 3:10 PM CT and at each contract change: Topstep closes positions at 3:10 PM CT, and the continuous series
+  is not back-adjusted, so holding through a contract change would book a fake price jump.
+
+exec
+/bin/bash -lc "cat cltester/candles.py; sed -n '1,155p' strategies/rlm.py; cat docs/TOPSTEP.md; cat cltester/combine.py | head -100; git status --short; ls studies/rlm/null; rg --files -g AGENTS.md . /home/mrullldhm/.agents 2>/dev/null" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+cat: cltester/candles.py: No such file or directory
+"""Reaction Level Matrix [WillyAlgoTrader] mapped to CL (2026-11-19, Claude + Codex).
+Spec, CL mapping and trial budget: docs/strategies/rlm/README.md. Original logic: studies/rlm/rlm_logic.pine.
+
+Levels are price bands built online from swing points. The original finds swings with ta.pivothigh(6, 6) and weights
+each touch by its reaction size; here every swing is an owner-rule point (cltester.swings) on one of several
+timeframes and its weight is the TIMEFRAME (owner: the bigger the TF, the stronger the swing). One turning point counts
+once: when a higher TF confirms the same extreme, the touch is upgraded to the higher weight.
+
+A point becomes a touch when it is LOCKED: a newer opposite point exists after it in the structure, so rule 5 can no
+longer replace it. Known at the close of the candle that makes it locked (detect state[k] is known when candle k+1
+completes).
+
+The level engine runs on completed candles of the signal timeframe S: age + cross with the candle close, register the
+touches locked up to the candle's completion, pick the 3 nearest active levels per side, test the rejection candle.
+Levels reset at every contract change (prices are not back-adjusted).
+"""
+
+import hashlib
+from bisect import bisect_left
+
+import numpy as np
+import pandas as pd
+
+from cltester.config import TICK
+from cltester.data import to_ticks
+from cltester.indicators import atr_rma
+from cltester.strategy import Base
+from cltester.swings import HIGH, LOW, TIMEFRAMES, build_candles, detect
+
+# --- original constants (rlm_logic.pine) ---
+STRUCT_ATR_LEN = 34
+RISK_ATR_LEN = 14
+MIN_HALF_WIDTH_ATR = 0.15
+SCORE_SCALE = 6.0
+POLARITY_BONUS = 1.25
+CROSS_PENALTY = 0.7
+MIN_STRENGTH = 0.25
+MAX_LEVELS = 60
+MERGE_PASSES = 5
+MIN_TOUCHES = 2
+HALF_LIFE = 500  # signal-TF bars
+PER_SIDE = 3
+COOLDOWN = 10  # signal-TF bars per level
+WICK_BUFFER_ATR = 0.25
+WICK_MIN_ATR = 0.5
+
+# --- CL mapping ---
+SOURCES = ("5m", "15m", "1h", "4h", "1d")
+# same 1..3.5 range as the original reaction weight
+TF_WEIGHT = {"5m": 1.0, "15m": 1.5, "1h": 2.0, "4h": 3.0, "1d": 3.5}
+COMBOS = [(clv, score) for clv in (0.6, 0.75) for score in (0, 50, 70)]  # rejection close strength x min level score
+MIN_RISK = 5  # ticks
+EXPIRE_BARS = 1  # signal-TF bars an unfilled entry works (also killed by a target touch)
+RTH = (8 * 60 + 30, 13 * 60 + 30)  # CT minutes: signal candle completes inside [08:30, 13:30)
+CAP = MAX_LEVELS + 2
+
+CAND_COLS = ["c", "bar", "side", "combo", "mid", "lo", "hi", "score", "touches", "polar", "maxw", "strength",
+             "crosses", "age", "atr34", "atr14", "o", "h", "l", "cl"]
+
+
+def _content_key(df: pd.DataFrame) -> str:
+    hsh = hashlib.sha256()
+    hsh.update(str(len(df)).encode())
+    hsh.update(df["ts"].to_numpy("datetime64[ns]").view("int64").tobytes())
+    for k in ("open", "high", "low", "close"):
+        hsh.update(to_ticks(df[k]).tobytes())
+    hsh.update(pd.util.hash_pandas_object(df["raw_symbol"], index=False).to_numpy().tobytes())
+    return hsh.hexdigest()
+
+
+_EVENTS: dict[tuple, pd.DataFrame] = {}
+_CANDS: dict[tuple, pd.DataFrame] = {}
+EV_COLS = ["known", "op", "kind", "price", "first", "last", "ref_first", "candle"]
+
+
+def swing_events(df: pd.DataFrame, tf: str, reg: str, key: str | None = None) -> pd.DataFrame:
+    """Owner swing points on tf as touch events, in the order they become known (1m bar `known`, at whose close the
+    detect state of candle k is known = avail[k+1]).
+    reg="lock": op +1 when the point is locked (a newer opposite point exists above it in the structure, so rule 5
+    can no longer replace it). reg="confirm": op +1 when the point first appears, op -1 when it leaves the structure
+    (rule-5 replacement or rule-4 removal) while it is still among the top four points.
+    first / last: 1m bars of the extreme's candle; ref_first: first 1m bar of the candle left of it (its rule-2/3
+    reference, used by the roll guard)."""
+    key = key or _content_key(df)
+    if (key, tf, reg) in _EVENTS:
+        return _EVENTS[(key, tf, reg)]
+    cd = build_candles(df, tf)
+    n_c, n = len(cd), len(df)
+    _, st = detect(cd)
+    cols = (("sh", HIGH), ("sl", LOW), ("sh2", HIGH), ("sl2", LOW))
+    seen: set[tuple[int, int]] = set()
+    prev: dict[tuple[int, int], tuple[int, int]] = {}  # (kind, candle) -> (depth, price) after candle k-1
+    rows = []
+    for k in range(n_c - 1):
+        known = int(cd.avail[k + 1])
+        if known >= n:
+            break
+        nw = st["newest"][k]
+        if nw == 0:
+            continue
+        order = ("sh", "sl", "sh2", "sl2") if nw == HIGH else ("sl", "sh", "sl2", "sh2")
+        cur: dict[tuple[int, int], tuple[int, int]] = {}
+        for depth, col in enumerate(order):
+            kind = dict(cols)[col]
+            cnd = int(st[f"{col}_candle"][k])
+            if cnd >= 0:
+                cur[(kind, cnd)] = (depth, int(st[f"{col}_price"][k]))
+
+        def row(op: int, kind: int, cnd: int, price: int, known: int = known) -> tuple:
+            return (known, op, kind, price, int(cd.first[cnd]), int(cd.last[cnd]), int(cd.first[max(cnd - 1, 0)]),
+                    cnd)
+
+        if reg == "lock":
+            for (kind, cnd), (depth, price) in cur.items():
+                if depth > 0 and (kind, cnd) not in seen:
+                    seen.add((kind, cnd))
+                    rows.append(row(1, kind, cnd, price))
+        else:
+            fresh = [pt for pt in cur if pt not in prev]
+            for pt, (depth, price) in prev.items():
+                if pt not in cur and depth + len(fresh) < 4:  # not pushed down: replaced or removed
+                    rows.append(row(-1, pt[0], pt[1], price))
+                    seen.discard(pt)
+            for pt in fresh:
+                if pt not in seen:
+                    seen.add(pt)
+                    rows.append(row(1, pt[0], pt[1], cur[pt][1]))
+        prev = cur
+    out = pd.DataFrame(rows, columns=EV_COLS)
+    _EVENTS[(key, tf, reg)] = out
+    return out
+
+
+class Book:
+    """Level memory in fixed-size numpy arrays (slot per level, `alive` mask). Prices in ticks (float).
+
+    A touch is one turning point (key = int). Its entry holds the weight of every swing point (pid = (tf, kind,
+    candle)) that confirmed the same extreme; the touch weighs max of them. Strength share of a touch:
+    base[key] * exp(ls[slot]), ls = log of every decay and cross penalty the slot took. When a level dies its touches
+    die with it (entries, pids and shares are purged)."""
+
+    def __init__(self, n_combo: int, tol: float):
+        self.tol = tol
+        z = lambda: np.zeros(CAP)  # noqa: E731
+        self.lo, self.hi, self.mid = z(), z(), z()
+        self.sw, self.swp, self.swp2, self.strength = z(), z(), z(), z()
+        self.touches, self.ht, self.lt, self.crosses = z(), z(), z(), z()
+        self.side, self.sidebar, self.first_c, self.maxw, self.ls = z(), z(), z(), z(), z()
+        self.alive = np.zeros(CAP, dtype=bool)
+        self.lastsig = np.full((CAP, n_combo), -1e9)
+        self.decay = 0.5 ** (1.0 / HALF_LIFE)
+        self.clear()
+
+    def clear(self) -> None:
+        self.alive[:] = False
+# Topstep 50K Trading Combine: rules as simulated
+
+Target account: **Topstep 50K Trading Combine** on TopstepX. Market: **CL only** (MCL banned, non-syariah for the
+owner). Code: `cltester/config.py` (`Combine`) and `cltester/topstep.py`.
+
+Source status (2026-11-12): Topstep's help centre could not be read from this machine. The numbers below come from
+several 2026 third-party guides that agree with each other. Every row marked **VERIFY** must be checked against the
+owner's Topstep dashboard or help.topstep.com, and this file and `config.py` updated together.
+
+| Rule | Value used | Status |
+|---|---|---|
+| Starting balance | $50,000 | agreed by all sources |
+| Profit target | $3,000 | agreed by all sources |
+| Maximum Loss Limit (MLL) | $2,000 below the highest end-of-day balance; checked against intraday equity (open P&L included) | agreed |
+| MLL stops trailing | at $50,000 (starting balance) | VERIFY |
+| Daily Loss Limit (DLL) | off by default (optional on TopstepX; $1,000 when on). A DLL hit liquidates and ends the day, it does not fail the account | VERIFY |
+| Consistency target | best day ≤ 55% of total profit; if broken, target becomes best_day / 0.55 (account does not fail) | VERIFY (older pages say 50%) |
+| Max size | 5 CL | agreed |
+| Flatten time | 3:10 PM CT, all positions closed | VERIFY for CL |
+| Trading day | 5:00 PM CT to 4:00 PM CT next day | CME standard |
+| CL fee | $4.04 per contract round turn (commission + exchange + NFA) | VERIFY (CME fee change 2026-10-01; Rithmic rate is higher) |
+| Subscription / reset | $49 / $49 | VERIFY |
+
+## How the simulator applies them
+
+1. Trades come from the engine with net P&L and a per-bar path (open and worst P&L, fees included).
+2. Within a day, each trade is walked bar by bar. Trades open at the same time (overlap mode) are merged into one:
+   per bar, open and worst P&L are summed over the open trades, and a trade that already closed counts with its
+   net. Summing each trade's worst P&L assumes they all hit their worst in the same bar (conservative). More than
+   5 contracts held in one bar (partial exits release theirs after their bar) is refused.
+   - A bar that **opens** at or past a limit executes at the open: below the MLL the account **fails**; below only
+     the DLL the trade is liquidated at that open price (worse than the DLL) and the day ends.
+   - Inside a bar price moves continuously, so the higher limit is hit first: DLL first means liquidation at exactly
+     −DLL for the day; MLL first means the account **fails**.
+3. End of day: balance += day P&L; MLL = min(max(MLL, highest EOD balance − $2,000), $50,000).
+4. Pass at end of day when profit ≥ max($3,000, best day / 0.55).
+
+Reported per run:
+- **Rolling**: one attempt starting on every trading day. Gives the pass rate and days to pass/fail. Attempts overlap,
+  so they are not independent samples.
+- **Sequential**: back-to-back attempts as lived: after a pass or fail, restart the next day. Gives passes, fails and
+  cost per pass. Billing model (VERIFY): a subscription starts with the first attempt and again after every pass,
+  paid at the start and every 30 days until the pass; each fail inside it costs one reset.
+
+## Not modelled yet
+
+- Express Funded Account (XFA) rules and payouts: the next stage after the Combine passes.
+- Tier-1 news restrictions (none listed for the standard Combine; check before relying on news trades).
+- MAE uses 1-minute bar extremes, so it is the worst case inside each bar, not a tick path.
+cat: cltester/combine.py: No such file or directory
+ M results/ledger.csv
+ M strategies/cbr.py
+?? docs/strategies/rlm/
+?? strategies/rlm.py
+?? studies/cbr_optimize/
+?? studies/rlm/
+?? tests/test_rlm.py
+lead.csv
+/home/mrullldhm/.agents/skills/vercel-composition-patterns/AGENTS.md
+/home/mrullldhm/.agents/skills/vercel-react-best-practices/AGENTS.md
+
+codex
+The close limit starts working on the next minute bar. A gap through it gets the better open price, while the stop and target stay anchored to the intended limit; I’ll measure how much that improvement contributes.
+
+For the stronger null, I’ll move each order to another completed hour on the same trading day, requiring the same side’s CLV ≥ 0.6. This preserves the day’s regime and rejection direction while removing the level test.
+exec
+/bin/bash -lc "rg -n 'def build_candles|class Candles|avail|def detect|stack' cltester/swings.py; sed -n '1,175p' cltester/swings.py; cat studies/rlm/codex/audit_round2.py | head -45; sed -n '1,110p' cltester/topstep.py" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+34:class Candles:
+41:    avail: np.ndarray  # 1m bar index at whose close the candle is complete
+43:    last: np.ndarray  # 1m bar index of the candle's last bar (avail can be later when its last minute is missing)
+49:def build_candles(df: pd.DataFrame, tf: str) -> Candles:
+98:    avail = np.where(last_minute[end], end, end + 1)
+99:    done = avail < n  # the last candle is left out until it is complete: it may still print new prices
+101:                   c[end[done]], order[done], avail[done], start[done], end[done])
+119:def _offer(stack: list[Point], q: Point, ev_hi: np.ndarray, ev_lo: np.ndarray) -> None:
+121:        if not stack:
+123:                stack.append(q)
+125:        t = stack[-1]
+130:            stack.pop()
+134:        prev_event = stack[-2].event + 1 if len(stack) > 1 else 0
+136:            stack.append(q)
+138:        stack.pop()  # R4: t is not the extreme of its own transition, so it is not a swing point
+141:def _process(stack: list[Point], cd: Candles, k: int, high_first: int, is_low: bool, is_high: bool,
+149:            _offer(stack, Point(LOW, int(cd.l[k]), k, e), ev_hi, ev_lo)
+151:            _offer(stack, Point(HIGH, int(cd.h[k]), k, e), ev_hi, ev_lo)
+154:def _record(stack: list[Point], state: dict[str, np.ndarray], k: int) -> None:
+156:    (points alternate, so they are the top four of the stack)."""
+157:    state["newest"][k] = stack[-1].kind if stack else 0
+159:    for p in stack[-1:-5:-1]:
+165:def detect(cd: Candles) -> tuple[list[Point], dict[str, np.ndarray]]:
+172:    stack: list[Point] = []
+181:            high_first = 1 if stack and stack[-1].kind == LOW else 0  # continue the order
+182:            if is_low and is_high and stack:
+183:                cut = max(len(stack) - UNDO_DEPTH, 0)
+184:                saved, last = stack[cut:], stack[-1]
+185:                _process(stack, cd, k, high_first, is_low, is_high, ev_hi, ev_lo)
+186:                if len(stack) < cut:
+188:                if all(p is not last for p in stack[cut:]):  # that order breaks rule 4 for the last point
+189:                    del stack[cut:]
+190:                    stack.extend(saved)
+193:                    _record(stack, state, k)
+195:        _process(stack, cd, k, high_first, is_low, is_high, ev_hi, ev_lo)
+196:        _record(stack, state, k)
+197:    return stack, state
+209:        "known_at": [int(cd.avail[p.candle + 1]) for p in pts],
+232:    when[:-1] = cd.avail[1:]
+"""Owner swing point rule (mandatory for every strategy that uses swings). Spec: docs/SWINGS.md.
+
+Each candle gives two price events, its high and its low, in the order they printed. Swing points are found on
+that event stream:
+  R2/R3  candidate low at candle k: low[k-1] >= low[k] and low[k+1] > low[k]  (high: mirror). Known when k+1 closes.
+  R1     points alternate: low, high, low, high ...
+  R4     a swing low is the lowest price between the swing highs around it (every candle counts, also the swing
+         high candles' own lows when they printed inside the transition); high: mirror.
+  R5     a second low with no high between replaces the first if lower or equal (equal: the later one wins),
+         otherwise it is dropped; high: mirror.
+Event order inside a candle: from its 1-minute bars (higher timeframes). When unknown (a 1m candle, or both
+extremes in the same 1m bar), continue the order: after a swing high the low comes first, after a swing low the
+high. Owner example: after a swing high, the candle holding the lowest low becomes swing low, then swing high,
+when the candle after it has a higher low and a lower high.
+"""
+
+from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
+
+from .config import TICK
+from .data import add_session, to_ticks
+
+HIGH, LOW = 1, -1
+UNKNOWN = -1
+SESSION_LAST_MINUTE = 1379  # 15:59 CT, minutes since the 17:00 CT open: the last minute of a CME trading day
+UNDO_DEPTH = 64  # points an outside-candle trial may rewrite; a deeper cascade raises
+# 1w, 1mo: trading-day groups (minutes are nominal); "1mo", never "1M", so it cannot be misread as 1m
+TIMEFRAMES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440, "1w": 7200, "1mo": 30000}
+
+
+@dataclass
+class Candles:
+    ts: pd.DatetimeIndex  # candle open (UTC)
+    o: np.ndarray  # ticks
+    h: np.ndarray
+    l: np.ndarray  # noqa: E741
+    c: np.ndarray
+    high_first: np.ndarray  # 1 high printed first, 0 low first, -1 unknown
+    avail: np.ndarray  # 1m bar index at whose close the candle is complete
+    first: np.ndarray  # 1m bar index of the candle's first bar
+    last: np.ndarray  # 1m bar index of the candle's last bar (avail can be later when its last minute is missing)
+
+    def __len__(self) -> int:
+        return len(self.o)
+
+
+def build_candles(df: pd.DataFrame, tf: str) -> Candles:
+    """Candles from 1m bars. 5m-1h: clock aligned. 4h: blocks from the 17:00 CT session open. 1d: trading day.
+    1w: trading days Monday-Friday. 1mo: trading days of one calendar month.
+    A candle is complete at the close of its last minute (the 15:59 CT bar for the day's last 4h block and the daily
+    candle); when that minute has no bar (early closes, quiet minutes), at the close of the next bar."""
+    if tf not in TIMEFRAMES:
+        raise ValueError(f"timeframe {tf} not in {list(TIMEFRAMES)}")
+    if "sess_minute" not in df:
+        df = add_session(df)
+    n = len(df)
+    o, h, l, c = (to_ticks(df[k]) for k in ("open", "high", "low", "close"))
+    if n == 0:
+        none = np.zeros(0, dtype=np.int64)
+        return Candles(pd.DatetimeIndex([], tz="UTC"), none, none, none, none, none, none, none, none)
+    if tf == "1m":
+        idx = np.arange(n)
+        return Candles(pd.DatetimeIndex(df["ts"]), o, h, l, c, np.full(n, UNKNOWN), idx, idx, idx)
+    minutes = TIMEFRAMES[tf]
+    sess = df["sess_minute"].to_numpy()
+    day = pd.factorize(df["trading_day"])[0].astype(np.int64)
+    day_close = sess == SESSION_LAST_MINUTE
+    if tf == "1d":
+        gid, last_minute = day, day_close
+    elif tf in ("1w", "1mo"):
+        tday = pd.DatetimeIndex(df["trading_day"])
+        if tf == "1w":  # Monday-to-Friday trading days (Sunday evening belongs to Monday)
+            gid = ((tday.as_unit("ns").asi8 // 86_400_000_000_000) + 3) // 7  # 1970-01-01 was a Thursday
+        else:
+            gid = (tday.year * 12 + tday.month).to_numpy()
+        gid = np.asarray(gid, dtype=np.int64)
+        # complete at 15:59 CT of the scheduled last day (Friday / last weekday of the month), from the bar's own
+        # date only, so a live prefix agrees with full history. A holiday on that day: complete at the next bar.
+        if tf == "1w":
+            sched = tday.day_of_week == 4
+        else:
+            sched = tday == tday + pd.offsets.BMonthEnd(0)
+        last_minute = day_close & np.asarray(sched)
+    elif tf == "4h":
+        gid, last_minute = day * 10 + sess // 240, ((sess + 1) % 240 == 0) | day_close
+    else:
+        epoch_min = pd.DatetimeIndex(df["ts"]).as_unit("ns").asi8 // 60_000_000_000
+        gid, last_minute = epoch_min // minutes, (epoch_min + 1) % minutes == 0
+    start = np.flatnonzero(np.r_[True, gid[1:] != gid[:-1]])
+    end = np.r_[start[1:], n] - 1
+    hi = np.maximum.reduceat(h, start)
+    lo = np.minimum.reduceat(l, start)
+    first_hi = np.array([s + int(np.argmax(h[s:e + 1] == v)) for s, e, v in zip(start, end, hi, strict=True)])
+    first_lo = np.array([s + int(np.argmax(l[s:e + 1] == v)) for s, e, v in zip(start, end, lo, strict=True)])
+    order = np.where(first_hi < first_lo, 1, np.where(first_lo < first_hi, 0, UNKNOWN))
+    avail = np.where(last_minute[end], end, end + 1)
+    done = avail < n  # the last candle is left out until it is complete: it may still print new prices
+    return Candles(pd.DatetimeIndex(df["ts"].to_numpy()[start[done]]), o[start[done]], hi[done], lo[done],
+                   c[end[done]], order[done], avail[done], start[done], end[done])
+
+
+@dataclass
+class Point:
+    kind: int  # HIGH or LOW
+    price: int  # ticks
+    candle: int
+    event: int  # position in the event stream (2 per candle)
+
+
+def _extreme_ok(kind: int, price: int, ev_hi: np.ndarray, ev_lo: np.ndarray, a: int, b: int) -> bool:
+    """price is the highest high (kind HIGH) / lowest low in events a..b inclusive."""
+    if b < a:
+        return True
+    return bool(price >= ev_hi[a:b + 1].max()) if kind == HIGH else bool(price <= ev_lo[a:b + 1].min())
+
+
+def _offer(stack: list[Point], q: Point, ev_hi: np.ndarray, ev_lo: np.ndarray) -> None:
+    while True:
+        if not stack:
+            if _extreme_ok(q.kind, q.price, ev_hi, ev_lo, 0, q.event):
+                stack.append(q)
+            return
+        t = stack[-1]
+        if t.kind == q.kind:  # R5: same type with no opposite point between
+            more = q.price >= t.price if q.kind == HIGH else q.price <= t.price
+            if not more:
+                return
+            stack.pop()
+            continue
+        if not _extreme_ok(q.kind, q.price, ev_hi, ev_lo, t.event + 1, q.event):
+            return  # R4: a more extreme price already printed since t
+        prev_event = stack[-2].event + 1 if len(stack) > 1 else 0
+        if _extreme_ok(t.kind, t.price, ev_hi, ev_lo, prev_event, q.event - 1):
+            stack.append(q)
+            return
+        stack.pop()  # R4: t is not the extreme of its own transition, so it is not a swing point
+
+
+def _process(stack: list[Point], cd: Candles, k: int, high_first: int, is_low: bool, is_high: bool,
+             ev_hi: np.ndarray, ev_lo: np.ndarray) -> None:
+    """Offer candle k's two events in the given order."""
+    first, second = (HIGH, LOW) if high_first == 1 else (LOW, HIGH)
+    for slot, kind in enumerate((first, second)):
+        e = 2 * k + slot
+        ev_hi[e], ev_lo[e] = (cd.h[k], np.inf) if kind == HIGH else (-np.inf, cd.l[k])
+        if kind == LOW and is_low:
+            _offer(stack, Point(LOW, int(cd.l[k]), k, e), ev_hi, ev_lo)
+        elif kind == HIGH and is_high:
+            _offer(stack, Point(HIGH, int(cd.h[k]), k, e), ev_hi, ev_lo)
+
+
+def _record(stack: list[Point], state: dict[str, np.ndarray], k: int) -> None:
+    """State after candle k: the newest and the previous swing high and swing low in the structure
+    (points alternate, so they are the top four of the stack)."""
+    state["newest"][k] = stack[-1].kind if stack else 0
+    seen = {HIGH: 0, LOW: 0}
+    for p in stack[-1:-5:-1]:
+        key = ("sh" if p.kind == HIGH else "sl") + ("" if seen[p.kind] == 0 else "2")
+        seen[p.kind] += 1
+        state[f"{key}_price"][k], state[f"{key}_candle"][k] = p.price, p.candle
+
+
+def detect(cd: Candles) -> tuple[list[Point], dict[str, np.ndarray]]:
+    """Run the rule over all candles. Returns the final swing points and the state as known after each candle's
+    processing (candle k is processed when candle k+1 closes): last swing high / low price (ticks) and candle
+    (sh, sl) and the ones before them (sh2, sl2), or -1 when none; newest: kind of the newest point (0 when none)."""
+    n = len(cd)
+    ev_hi = np.full(2 * n, -np.inf)  # high of a high event; -inf on low events
+    ev_lo = np.full(2 * n, np.inf)
+    stack: list[Point] = []
+    state = {f"{key}_{f}": np.full(n, -1, dtype=np.int64) for key in ("sh", "sl", "sh2", "sl2")
+             for f in ("price", "candle")}
+    state["newest"] = np.zeros(n, dtype=np.int64)
+"""Read-only audit probes; outputs only, no data/code mutations."""
+import numpy as np
+import pandas as pd
+import cltester.swings as sw
+from cltester.data import load_period
+from strategies.rlm import Book, COMBOS, swing_events
+
+df = load_period('dev')
+df = df[df.trading_day < pd.Timestamp('2011-01-01')].reset_index(drop=True)
+print('bars', len(df), flush=True)
+contract = np.cumsum(np.r_[False, df.raw_symbol.to_numpy()[1:] != df.raw_symbol.to_numpy()[:-1]])
+for tf in ('5m', '15m', '1h'):
+    cd = sw.build_candles(df, tf)
+    mixed = contract[cd.first] != contract[cd.last]
+    delayed_roll = contract[cd.last] != contract[cd.avail]
+    print('roll', tf, 'mixed', mixed.sum(), 'delayed', delayed_roll.sum(), flush=True)
+
+cd = sw.build_candles(df, '5m')
+orig = sw._record
+snap = []
+def record(stack, state, k):
+    snap.append(tuple((p.kind, p.candle) for p in stack))
+    orig(stack, state, k)
+sw._record = record
+sw.detect(cd)
+sw._record = orig
+ev = swing_events(df, '5m', 'confirm')
+actual = {(int(r.known), int(r.kind), int(r.candle)) for r in ev.itertuples() if r.op < 0}
+missed = []
+false = []
+for k in range(1, len(snap)-1):
+    old, new = snap[k-1], snap[k]
+    for pt in old[-4:]:
+        want = pt not in new
+        got = (int(cd.avail[k+1]), *pt) in actual
+        if want and not got:
+            missed.append((k, pt, old[-4:], new[-4:]))
+        if got and not want:
+            false.append((k, pt, old[-4:], new[-4:]))
+print('withdraw missed', len(missed), 'false', len(false), flush=True)
+print('examples', missed[:2], false[:2], flush=True)
+
+# Crossed contributions must be withdrawn at their remaining, rather than initial, strength.
+b = Book(len(COMBOS), .6)
+b.touch((0, sw.LOW, 1), sw.LOW, 1000, 10, 14, 1., 10., 1010., 0)
+"""Topstep Trading Combine pass/fail simulator over a backtest's trades. Rules: docs/TOPSTEP.md.
+
+Per trade the engine gives net P&L and its path: open and worst P&L of every held bar (fees included).
+Within a day, walking each trade bar by bar (trades open at the same time are merged into one, P&L summed per bar):
+  - a bar that opens at or through a limit executes at the open (a gap does not stop at the limit);
+  - inside a bar, price moves continuously, so the higher of the two limits is hit first;
+  - MLL hit (balance + day realized + open P&L <= MLL) -> account fails;
+  - DLL hit (when enabled; day realized + open P&L <= -DLL) -> trade liquidated there, no more trades that day.
+End of day: balance += day P&L; MLL = min(max(MLL, highest EOD balance - max_loss), mll_lock).
+Pass at end of day: profit >= max(target, best_day / consistency).
+"""
+
+from collections import defaultdict
+from dataclasses import dataclass, fields
+
+import numpy as np
+import pandas as pd
+
+from .config import COMBINE_50K, Combine
+
+
+@dataclass
+class Attempt:
+    start: pd.Timestamp
+    end: pd.Timestamp | None
+    outcome: str  # pass | fail | open (data ended first)
+    days: int  # trading days from start to end, inclusive
+    active_days: int  # days with at least one trade
+    profit: float
+    best_day: float
+
+
+ATTEMPT_COLUMNS = [f.name for f in fields(Attempt)]
+
+
+def _by_day(trades: pd.DataFrame, rules: Combine) -> dict:
+    if trades.empty:
+        return {}
+    if trades["qty"].max() > rules.max_contracts:
+        raise ValueError(f"trade size above {rules.max_contracts} contracts")
+    out = defaultdict(list)
+    spans = defaultdict(list)
+    paths = trades["path"] if "path" in trades else [(np.array([0.0]), np.array([m])) for m in trades["mae"]]
+    # Without bar spans (hand-made trade lists) trades are walked one after another, never merged.
+    has_bars = {"entry_bar", "exit_bar", "path"} <= set(trades.columns)
+    entries = trades["entry_bar"] if has_bars else [0] * len(trades)
+    exits = trades["exit_bar"] if has_bars else [0] * len(trades)
+    for d, net, path, e, x in zip(trades["trading_day"], trades["net"], paths, entries, exits, strict=True):
+        out[pd.Timestamp(d)].append((float(net), path))
+        spans[pd.Timestamp(d)].append((int(e), int(x)))
+    if has_bars:
+        if _peak_open_qty(trades) > rules.max_contracts:
+            raise ValueError(f"more than {rules.max_contracts} contracts open at once")
+        for d in out:
+            out[d] = _merge_overlaps(out[d], spans[d])
+    return out
+
+
+def _peak_open_qty(trades: pd.DataFrame) -> int:
+    """Most contracts held in any one bar (a trade holds from its entry bar through its exit bar; a partial exit
+    releases its contracts after its bar)."""
+    qty = trades["qty"].to_numpy()
+    part_bar = trades["part_bar"].to_numpy() if "part_bar" in trades else np.full(len(trades), -1)
+    part_qty = trades["part_qty"].to_numpy() if "part_qty" in trades else np.zeros(len(trades), dtype=int)
+    has_part = part_bar >= 0
+    bar = np.r_[trades["entry_bar"].to_numpy(), trades["exit_bar"].to_numpy() + 1, part_bar[has_part] + 1]
+    change = np.r_[qty, -(qty - np.where(has_part, part_qty, 0)), -part_qty[has_part]]
+    order = np.lexsort((change, bar))  # same bar: exits (negative) before entries
+    return int(np.cumsum(change[order]).max())
+
+
+def _merge_overlaps(day: list, spans: list[tuple[int, int]]) -> list:
+    """Trades open at the same time become one combined trade, so the loss limits see their summed P&L per bar.
+    A trade that closed earlier in the group counts with its net from the bar after its exit."""
+    order = sorted(range(len(day)), key=lambda k: spans[k][0])
+    groups: list[list[int]] = []
+    group_end = -1
+    for k in order:
+        if groups and spans[k][0] <= group_end:
+            groups[-1].append(k)
+            group_end = max(group_end, spans[k][1])
+        else:
+            groups.append([k])
+            group_end = spans[k][1]
+    out = []
+    for g in groups:
+        if len(g) == 1:
+            out.append(day[g[0]])
+            continue
+        start = min(spans[k][0] for k in g)
+        size = max(spans[k][1] for k in g) - start + 1
+        opened, worst = np.zeros(size), np.zeros(size)
+        for k in g:
+            net, (po, pw) = day[k]
+            a, b = spans[k][0] - start, spans[k][1] - start
+            if len(po) != b - a + 1:
+                raise ValueError("trade path length does not match its entry and exit bars")
+            opened[a:b + 1] += po
+            worst[a:b + 1] += pw
+            opened[b + 1:] += net
+            worst[b + 1:] += net
+        out.append((sum(day[k][0] for k in g), (opened, worst)))
+    return out
+
+
+def _walk(path: tuple, fail_at: float, dll_at: float | None) -> tuple[str, float]:
+    """Walk one trade's bars. fail_at / dll_at: trade P&L at which MLL / DLL is hit.
+    Returns ("fail", pnl) | ("dll", pnl at liquidation) | ("ok", 0.0)."""
+    for opened, worst in zip(path[0], path[1], strict=True):
+        if opened <= fail_at:
+
+apply patch
+patch: completed
+/home/mrullldhm/personal/tradingview-tester/studies/rlm/codex/round3_audit.py
+diff --git a/studies/rlm/codex/round3_audit.py b/studies/rlm/codex/round3_audit.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..6e968b1ed011ef0d82c410b5af6a8db9be5e779d
+--- /dev/null
++++ b/studies/rlm/codex/round3_audit.py
+@@ -0,0 +1,117 @@
++"""Dev-only independent audit. Run under the user-specified 3 GB virtual-memory limit."""
++import json
++import numpy as np
++import pandas as pd
++from cltester.data import load_period, Bars
++from cltester.engine import backtest, Fills
++from cltester.swings import build_candles
++from strategies.rlm import Strategy
++
++OUT = 'studies/rlm/codex/'
++P = dict(sig_tf='1h', reg='confirm', sources='all', weight='flat', tol=.4,
++         score=50, clv=.6, entry='close', stop='band', exit='r1', session='all')
++def stats(t):
++    v = t.net
++    return dict(n=len(t), net=float(v.sum()), pf=float(v[v>0].sum() / -v[v<0].sum()) if (v<0).any() else None)
++result = {}
++df = load_period('dev')
++print('loaded', len(df), flush=True)
++bars = Bars.from_frame(df)
++s = Strategy()
++sig = s.signals(df, P)
++orders = s.orders(df, P).set_index('bar')
++orders.to_csv(OUT+'round3_orders.csv')
++t = backtest(bars, sig, Fills(), s.manage)
++print('real', stats(t), 'orders',len(orders), flush=True)
++result['real'] = stats(t)
++cd = build_candles(df, '1h')
++ci = orders.c.to_numpy(int)
++av = orders.index.to_numpy(int)
++result['timing'] = dict(orders=len(orders), before_completion=int((av<cd.avail[ci]).sum()),
++    delayed_completion=int((cd.avail[ci]>cd.last[ci]).sum()),
++    incomplete_minutes=int(((cd.last[ci]-cd.first[ci]+1)<60).sum()),
++    close_mismatch=int((orders.cl.to_numpy()!=cd.c[ci]).sum()),
++    cross_day=int((bars.day_id[cd.first[ci]]!=bars.day_id[av]).sum()),
++    cross_contract=int((bars.sym_id[cd.first[ci]]!=bars.sym_id[av]).sum()))
++i=t.signal_bar.to_numpy(int); j=t.entry_bar.to_numpy(int)
++sd=t.side.to_numpy(int); lim=orders.loc[i,'E'].to_numpy()
++improve=lim-sd*bars.o[j]
++next_improve=lim-sd*bars.o[i+1]
++t['improvement_ticks']=np.maximum(improve,0)
++t['next_bar']=j==i+1
++t['open_through']=improve>0
++t['next_open_through']=(j==i+1)&(next_improve>0)
++t['late']=df.ct_minute.to_numpy()[j]>=840
++t['late'] &= df.ct_minute.to_numpy()[j]<1020
++# Early-close proxy: trading-day final observed CT minute < 15:10; report as proxy, not a holiday calendar.
++lasts=df.groupby('trading_day',sort=False).tail(1)
++early=lasts.loc[lasts.ct_minute<910,'trading_day'].to_numpy()
++t['early_close_day']=np.isin(t.trading_day.to_numpy(),early)
++roll_ix=np.flatnonzero(bars.sym_id[1:]!=bars.sym_id[:-1])+1
++roll_days=np.unique(bars.trading_day[roll_ix]).astype('datetime64[D]').astype(int)
++td=t.trading_day.to_numpy().astype('datetime64[D]').astype(int)
++near=np.zeros(len(t),bool)
++for r in roll_days: near |= np.abs(td-r)<=3
++t['roll_window']=near
++t['incomplete_candle']=(cd.last[orders.loc[i,'c'].to_numpy(int)]-cd.first[orders.loc[i,'c'].to_numpy(int)]+1)<60
++result['subgroups']={}
++for col in ['next_bar','open_through','next_open_through','late','early_close_day','roll_window','incomplete_candle']:
++    result['subgroups'][col]={'yes':stats(t[t[col]]),'no':stats(t[~t[col]])}
++result['late_reasons']=t[t.late].reason.value_counts().to_dict()
++result['reasons']=t.reason.value_counts().to_dict()
++result['improvement']=dict(total_ticks=float(t.improvement_ticks.sum()),median=float(t.improvement_ticks.median()),
++    max=float(t.improvement_ticks.max()),opens_beyond_stop=int((sd*bars.o[j]<=orders.loc[i,'S'].to_numpy()).sum()))
++cost=t.copy();cost.net-=10*cost.improvement_ticks
++result['remove_improvement_pnl_only']=stats(cost)
++for name,ss in [('exclude_late',sig.loc[~((df.ct_minute.to_numpy()[sig.index]>=839)&(df.ct_minute.to_numpy()[sig.index]<1020))]),
++                ('delay_one_minute',sig.set_axis(sig.index+1).loc[lambda x:x.index<len(df)-1])]:
++    tx=backtest(bars,ss,Fills(),s.manage)
++    result[name]=stats(tx)
++    del tx
++result['risk_quantiles_dollars']={str(q):float(x) for q,x in (orders.loc[i,'R']*10+4.04).quantile([0,.5,.9,.95,.99,1]).items()}
++t.drop(columns='path').to_csv(OUT+'round3_trade_audit.csv',index=False)
++del cost
++# Same trading day, same side, CLV>=.6, another completed 1h candle; same absolute bracket risk.
++# Candidate hours match overnight (17..08:29), daytime (08:30..13:59), late (14..15:09) buckets.
++# This preserves coarse time of day as well as daily market regime. All draws precede engine outcome calculation.
++ctm=df.ct_minute.to_numpy(); day=bars.day_id
++bucket=lambda m: np.where((m>=840)&(m<1020),2,np.where((m>=510)&(m<840),1,0))
++avc=cd.avail
++valid=(avc==cd.last)&(bars.day_id[cd.first]==day[avc])&(bars.sym_id[cd.first]==bars.sym_id[avc])
++valid &= bars.sess_minute[avc]<1329 # no order can start at/after 15:10
++clv=np.divide(cd.c-cd.l,cd.h-cd.l,out=np.full(len(cd),.5),where=cd.h!=cd.l)
++pools={}
++for side in (1,-1):
++    ids=np.flatnonzero(valid & ((clv>=.6) if side==1 else (clv<=.4)))
++    for c in ids:
++        b=int(avc[c]);key=(int(day[b]),side,int(bucket(ctm[b])))
++        pools.setdefault(key,[]).append(b)
++choices=[]; keep=[]
++for r,row in enumerate(orders.itertuples()):
++    key=(int(day[row.Index]),int(row.side),int(bucket(ctm[row.Index])))
++    other=np.array([b for b in pools.get(key,[]) if b!=row.Index],int)
++    if len(other): keep.append(r); choices.append(other)
++oo=orders.iloc[keep]
++result['null_design']=dict(runs=300,seed=20261120,eligible_orders=len(oo),total_orders=len(orders),
++    excluded_no_other_hour=len(orders)-len(oo),buckets='overnight,08:30-13:59,14:00-15:09 CT',risk='original ticks')
++matched=backtest(bars,sig.loc[oo.index],Fills(),s.manage)
++result['matched_real']=stats(matched)
++del matched
++rng=np.random.default_rng(20261120); rows=[]
++side=oo.side.to_numpy(int);risk=oo.R.to_numpy(int)
++for run in range(300):
++    b=np.array([x[rng.integers(len(x))] for x in choices])
++    E=side*bars.c[b]
++    ns=pd.DataFrame(dict(side=side,limit=side*E*.01,stop=side*(E-risk)*.01,target=side*(E+risk)*.01,
++                         expire_min=60,kill=side*(E+risk)*.01),index=b)
++    ns=ns.loc[~ns.index.duplicated()].sort_index()
++    nt=backtest(bars,ns,Fills(),s.manage)
++    rows.append(dict(run=run,orders=len(ns),**stats(nt)))
++    del nt
++    if run%25==0: print('null',run,flush=True)
++n=pd.DataFrame(rows);n.to_csv(OUT+'round3_same_day_null.csv',index=False)
++result['null_summary']=dict(pf_quantiles={str(q):float(x) for q,x in n.pf.quantile([0,.025,.5,.95,.975,1]).items()},
++    mean=float(n.pf.mean()),sd=float(n.pf.std()),exceed_real=int((n.pf>=result['real']['pf']).sum()),
++    exceed_matched=int((n.pf>=result['matched_real']['pf']).sum()),median_trades=float(n.n.median()))
++with open(OUT+'round3_summary.json','w') as f: json.dump(result,f,indent=2)
++print(json.dumps(result,indent=2),flush=True)
+
+exec
+/bin/bash -lc "bash -c 'ulimit -v 3000000; PYTHONPATH=. .venv/bin/python studies/rlm/codex/round3_audit.py > studies/rlm/codex/round3_audit.log 2>&1'" in /home/mrullldhm/personal/tradingview-tester
+ exited 1 in 2282ms:
+web search: 
+web search: site.help.topstep.com maximum loss limit trading combine end of day 2000 50k
+exec
+/bin/bash -lc 'cat studies/rlm/codex/round3_audit.log; ls -lh studies/rlm/codex/round3*; cat studies/rlm/grid_1h.log | tail -4' in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+loaded 3983238
+Traceback (most recent call last):
+  File "/home/mrullldhm/personal/tradingview-tester/studies/rlm/codex/round3_audit.py", line 21, in <module>
+    sig = s.signals(df, P)
+          ^^^^^^^^^^^^^^^^
+  File "/home/mrullldhm/personal/tradingview-tester/strategies/rlm.py", line 486, in signals
+    o = self.orders(df, p)
+        ^^^^^^^^^^^^^^^^^^
+  File "/home/mrullldhm/personal/tradingview-tester/strategies/rlm.py", line 481, in orders
+    cand = candidates(df, p["sig_tf"], p["reg"], p["sources"], p["weight"], float(p["tol"]))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mrullldhm/personal/tradingview-tester/strategies/rlm.py", line 350, in candidates
+    cd = build_candles(df, sig_tf)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mrullldhm/personal/tradingview-tester/cltester/swings.py", line 100, in build_candles
+    return Candles(pd.DatetimeIndex(df["ts"].to_numpy()[start[done]]), o[start[done]], hi[done], lo[done],
+                                    ^^^^^^^^^^^^^^^^^^^
+  File "/home/mrullldhm/personal/tradingview-tester/.venv/lib/python3.12/site-packages/pandas/core/base.py", line 714, in to_numpy
+    return self.array.to_numpy(dtype, copy=copy, na_value=na_value, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mrullldhm/personal/tradingview-tester/.venv/lib/python3.12/site-packages/pandas/core/arrays/base.py", line 716, in to_numpy
+    result = np.asarray(self, dtype=dtype)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mrullldhm/personal/tradingview-tester/.venv/lib/python3.12/site-packages/pandas/core/arrays/datetimes.py", line 676, in __array__
+    return super().__array__(dtype=dtype, copy=copy)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mrullldhm/personal/tradingview-tester/.venv/lib/python3.12/site-packages/pandas/core/arrays/datetimelike.py", line 352, in __array__
+    return np.array(list(self), dtype=object)
+                    ^^^^^^^^^^
+  File "/home/mrullldhm/personal/tradingview-tester/.venv/lib/python3.12/site-packages/pandas/core/arrays/datetimelike.py", line 1845, in __iter__
+    yield from self._iter_convert_chunk(data[start_i:end_i])
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mrullldhm/personal/tradingview-tester/.venv/lib/python3.12/site-packages/pandas/core/arrays/datetimes.py", line 679, in _iter_convert_chunk
+    return ints_to_pydatetime(
+           ^^^^^^^^^^^^^^^^^^^
+  File "pandas/_libs/tslibs/vectorized.pyx", line 192, in pandas._libs.tslibs.vectorized.ints_to_pydatetime
+  File "pandas/_libs/tslibs/timestamps.pyx", line 199, in pandas._libs.tslibs.timestamps.create_timestamp_from_ts
+MemoryError
+-rw-r--r-- 1 mrullldhm mrullldhm 113K Nov 20 02:50 studies/rlm/codex/round3.log
+-rw-r--r-- 1 mrullldhm mrullldhm 2.8K Nov 20 02:50 studies/rlm/codex/round3_audit.log
+-rw-r--r-- 1 mrullldhm mrullldhm 6.3K Nov 20 02:49 studies/rlm/codex/round3_audit.py
+24 level units, through=0, workers=3
+done 1h_lock_all_tf_0.4
+done 1h_lock_all_tf_0.6
+
+apply patch
+patch: completed
+/home/mrullldhm/personal/tradingview-tester/studies/rlm/codex/round3_audit.py
+diff --git a/studies/rlm/codex/round3_audit.py b/studies/rlm/codex/round3_audit.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..23f457359c61a306d1044238fb8915d350e2f4ef
+--- /dev/null
++++ b/studies/rlm/codex/round3_audit.py
+@@ -0,0 +1,130 @@
++"""Dev-only independent audit. Run under the user-specified 3 GB virtual-memory limit."""
++import json
++import inspect
++import numpy as np
++import pandas as pd
++from cltester.data import load_period, Bars
++from cltester.engine import backtest, Fills
++from cltester.swings import build_candles
++from strategies.rlm import Strategy
++import cltester.swings as sw
++import strategies.rlm as rlm
++
++# Equivalent timestamp indexing avoids materializing four million Python Timestamp objects.
++# Local process only; production sources remain untouched.
++source=inspect.getsource(sw.build_candles)
++source=source.replace('df["ts"].to_numpy()[start[done]]', 'df["ts"].iloc[start[done]]')
++exec(source,sw.__dict__)
++rlm.build_candles=sw.build_candles
++build_candles=sw.build_candles
++
++OUT = 'studies/rlm/codex/'
++P = dict(sig_tf='1h', reg='confirm', sources='all', weight='flat', tol=.4,
++         score=50, clv=.6, entry='close', stop='band', exit='r1', session='all')
++def stats(t):
++    v = t.net
++    return dict(n=len(t), net=float(v.sum()), pf=float(v[v>0].sum() / -v[v<0].sum()) if (v<0).any() else None)
++result = {}
++df = load_period('dev')
++df.drop(columns=['vendor','volume','ct'],inplace=True)
++df['raw_symbol']=df.raw_symbol.astype('category')
++print('loaded', len(df), flush=True)
++bars = Bars.from_frame(df)
++s = Strategy()
++sig = s.signals(df, P)
++orders = s.orders(df, P).set_index('bar')
++orders.to_csv(OUT+'round3_orders.csv')
++t = backtest(bars, sig, Fills(), s.manage)
++print('real', stats(t), 'orders',len(orders), flush=True)
++result['real'] = stats(t)
++cd = build_candles(df, '1h')
++ci = orders.c.to_numpy(int)
++av = orders.index.to_numpy(int)
++result['timing'] = dict(orders=len(orders), before_completion=int((av<cd.avail[ci]).sum()),
++    delayed_completion=int((cd.avail[ci]>cd.last[ci]).sum()),
++    incomplete_minutes=int(((cd.last[ci]-cd.first[ci]+1)<60).sum()),
++    close_mismatch=int((orders.cl.to_numpy()!=cd.c[ci]).sum()),
++    cross_day=int((bars.day_id[cd.first[ci]]!=bars.day_id[av]).sum()),
++    cross_contract=int((bars.sym_id[cd.first[ci]]!=bars.sym_id[av]).sum()))
++i=t.signal_bar.to_numpy(int); j=t.entry_bar.to_numpy(int)
++sd=t.side.to_numpy(int); lim=orders.loc[i,'E'].to_numpy()
++improve=lim-sd*bars.o[j]
++next_improve=lim-sd*bars.o[i+1]
++t['improvement_ticks']=np.maximum(improve,0)
++t['next_bar']=j==i+1
++t['open_through']=improve>0
++t['next_open_through']=(j==i+1)&(next_improve>0)
++t['late']=df.ct_minute.to_numpy()[j]>=840
++t['late'] &= df.ct_minute.to_numpy()[j]<1020
++# Early-close proxy: trading-day final observed CT minute < 15:10; report as proxy, not a holiday calendar.
++lasts=df.groupby('trading_day',sort=False).tail(1)
++early=lasts.loc[lasts.ct_minute<910,'trading_day'].to_numpy()
++t['early_close_day']=np.isin(t.trading_day.to_numpy(),early)
++roll_ix=np.flatnonzero(bars.sym_id[1:]!=bars.sym_id[:-1])+1
++roll_days=np.unique(bars.trading_day[roll_ix]).astype('datetime64[D]').astype(int)
++td=t.trading_day.to_numpy().astype('datetime64[D]').astype(int)
++near=np.zeros(len(t),bool)
++for r in roll_days: near |= np.abs(td-r)<=3
++t['roll_window']=near
++t['incomplete_candle']=(cd.last[orders.loc[i,'c'].to_numpy(int)]-cd.first[orders.loc[i,'c'].to_numpy(int)]+1)<60
++result['subgroups']={}
++for col in ['next_bar','open_through','next_open_through','late','early_close_day','roll_window','incomplete_candle']:
++    result['subgroups'][col]={'yes':stats(t[t[col]]),'no':stats(t[~t[col]])}
++result['late_reasons']=t[t.late].reason.value_counts().to_dict()
++result['reasons']=t.reason.value_counts().to_dict()
++result['improvement']=dict(total_ticks=float(t.improvement_ticks.sum()),median=float(t.improvement_ticks.median()),
++    max=float(t.improvement_ticks.max()),opens_beyond_stop=int((sd*bars.o[j]<=orders.loc[i,'S'].to_numpy()).sum()))
++cost=t.copy();cost.net-=10*cost.improvement_ticks
++result['remove_improvement_pnl_only']=stats(cost)
++for name,ss in [('exclude_late',sig.loc[~((df.ct_minute.to_numpy()[sig.index]>=839)&(df.ct_minute.to_numpy()[sig.index]<1020))]),
++                ('delay_one_minute',sig.set_axis(sig.index+1).loc[lambda x:x.index<len(df)-1])]:
++    tx=backtest(bars,ss,Fills(),s.manage)
++    result[name]=stats(tx)
++    del tx
++result['risk_quantiles_dollars']={str(q):float(x) for q,x in (orders.loc[i,'R']*10+4.04).quantile([0,.5,.9,.95,.99,1]).items()}
++t.drop(columns='path').to_csv(OUT+'round3_trade_audit.csv',index=False)
++del cost
++# Same trading day, same side, CLV>=.6, another completed 1h candle; same absolute bracket risk.
++# Candidate hours match overnight (17..08:29), daytime (08:30..13:59), late (14..15:09) buckets.
++# This preserves coarse time of day as well as daily market regime. All draws precede engine outcome calculation.
++ctm=df.ct_minute.to_numpy(); day=bars.day_id
++bucket=lambda m: np.where((m>=840)&(m<1020),2,np.where((m>=510)&(m<840),1,0))
++avc=cd.avail
++valid=(avc==cd.last)&(bars.day_id[cd.first]==day[avc])&(bars.sym_id[cd.first]==bars.sym_id[avc])
++valid &= bars.sess_minute[avc]<1329 # no order can start at/after 15:10
++clv=np.divide(cd.c-cd.l,cd.h-cd.l,out=np.full(len(cd),.5),where=cd.h!=cd.l)
++pools={}
++for side in (1,-1):
++    ids=np.flatnonzero(valid & ((clv>=.6) if side==1 else (clv<=.4)))
++    for c in ids:
++        b=int(avc[c]);key=(int(day[b]),side,int(bucket(ctm[b])))
++        pools.setdefault(key,[]).append(b)
++choices=[]; keep=[]
++for r,row in enumerate(orders.itertuples()):
++    key=(int(day[row.Index]),int(row.side),int(bucket(ctm[row.Index])))
++    other=np.array([b for b in pools.get(key,[]) if b!=row.Index],int)
++    if len(other): keep.append(r); choices.append(other)
++oo=orders.iloc[keep]
++result['null_design']=dict(runs=300,seed=20261120,eligible_orders=len(oo),total_orders=len(orders),
++    excluded_no_other_hour=len(orders)-len(oo),buckets='overnight,08:30-13:59,14:00-15:09 CT',risk='original ticks')
++matched=backtest(bars,sig.loc[oo.index],Fills(),s.manage)
++result['matched_real']=stats(matched)
++del matched
++rng=np.random.default_rng(20261120); rows=[]
++side=oo.side.to_numpy(int);risk=oo.R.to_numpy(int)
++for run in range(300):
++    b=np.array([x[rng.integers(len(x))] for x in choices])
++    E=side*bars.c[b]
++    ns=pd.DataFrame(dict(side=side,limit=side*E*.01,stop=side*(E-risk)*.01,target=side*(E+risk)*.01,
++                         expire_min=60,kill=side*(E+risk)*.01),index=b)
++    ns=ns.loc[~ns.index.duplicated()].sort_index()
++    nt=backtest(bars,ns,Fills(),s.manage)
++    rows.append(dict(run=run,orders=len(ns),**stats(nt)))
++    del nt
++    if run%25==0: print('null',run,flush=True)
++n=pd.DataFrame(rows);n.to_csv(OUT+'round3_same_day_null.csv',index=False)
++result['null_summary']=dict(pf_quantiles={str(q):float(x) for q,x in n.pf.quantile([0,.025,.5,.95,.975,1]).items()},
++    mean=float(n.pf.mean()),sd=float(n.pf.std()),exceed_real=int((n.pf>=result['real']['pf']).sum()),
++    exceed_matched=int((n.pf>=result['matched_real']['pf']).sum()),median_trades=float(n.n.median()))
++with open(OUT+'round3_summary.json','w') as f: json.dump(result,f,indent=2)
++print(json.dumps(result,indent=2),flush=True)
+
+exec
+/bin/bash -lc "bash -c 'ulimit -v 3000000; PYTHONPATH=. .venv/bin/python studies/rlm/codex/round3_audit.py > studies/rlm/codex/round3_audit.log 2>&1'" in /home/mrullldhm/personal/tradingview-tester
+codex
+The first run hit the imposed memory ceiling: candle construction temporarily expands the full timestamp column into Python objects. It stopped with `MemoryError`. I’ve adjusted the audit script to index timestamps before converting them, preserving the values, and restarted under the same limit. Repository code is unchanged.
+exec
+/bin/bash -lc "tail -6 studies/rlm/codex/round3_audit.log; cat studies/rlm/screen.py | head -110; rg -n 'def rolling|def sequential|def summarize' cltester/topstep.py; sed -n '165,200p' cltester/swings.py" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+/home/mrullldhm/personal/tradingview-tester/studies/rlm/codex/round3_audit.py:29: Pandas4Warning: The inplace keyword in DataFrame.drop is deprecated and will be removed in a future version (PDEP-8).
+See https://pandas.pydata.org/docs/dev/whatsnew/v3.1.0.html#deprecation-inplace for more details.
+  df.drop(columns=['vendor','volume','ct'],inplace=True)
+loaded 3983238
+real {'n': 1281, 'net': 61524.760000000024, 'pf': 1.3087424975656796} orders 1393
+"""Apply the declared screen (docs/strategies/rlm/README.md) to grid_dev.csv. In-sample, best of 13,824.
+
+Gate: trades >= 200, PF >= 1.25, years positive (all dev years) >= 70%, pass rate >= 50%, cost/pass <= $500,
+both dev halves net > 0, and >= 60% of one-step neighbours (one parameter changed) net > 0.
+Run: .venv/bin/python -m studies.rlm.screen [grid csv]
+"""
+
+import sys
+
+import pandas as pd
+
+from cltester.config import ROOT
+from strategies.rlm import Strategy
+
+KEYS = list(Strategy.GRID)
+
+
+def neighbours_positive(g: pd.DataFrame) -> pd.Series:
+    idx = g.set_index(KEYS)["net"]
+    out = []
+    for r in g.itertuples(index=False):
+        base = {k: getattr(r, k) for k in KEYS}
+        nets = []
+        for k in KEYS:
+            for v in Strategy.GRID[k]:
+                if v == base[k]:
+                    continue
+                key = tuple(v if kk == k else base[kk] for kk in KEYS)
+                if key in idx.index:
+                    nets.append(idx.loc[key])
+        out.append(sum(n > 0 for n in nets) / len(nets) if nets else 0.0)
+    return pd.Series(out, index=g.index)
+
+
+def main() -> None:
+    path = sys.argv[1] if len(sys.argv) > 1 else ROOT / "studies" / "rlm" / "grid_dev.csv"
+    g = pd.read_csv(path)
+    g["nb_pos"] = neighbours_positive(g)
+    gates = {
+        "trades>=200": g.trades >= 200,
+        "PF>=1.25": g.pf >= 1.25,
+        "years>=70%": g.years_pos_all >= 0.7,
+        "pass>=50%": g.pass_rate >= 0.5,
+        "cost<=500": g.cost_per_pass <= 500,
+        "halves>0": (g.net_h1 > 0) & (g.net_h2 > 0),
+        "neighbours>=60%": g.nb_pos >= 0.6,
+    }
+    allg = pd.concat(gates, axis=1).all(axis=1)
+    print(f"versions {len(g)}; net > 0: {(g.net > 0).mean():.1%}; PF median {g.pf.median():.3f}")
+    for k, m in gates.items():
+        print(f"  {k:<16} {m.sum():>5}")
+    print(f"  ALL gates        {allg.sum():>5}")
+    cols = KEYS + ["trades", "net", "pf", "win", "years_pos_all", "pass_rate", "cost_per_pass", "net_h1", "net_h2",
+                   "nb_pos"]
+    with pd.option_context("display.width", 220, "display.max_columns", 30):
+        print("\nTop 15 by PF (trades >= 200):")
+        print(g[g.trades >= 200].sort_values("pf", ascending=False)[cols].head(15).to_string(index=False))
+        print("\nTop 15 by pass rate (trades >= 100):")
+        print(g[g.trades >= 100].sort_values("pass_rate", ascending=False)[cols].head(15).to_string(index=False))
+        for k in KEYS:
+            print(f"\nby {k}: median PF / share net>0 / median trades")
+            print(g.groupby(k).agg(pf=("pf", "median"), pos=("net", lambda s: (s > 0).mean()),
+                                   trades=("trades", "median")).round(3).to_string())
+    g.assign(all_gates=allg).to_csv(str(path).replace(".csv", "_screened.csv"), index=False)
+
+
+if __name__ == "__main__":
+    main()
+154:def rolling(trades: pd.DataFrame, days: list[pd.Timestamp], rules: Combine = COMBINE_50K) -> pd.DataFrame:
+161:def sequential(trades: pd.DataFrame, days: list[pd.Timestamp], rules: Combine = COMBINE_50K) -> pd.DataFrame:
+def detect(cd: Candles) -> tuple[list[Point], dict[str, np.ndarray]]:
+    """Run the rule over all candles. Returns the final swing points and the state as known after each candle's
+    processing (candle k is processed when candle k+1 closes): last swing high / low price (ticks) and candle
+    (sh, sl) and the ones before them (sh2, sl2), or -1 when none; newest: kind of the newest point (0 when none)."""
+    n = len(cd)
+    ev_hi = np.full(2 * n, -np.inf)  # high of a high event; -inf on low events
+    ev_lo = np.full(2 * n, np.inf)
+    stack: list[Point] = []
+    state = {f"{key}_{f}": np.full(n, -1, dtype=np.int64) for key in ("sh", "sl", "sh2", "sl2")
+             for f in ("price", "candle")}
+    state["newest"] = np.zeros(n, dtype=np.int64)
+    for k in range(n):
+        is_low = 0 < k < n - 1 and cd.l[k - 1] >= cd.l[k] and cd.l[k + 1] > cd.l[k]
+        is_high = 0 < k < n - 1 and cd.h[k - 1] <= cd.h[k] and cd.h[k + 1] < cd.h[k]
+        high_first = int(cd.high_first[k])
+        if high_first == UNKNOWN:
+            high_first = 1 if stack and stack[-1].kind == LOW else 0  # continue the order
+            if is_low and is_high and stack:
+                cut = max(len(stack) - UNDO_DEPTH, 0)
+                saved, last = stack[cut:], stack[-1]
+                _process(stack, cd, k, high_first, is_low, is_high, ev_hi, ev_lo)
+                if len(stack) < cut:
+                    raise RuntimeError(f"swing cascade deeper than {UNDO_DEPTH} points at candle {k}")
+                if all(p is not last for p in stack[cut:]):  # that order breaks rule 4 for the last point
+                    del stack[cut:]
+                    stack.extend(saved)
+                    high_first = 1 - high_first
+                else:
+                    _record(stack, state, k)
+                    continue
+        _process(stack, cd, k, high_first, is_low, is_high, ev_hi, ev_lo)
+        _record(stack, state, k)
+    return stack, state
+
+
+def swing_points(df: pd.DataFrame, tf: str = "1m") -> pd.DataFrame:
+
+web search: 
+web search: https://help.topstep.com/en/articles/8284197-trading-combine-parameters
+exec
+/bin/bash -lc 'tail -12 studies/rlm/codex/round3_audit.log; ls -lh studies/rlm/codex/round3*' in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+/home/mrullldhm/personal/tradingview-tester/studies/rlm/codex/round3_audit.py:29: Pandas4Warning: The inplace keyword in DataFrame.drop is deprecated and will be removed in a future version (PDEP-8).
+See https://pandas.pydata.org/docs/dev/whatsnew/v3.1.0.html#deprecation-inplace for more details.
+  df.drop(columns=['vendor','volume','ct'],inplace=True)
+loaded 3983238
+real {'n': 1281, 'net': 61524.760000000024, 'pf': 1.3087424975656796} orders 1393
+null 0
+-rw-r--r-- 1 mrullldhm mrullldhm 129K Nov 20 02:50 studies/rlm/codex/round3.log
+-rw-r--r-- 1 mrullldhm mrullldhm  459 Nov 20 02:50 studies/rlm/codex/round3_audit.log
+-rw-r--r-- 1 mrullldhm mrullldhm 6.8K Nov 20 02:50 studies/rlm/codex/round3_audit.py
+-rw-r--r-- 1 mrullldhm mrullldhm 308K Nov 20 02:50 studies/rlm/codex/round3_orders.csv
+-rw-r--r-- 1 mrullldhm mrullldhm 245K Nov 20 02:50 studies/rlm/codex/round3_trade_audit.csv
+
+exec
+/bin/bash -lc "tail -5 studies/rlm/codex/round3_audit.log; sed -n '150,205p' cltester/topstep.py; ls -lh results/trades/*0c7941f8774a* 2>/dev/null; head -2 studies/rlm/null/lead.csv" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+  df.drop(columns=['vendor','volume','ct'],inplace=True)
+loaded 3983238
+real {'n': 1281, 'net': 61524.760000000024, 'pf': 1.3087424975656796} orders 1393
+null 0
+null 25
+def trading_days(bars: pd.DataFrame) -> list[pd.Timestamp]:
+    return [pd.Timestamp(d) for d in np.unique(bars["trading_day"].to_numpy())]
+
+
+def rolling(trades: pd.DataFrame, days: list[pd.Timestamp], rules: Combine = COMBINE_50K) -> pd.DataFrame:
+    """One attempt starting on every trading day. Attempts overlap, so they are not independent."""
+    per_day = _by_day(trades, rules)
+    return pd.DataFrame([run_attempt(per_day, days, k, rules).__dict__ for k in range(len(days))],
+                        columns=ATTEMPT_COLUMNS)
+
+
+def sequential(trades: pd.DataFrame, days: list[pd.Timestamp], rules: Combine = COMBINE_50K) -> pd.DataFrame:
+    """Back-to-back attempts as a trader would live them: after a pass or fail, restart the next day."""
+    per_day = _by_day(trades, rules)
+    out, k = [], 0
+    while k < len(days):
+        a = run_attempt(per_day, days, k, rules)
+        out.append(a.__dict__)
+        if a.outcome == "open":
+            break
+        k += a.days
+    return pd.DataFrame(out, columns=ATTEMPT_COLUMNS)
+
+
+def subscription_cost(seq: pd.DataFrame, last_day: pd.Timestamp, rules: Combine = COMBINE_50K) -> float:
+    """Billing as lived: a subscription starts with the first attempt and again after every pass. It is paid at
+    the start and every 30 days until the pass (or the end of data). Each fail inside it costs one reset."""
+    cost, sub_start = 0.0, None
+    for start, end, outcome in zip(seq["start"], seq["end"], seq["outcome"], strict=True):
+        if sub_start is None:
+            sub_start = start
+        if outcome == "fail":
+            cost += rules.reset_fee
+            continue
+        stop = end if outcome == "pass" else last_day
+        cost += rules.monthly_fee * ((stop - sub_start).days // 30 + 1)
+        sub_start = None
+    if sub_start is not None:  # the data ended right after a fail: that subscription ran to the last day
+        cost += rules.monthly_fee * ((last_day - sub_start).days // 30 + 1)
+    return cost
+
+
+def summary(roll: pd.DataFrame, seq: pd.DataFrame, days: list[pd.Timestamp], rules: Combine = COMBINE_50K) -> dict:
+    done = roll[roll["outcome"] != "open"]
+    passed = done[done["outcome"] == "pass"]
+    s_pass = int((seq["outcome"] == "pass").sum()) if len(seq) else 0
+    s_fail = int((seq["outcome"] == "fail").sum()) if len(seq) else 0
+    cost = subscription_cost(seq, days[-1], rules) if days else 0.0
+    return {
+        "rolling_attempts": len(done),
+        "pass_rate": round(len(passed) / len(done), 4) if len(done) else float("nan"),
+        "median_days_to_pass": float(passed["days"].median()) if len(passed) else float("nan"),
+        "median_days_to_fail": float(done.loc[done["outcome"] == "fail", "days"].median())
+        if (done["outcome"] == "fail").any() else float("nan"),
+        "seq_passes": s_pass,
+        "seq_fails": s_fail,
+run,trades,net,pf
+0,1264,-1606.5599999999904,0.992785523626135
+
+exec
+/bin/bash -lc "head -1 studies/rlm/codex/round3_trade_audit.csv; awk -F, 'NR==1 {for(i=1;i<=NF;i++) a["'$i]=i;next} {for(k in a) if(k ~ /''^(next_bar|open_through|next_open_through|late|early_close_day|roll_window|incomplete_candle)$/) {g=k":"$a[k]; n[g]++; v=$a["net"]; net[g]+=v;if(v>0)p[g]+=v;else l[g]-=v}} END {for(g in n)print g,n[g],net[g],l[g]?p[g]/l[g]:0}'"' studies/rlm/codex/round3_trade_audit.csv; tail -3 studies/rlm/codex/round3_audit.log" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+signal_bar,entry_bar,exit_bar,entry_ts,exit_ts,trading_day,side,qty,entry,exit,reason,ticks,part_exit,part_bar,part_qty,gross,fee,net,mae,mfe,improvement_ticks,next_bar,open_through,next_open_through,late,early_close_day,roll_window,incomplete_candle
+next_open_through:False 946 48668.2 1.3406
+next_open_through:True 335 12856.6 1.22802
+next_bar:True 1206 59307.8 1.31993
+open_through:True 346 12322.2 1.20766
+late:False 1190 59372.4 1.30331
+early_close_day:True 40 4948.4 1.92413
+early_close_day:False 1241 56576.4 1.29175
+roll_window:True 177 14564.9 1.61092
+roll_window:False 1104 46959.8 1.26768
+next_bar:False 75 2217 1.15955
+late:True 91 2152.36 1.60979
+open_through:False 935 49202.6 1.3516
+incomplete_candle:False 992 55652.3 1.36238
+incomplete_candle:True 289 5872.44 1.12849
+null 0
+null 25
+null 50
+
+codex
+The in-sample replay matches: 1,281 trades, PF 1.309. Removing trades whose fills improved on the limit leaves PF 1.352, so those fills do not explain the result. Outside ±3 calendar days of a contract switch, PF is 1.268.
+
+I also found 289 trades from hourly candles with missing minute bars; they have PF 1.128, versus 1.362 for complete candles. The same-day null is still running sequentially.
+exec
+/bin/bash -lc "awk -F, 'NR==1 {for(i=1;i<=NF;i++) a["'$i]=i;next} {if($a["late"]=="True")r[$a["reason"]]++;im+=$a["improvement_ticks"];n++;v=$a["net"]-10*$a["improvement_ticks"];net+=v;if(v>0)p+=v;else l-=v}END{print "improvement ticks",im,"net at intended fill",net,"PF",p/l;for(k in r)print "late reason",k,r[k]}'"' studies/rlm/codex/round3_trade_audit.csv; tail -4 studies/rlm/codex/round3_audit.log" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+improvement ticks 497 net at intended fill 56554.8 PF 1.28029
+late reason flatten 90
+late reason stop 1
+null 0
+null 25
+null 50
+null 75
+
+exec
+/bin/bash -lc "tail -3 studies/rlm/codex/round3_audit.log; rg -n '0c7941f8774a' results/ledger.csv; git diff --stat" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+null 50
+null 75
+null 100
+373:2026-11-19T18:43:25+00:00,rlm,0c7941f8774a,dev,"{""clv"": 0.6, ""entry"": ""close"", ""exit"": ""r1"", ""reg"": ""confirm"", ""score"": 50, ""session"": ""all"", ""sig_tf"": ""1h"", ""sources"": ""all"", ""stop"": ""band"", ""tol"": 0.4, ""weight"": ""flat""}",1281,61524.76,1.309,0.5449,-6901.88,0.5226,26,22,331.69
+ results/ledger.csv | 2 ++
+ strategies/cbr.py  | 4 +++-
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+exec
+/bin/bash -lc "awk -F, 'NR==1 {for(i=1;i<=NF;i++)a["'$i]=i;next} {r=$a["touches"];n[r]++}END{for(r in n)print r,n[r]}'"' studies/rlm/trades/lead_dev.csv; tail -3 studies/rlm/codex/round3_audit.log" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+6.0 212
+18.0 2
+13.0 30
+9.0 109
+4.0 107
+16.0 8
+7.0 196
+11.0 68
+19.0 3
+21.0 1
+14.0 23
+5.0 242
+17.0 7
+10.0 77
+12.0 39
+8.0 143
+27.0 1
+22.0 2
+15.0 11
+null 75
+null 100
+null 125
+
+exec
+/bin/bash -lc 'sha256sum strategies/rlm.py cltester/engine.py cltester/swings.py cltester/data.py cltester/config.py studies/rlm/grid_dev_9a2fa27f50_screened.csv studies/rlm/codex/round3_audit.py > studies/rlm/codex/round3_source_sha256.txt; tail -3 studies/rlm/codex/round3_audit.log' in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+null 75
+null 100
+null 125
+
+codex
+Of the 91 in-sample entries after 14:00 CT, 90 exit by forced flattening and one stops out. They contribute $2,152; the remaining trades have PF 1.303. Removing all $4,970 of entry-price improvement from P&L leaves PF 1.280.
+
+The selection guard remains unresolved: a null for this chosen version does not satisfy the declared bootstrap of the maximum across the screened family. I’ll distinguish that from the result of the stronger null.
+exec
+/bin/bash -lc "tail -4 studies/rlm/codex/round3_audit.log; date -u '+%H:%M:%S'" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+null 75
+null 100
+null 125
+null 150
+18:52:12
+
+exec
+/bin/bash -lc 'tail -3 studies/rlm/codex/round3_audit.log; ls studies/rlm/codex/round3_summary.json 2>/dev/null' in /home/mrullldhm/personal/tradingview-tester
+ exited 2 in 0ms:
+null 150
+null 175
+null 200
+
+apply patch
+patch: completed
+/home/mrullldhm/personal/tradingview-tester/studies/rlm/codex/round3_followup.py
+diff --git a/studies/rlm/codex/round3_audit.py b/studies/rlm/codex/round3_audit.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..23f457359c61a306d1044238fb8915d350e2f4ef
+--- /dev/null
++++ b/studies/rlm/codex/round3_audit.py
+@@ -0,0 +1,130 @@
++"""Dev-only independent audit. Run under the user-specified 3 GB virtual-memory limit."""
++import json
++import inspect
++import numpy as np
++import pandas as pd
++from cltester.data import load_period, Bars
++from cltester.engine import backtest, Fills
++from cltester.swings import build_candles
++from strategies.rlm import Strategy
++import cltester.swings as sw
++import strategies.rlm as rlm
++
++# Equivalent timestamp indexing avoids materializing four million Python Timestamp objects.
++# Local process only; production sources remain untouched.
++source=inspect.getsource(sw.build_candles)
++source=source.replace('df["ts"].to_numpy()[start[done]]', 'df["ts"].iloc[start[done]]')
++exec(source,sw.__dict__)
++rlm.build_candles=sw.build_candles
++build_candles=sw.build_candles
++
++OUT = 'studies/rlm/codex/'
++P = dict(sig_tf='1h', reg='confirm', sources='all', weight='flat', tol=.4,
++         score=50, clv=.6, entry='close', stop='band', exit='r1', session='all')
++def stats(t):
++    v = t.net
++    return dict(n=len(t), net=float(v.sum()), pf=float(v[v>0].sum() / -v[v<0].sum()) if (v<0).any() else None)
++result = {}
++df = load_period('dev')
++df.drop(columns=['vendor','volume','ct'],inplace=True)
++df['raw_symbol']=df.raw_symbol.astype('category')
++print('loaded', len(df), flush=True)
++bars = Bars.from_frame(df)
++s = Strategy()
++sig = s.signals(df, P)
++orders = s.orders(df, P).set_index('bar')
++orders.to_csv(OUT+'round3_orders.csv')
++t = backtest(bars, sig, Fills(), s.manage)
++print('real', stats(t), 'orders',len(orders), flush=True)
++result['real'] = stats(t)
++cd = build_candles(df, '1h')
++ci = orders.c.to_numpy(int)
++av = orders.index.to_numpy(int)
++result['timing'] = dict(orders=len(orders), before_completion=int((av<cd.avail[ci]).sum()),
++    delayed_completion=int((cd.avail[ci]>cd.last[ci]).sum()),
++    incomplete_minutes=int(((cd.last[ci]-cd.first[ci]+1)<60).sum()),
++    close_mismatch=int((orders.cl.to_numpy()!=cd.c[ci]).sum()),
++    cross_day=int((bars.day_id[cd.first[ci]]!=bars.day_id[av]).sum()),
++    cross_contract=int((bars.sym_id[cd.first[ci]]!=bars.sym_id[av]).sum()))
++i=t.signal_bar.to_numpy(int); j=t.entry_bar.to_numpy(int)
++sd=t.side.to_numpy(int); lim=orders.loc[i,'E'].to_numpy()
++improve=lim-sd*bars.o[j]
++next_improve=lim-sd*bars.o[i+1]
++t['improvement_ticks']=np.maximum(improve,0)
++t['next_bar']=j==i+1
++t['open_through']=improve>0
++t['next_open_through']=(j==i+1)&(next_improve>0)
++t['late']=df.ct_minute.to_numpy()[j]>=840
++t['late'] &= df.ct_minute.to_numpy()[j]<1020
++# Early-close proxy: trading-day final observed CT minute < 15:10; report as proxy, not a holiday calendar.
++lasts=df.groupby('trading_day',sort=False).tail(1)
++early=lasts.loc[lasts.ct_minute<910,'trading_day'].to_numpy()
++t['early_close_day']=np.isin(t.trading_day.to_numpy(),early)
++roll_ix=np.flatnonzero(bars.sym_id[1:]!=bars.sym_id[:-1])+1
++roll_days=np.unique(bars.trading_day[roll_ix]).astype('datetime64[D]').astype(int)
++td=t.trading_day.to_numpy().astype('datetime64[D]').astype(int)
++near=np.zeros(len(t),bool)
++for r in roll_days: near |= np.abs(td-r)<=3
++t['roll_window']=near
++t['incomplete_candle']=(cd.last[orders.loc[i,'c'].to_numpy(int)]-cd.first[orders.loc[i,'c'].to_numpy(int)]+1)<60
++result['subgroups']={}
++for col in ['next_bar','open_through','next_open_through','late','early_close_day','roll_window','incomplete_candle']:
++    result['subgroups'][col]={'yes':stats(t[t[col]]),'no':stats(t[~t[col]])}
++result['late_reasons']=t[t.late].reason.value_counts().to_dict()
++result['reasons']=t.reason.value_counts().to_dict()
++result['improvement']=dict(total_ticks=float(t.improvement_ticks.sum()),median=float(t.improvement_ticks.median()),
++    max=float(t.improvement_ticks.max()),opens_beyond_stop=int((sd*bars.o[j]<=orders.loc[i,'S'].to_numpy()).sum()))
++cost=t.copy();cost.net-=10*cost.improvement_ticks
++result['remove_improvement_pnl_only']=stats(cost)
++for name,ss in [('exclude_late',sig.loc[~((df.ct_minute.to_numpy()[sig.index]>=839)&(df.ct_minute.to_numpy()[sig.index]<1020))]),
++                ('delay_one_minute',sig.set_axis(sig.index+1).loc[lambda x:x.index<len(df)-1])]:
++    tx=backtest(bars,ss,Fills(),s.manage)
++    result[name]=stats(tx)
++    del tx
++result['risk_quantiles_dollars']={str(q):float(x) for q,x in (orders.loc[i,'R']*10+4.04).quantile([0,.5,.9,.95,.99,1]).items()}
++t.drop(columns='path').to_csv(OUT+'round3_trade_audit.csv',index=False)
++del cost
++# Same trading day, same side, CLV>=.6, another completed 1h candle; same absolute bracket risk.
++# Candidate hours match overnight (17..08:29), daytime (08:30..13:59), late (14..15:09) buckets.
++# This preserves coarse time of day as well as daily market regime. All draws precede engine outcome calculation.
++ctm=df.ct_minute.to_numpy(); day=bars.day_id
++bucket=lambda m: np.where((m>=840)&(m<1020),2,np.where((m>=510)&(m<840),1,0))
++avc=cd.avail
++valid=(avc==cd.last)&(bars.day_id[cd.first]==day[avc])&(bars.sym_id[cd.first]==bars.sym_id[avc])
++valid &= bars.sess_minute[avc]<1329 # no order can start at/after 15:10
++clv=np.divide(cd.c-cd.l,cd.h-cd.l,out=np.full(len(cd),.5),where=cd.h!=cd.l)
++pools={}
++for side in (1,-1):
++    ids=np.flatnonzero(valid & ((clv>=.6) if side==1 else (clv<=.4)))
++    for c in ids:
++        b=int(avc[c]);key=(int(day[b]),side,int(bucket(ctm[b])))
++        pools.setdefault(key,[]).append(b)
++choices=[]; keep=[]
++for r,row in enumerate(orders.itertuples()):
++    key=(int(day[row.Index]),int(row.side),int(bucket(ctm[row.Index])))
++    other=np.array([b for b in pools.get(key,[]) if b!=row.Index],int)
++    if len(other): keep.append(r); choices.append(other)
++oo=orders.iloc[keep]
++result['null_design']=dict(runs=300,seed=20261120,eligible_orders=len(oo),total_orders=len(orders),
++    excluded_no_other_hour=len(orders)-len(oo),buckets='overnight,08:30-13:59,14:00-15:09 CT',risk='original ticks')
++matched=backtest(bars,sig.loc[oo.index],Fills(),s.manage)
++result['matched_real']=stats(matched)
++del matched
++rng=np.random.default_rng(20261120); rows=[]
++side=oo.side.to_numpy(int);risk=oo.R.to_numpy(int)
++for run in range(300):
++    b=np.array([x[rng.integers(len(x))] for x in choices])
++    E=side*bars.c[b]
++    ns=pd.DataFrame(dict(side=side,limit=side*E*.01,stop=side*(E-risk)*.01,target=side*(E+risk)*.01,
++                         expire_min=60,kill=side*(E+risk)*.01),index=b)
++    ns=ns.loc[~ns.index.duplicated()].sort_index()
++    nt=backtest(bars,ns,Fills(),s.manage)
++    rows.append(dict(run=run,orders=len(ns),**stats(nt)))
++    del nt
++    if run%25==0: print('null',run,flush=True)
++n=pd.DataFrame(rows);n.to_csv(OUT+'round3_same_day_null.csv',index=False)
++result['null_summary']=dict(pf_quantiles={str(q):float(x) for q,x in n.pf.quantile([0,.025,.5,.95,.975,1]).items()},
++    mean=float(n.pf.mean()),sd=float(n.pf.std()),exceed_real=int((n.pf>=result['real']['pf']).sum()),
++    exceed_matched=int((n.pf>=result['matched_real']['pf']).sum()),median_trades=float(n.n.median()))
++with open(OUT+'round3_summary.json','w') as f: json.dump(result,f,indent=2)
++print(json.dumps(result,indent=2),flush=True)
+diff --git a/studies/rlm/codex/round3_followup.py b/studies/rlm/codex/round3_followup.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..095caf991c1b11ad34312832bdc42ff79319f895
+--- /dev/null
++++ b/studies/rlm/codex/round3_followup.py
+@@ -0,0 +1,19 @@
++"""Lightweight summaries from round3 CSVs, run after the main Python process exits."""
++import json
++import pandas as pd
++OUT='studies/rlm/codex/'
++t=pd.read_csv(OUT+'round3_trade_audit.csv')
++o=pd.read_csv(OUT+'round3_orders.csv').set_index('bar')
++def stats(x):
++    v=x.net
++    return dict(n=len(x),net=float(v.sum()),pf=float(v[v>0].sum()/-v[v<0].sum()))
++r={}
++r['exclude_all_flagged']=stats(t[~(t.late|t.early_close_day|t.roll_window|t.incomplete_candle|t.open_through)])
++r['early_close_dates']=sorted(t.loc[t.early_close_day,'trading_day'].unique().tolist())
++r['filled_intended_risk_ticks_quantiles']=o.loc[t.signal_bar,'R'].quantile([0,.5,.9,.95,.99,1]).to_dict()
++r['five_cl_planned_loss_ge_2000_trades']=int(((o.loc[t.signal_bar,'R']*10+4.04)*5>=2000).sum())
++r['one_cl_planned_loss_ge_2000_trades']=int(((o.loc[t.signal_bar,'R']*10+4.04)>=2000).sum())
++r['planned_loss_at_most_200_trades']=int(((o.loc[t.signal_bar,'R']*10+4.04)<=200).sum())
++r['late_hours']=pd.to_datetime(t.loc[t.late,'entry_ts']).dt.tz_convert('America/Chicago').dt.hour.value_counts().to_dict()
++with open(OUT+'round3_followup.json','w') as f:json.dump(r,f,indent=2)
++print(json.dumps(r,indent=2))
+
+exec
+/bin/bash -lc 'tail -4 studies/rlm/codex/round3_audit.log' in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+null 175
+null 200
+null 225
+null 250
+
+ succeeded in 144217ms:
+exec
+/bin/bash -lc 'tail -4 studies/rlm/codex/round3_audit.log' in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+    "exceed_matched": 0,
+    "median_trades": 1176.0
+  }
+}
+
+exec
+/bin/bash -lc "cat studies/rlm/codex/round3_summary.json; bash -c 'ulimit -v 3000000; PYTHONPATH=. .venv/bin/python studies/rlm/codex/round3_followup.py > studies/rlm/codex/round3_followup.log 2>&1'; cat studies/rlm/codex/round3_followup.log" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 202ms:
+{
+  "real": {
+    "n": 1281,
+    "net": 61524.760000000024,
+    "pf": 1.3087424975656796
+  },
+  "timing": {
+    "orders": 1393,
+    "before_completion": 0,
+    "delayed_completion": 31,
+    "incomplete_minutes": 326,
+    "close_mismatch": 0,
+    "cross_day": 0,
+    "cross_contract": 0
+  },
+  "subgroups": {
+    "next_bar": {
+      "yes": {
+        "n": 1206,
+        "net": 59307.76000000001,
+        "pf": 1.3199255496335418
+      },
+      "no": {
+        "n": 75,
+        "net": 2217.0000000000014,
+        "pf": 1.1595487440484067
+      }
+    },
+    "open_through": {
+      "yes": {
+        "n": 346,
+        "net": 12322.160000000007,
+        "pf": 1.2076647207129472
+      },
+      "no": {
+        "n": 935,
+        "net": 49202.60000000002,
+        "pf": 1.3516015461647017
+      }
+    },
+    "next_open_through": {
+      "yes": {
+        "n": 335,
+        "net": 12856.600000000006,
+        "pf": 1.228016645715275
+      },
+      "no": {
+        "n": 946,
+        "net": 48668.16000000002,
+        "pf": 1.3405967800315262
+      }
+    },
+    "late": {
+      "yes": {
+        "n": 91,
+        "net": 2152.3600000000006,
+        "pf": 1.6097889893701411
+      },
+      "no": {
+        "n": 1190,
+        "net": 59372.40000000001,
+        "pf": 1.3033140355003565
+      }
+    },
+    "early_close_day": {
+      "yes": {
+        "n": 40,
+        "net": 4948.400000000001,
+        "pf": 1.9241330883121932
+      },
+      "no": {
+        "n": 1241,
+        "net": 56576.36000000002,
+        "pf": 1.2917500083023636
+      }
+    },
+    "roll_window": {
+      "yes": {
+        "n": 177,
+        "net": 14564.920000000006,
+        "pf": 1.6109169551043827
+      },
+      "no": {
+        "n": 1104,
+        "net": 46959.84000000001,
+        "pf": 1.267677734973515
+      }
+    },
+    "incomplete_candle": {
+      "yes": {
+        "n": 289,
+        "net": 5872.440000000001,
+        "pf": 1.1284948325841282
+      },
+      "no": {
+        "n": 992,
+        "net": 55652.32000000002,
+        "pf": 1.3623821704725736
+      }
+    }
+  },
+  "late_reasons": {
+    "flatten": 90,
+    "stop": 1
+  },
+  "reasons": {
+    "target": 588,
+    "stop": 483,
+    "flatten": 200,
+    "day_end": 5,
+    "roll": 5
+  },
+  "improvement": {
+    "total_ticks": 497.0,
+    "median": 0.0,
+    "max": 21.0,
+    "opens_beyond_stop": 0
+  },
+  "remove_improvement_pnl_only": {
+    "n": 1281,
+    "net": 56554.760000000024,
+    "pf": 1.2802884820298417
+  },
+  "exclude_late": {
+    "n": 1190,
+    "net": 59372.40000000001,
+    "pf": 1.3033140355003565
+  },
+  "delay_one_minute": {
+    "n": 1241,
+    "net": 60896.36000000002,
+    "pf": 1.3221021398804482
+  },
+  "risk_quantiles_dollars": {
+    "0.0": 114.04,
+    "0.5": 374.04,
+    "0.9": 744.04,
+    "0.95": 924.04,
+    "0.99": 1284.04,
+    "1.0": 2354.04
+  },
+  "null_design": {
+    "runs": 300,
+    "seed": 20261120,
+    "eligible_orders": 1279,
+    "total_orders": 1393,
+    "excluded_no_other_hour": 114,
+    "buckets": "overnight,08:30-13:59,14:00-15:09 CT",
+    "risk": "original ticks"
+  },
+  "matched_real": {
+    "n": 1187,
+    "net": 66974.52000000002,
+    "pf": 1.356556285241962
+  },
+  "null_summary": {
+    "pf_quantiles": {
+      "0.0": 0.7279017386752712,
+      "0.025": 0.7739215357716015,
+      "0.5": 0.8451248426810754,
+      "0.95": 0.9044290755883114,
+      "0.975": 0.9185052814754582,
+      "1.0": 0.948201043679359
+    },
+    "mean": 0.8455274997858326,
+    "sd": 0.037332263990508284,
+    "exceed_real": 0,
+    "exceed_matched": 0,
+    "median_trades": 1176.0
+  }
+}{
+  "exclude_all_flagged": {
+    "n": 599,
+    "net": 32500.040000000008,
+    "pf": 1.3279436284768542
+  },
+  "early_close_dates": [
+    "2010-07-20",
+    "2010-09-06",
+    "2010-11-25",
+    "2010-11-26",
+    "2011-01-17",
+    "2011-04-19",
+    "2011-06-21",
+    "2011-07-20",
+    "2011-11-18",
+    "2011-11-25",
+    "2011-12-20",
+    "2012-01-20",
+    "2012-03-20",
+    "2012-04-20",
+    "2012-05-22",
+    "2012-06-20",
+    "2013-11-20",
+    "2014-05-20",
+    "2015-02-16",
+    "2015-05-19",
+    "2015-09-07",
+    "2016-07-04",
+    "2018-09-03",
+    "2019-09-02",
+    "2019-11-28",
+    "2019-11-29",
+    "2020-02-17",
+    "2020-05-25",
+    "2020-06-30",
+    "2020-07-03",
+    "2021-09-06",
+    "2021-11-25"
+  ],
+  "filled_intended_risk_ticks_quantiles": {
+    "0.0": 11.0,
+    "0.5": 37.0,
+    "0.9": 74.0,
+    "0.95": 92.0,
+    "0.99": 128.0,
+    "1.0": 235.0
+  },
+  "five_cl_planned_loss_ge_2000_trades": 581,
+  "one_cl_planned_loss_ge_2000_trades": 1,
+  "planned_loss_at_most_200_trades": 89,
+  "late_hours": {
+    "14": 58,
+    "15": 33
+  }
+}
+
+codex
+The stronger null finished. Across 300 in-sample runs, median PF is 0.845, the central 95% range is 0.774–0.919, and the maximum is 0.948. None reaches 1.309. On the orders eligible for this matched comparison, the real strategy has PF 1.357.
+
+Sizing is a separate concern: planned one-CL stop loss including fees has a $374 median, $924 95th percentile, and $2,354 maximum. Five CL would put 581 of the 1,281 historical trades at or above the entire $2,000 starting loss cushion.
+apply patch
+patch: completed
+/home/mrullldhm/personal/tradingview-tester/studies/rlm/codex/round3_followup.py
+diff --git a/studies/rlm/codex/round3_audit.py b/studies/rlm/codex/round3_audit.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..23f457359c61a306d1044238fb8915d350e2f4ef
+--- /dev/null
++++ b/studies/rlm/codex/round3_audit.py
+@@ -0,0 +1,130 @@
++"""Dev-only independent audit. Run under the user-specified 3 GB virtual-memory limit."""
++import json
++import inspect
++import numpy as np
++import pandas as pd
++from cltester.data import load_period, Bars
++from cltester.engine import backtest, Fills
++from cltester.swings import build_candles
++from strategies.rlm import Strategy
++import cltester.swings as sw
++import strategies.rlm as rlm
++
++# Equivalent timestamp indexing avoids materializing four million Python Timestamp objects.
++# Local process only; production sources remain untouched.
++source=inspect.getsource(sw.build_candles)
++source=source.replace('df["ts"].to_numpy()[start[done]]', 'df["ts"].iloc[start[done]]')
++exec(source,sw.__dict__)
++rlm.build_candles=sw.build_candles
++build_candles=sw.build_candles
++
++OUT = 'studies/rlm/codex/'
++P = dict(sig_tf='1h', reg='confirm', sources='all', weight='flat', tol=.4,
++         score=50, clv=.6, entry='close', stop='band', exit='r1', session='all')
++def stats(t):
++    v = t.net
++    return dict(n=len(t), net=float(v.sum()), pf=float(v[v>0].sum() / -v[v<0].sum()) if (v<0).any() else None)
++result = {}
++df = load_period('dev')
++df.drop(columns=['vendor','volume','ct'],inplace=True)
++df['raw_symbol']=df.raw_symbol.astype('category')
++print('loaded', len(df), flush=True)
++bars = Bars.from_frame(df)
++s = Strategy()
++sig = s.signals(df, P)
++orders = s.orders(df, P).set_index('bar')
++orders.to_csv(OUT+'round3_orders.csv')
++t = backtest(bars, sig, Fills(), s.manage)
++print('real', stats(t), 'orders',len(orders), flush=True)
++result['real'] = stats(t)
++cd = build_candles(df, '1h')
++ci = orders.c.to_numpy(int)
++av = orders.index.to_numpy(int)
++result['timing'] = dict(orders=len(orders), before_completion=int((av<cd.avail[ci]).sum()),
++    delayed_completion=int((cd.avail[ci]>cd.last[ci]).sum()),
++    incomplete_minutes=int(((cd.last[ci]-cd.first[ci]+1)<60).sum()),
++    close_mismatch=int((orders.cl.to_numpy()!=cd.c[ci]).sum()),
++    cross_day=int((bars.day_id[cd.first[ci]]!=bars.day_id[av]).sum()),
++    cross_contract=int((bars.sym_id[cd.first[ci]]!=bars.sym_id[av]).sum()))
++i=t.signal_bar.to_numpy(int); j=t.entry_bar.to_numpy(int)
++sd=t.side.to_numpy(int); lim=orders.loc[i,'E'].to_numpy()
++improve=lim-sd*bars.o[j]
++next_improve=lim-sd*bars.o[i+1]
++t['improvement_ticks']=np.maximum(improve,0)
++t['next_bar']=j==i+1
++t['open_through']=improve>0
++t['next_open_through']=(j==i+1)&(next_improve>0)
++t['late']=df.ct_minute.to_numpy()[j]>=840
++t['late'] &= df.ct_minute.to_numpy()[j]<1020
++# Early-close proxy: trading-day final observed CT minute < 15:10; report as proxy, not a holiday calendar.
++lasts=df.groupby('trading_day',sort=False).tail(1)
++early=lasts.loc[lasts.ct_minute<910,'trading_day'].to_numpy()
++t['early_close_day']=np.isin(t.trading_day.to_numpy(),early)
++roll_ix=np.flatnonzero(bars.sym_id[1:]!=bars.sym_id[:-1])+1
++roll_days=np.unique(bars.trading_day[roll_ix]).astype('datetime64[D]').astype(int)
++td=t.trading_day.to_numpy().astype('datetime64[D]').astype(int)
++near=np.zeros(len(t),bool)
++for r in roll_days: near |= np.abs(td-r)<=3
++t['roll_window']=near
++t['incomplete_candle']=(cd.last[orders.loc[i,'c'].to_numpy(int)]-cd.first[orders.loc[i,'c'].to_numpy(int)]+1)<60
++result['subgroups']={}
++for col in ['next_bar','open_through','next_open_through','late','early_close_day','roll_window','incomplete_candle']:
++    result['subgroups'][col]={'yes':stats(t[t[col]]),'no':stats(t[~t[col]])}
++result['late_reasons']=t[t.late].reason.value_counts().to_dict()
++result['reasons']=t.reason.value_counts().to_dict()
++result['improvement']=dict(total_ticks=float(t.improvement_ticks.sum()),median=float(t.improvement_ticks.median()),
++    max=float(t.improvement_ticks.max()),opens_beyond_stop=int((sd*bars.o[j]<=orders.loc[i,'S'].to_numpy()).sum()))
++cost=t.copy();cost.net-=10*cost.improvement_ticks
++result['remove_improvement_pnl_only']=stats(cost)
++for name,ss in [('exclude_late',sig.loc[~((df.ct_minute.to_numpy()[sig.index]>=839)&(df.ct_minute.to_numpy()[sig.index]<1020))]),
++                ('delay_one_minute',sig.set_axis(sig.index+1).loc[lambda x:x.index<len(df)-1])]:
++    tx=backtest(bars,ss,Fills(),s.manage)
++    result[name]=stats(tx)
++    del tx
++result['risk_quantiles_dollars']={str(q):float(x) for q,x in (orders.loc[i,'R']*10+4.04).quantile([0,.5,.9,.95,.99,1]).items()}
++t.drop(columns='path').to_csv(OUT+'round3_trade_audit.csv',index=False)
++del cost
++# Same trading day, same side, CLV>=.6, another completed 1h candle; same absolute bracket risk.
++# Candidate hours match overnight (17..08:29), daytime (08:30..13:59), late (14..15:09) buckets.
++# This preserves coarse time of day as well as daily market regime. All draws precede engine outcome calculation.
++ctm=df.ct_minute.to_numpy(); day=bars.day_id
++bucket=lambda m: np.where((m>=840)&(m<1020),2,np.where((m>=510)&(m<840),1,0))
++avc=cd.avail
++valid=(avc==cd.last)&(bars.day_id[cd.first]==day[avc])&(bars.sym_id[cd.first]==bars.sym_id[avc])
++valid &= bars.sess_minute[avc]<1329 # no order can start at/after 15:10
++clv=np.divide(cd.c-cd.l,cd.h-cd.l,out=np.full(len(cd),.5),where=cd.h!=cd.l)
++pools={}
++for side in (1,-1):
++    ids=np.flatnonzero(valid & ((clv>=.6) if side==1 else (clv<=.4)))
++    for c in ids:
++        b=int(avc[c]);key=(int(day[b]),side,int(bucket(ctm[b])))
++        pools.setdefault(key,[]).append(b)
++choices=[]; keep=[]
++for r,row in enumerate(orders.itertuples()):
++    key=(int(day[row.Index]),int(row.side),int(bucket(ctm[row.Index])))
++    other=np.array([b for b in pools.get(key,[]) if b!=row.Index],int)
++    if len(other): keep.append(r); choices.append(other)
++oo=orders.iloc[keep]
++result['null_design']=dict(runs=300,seed=20261120,eligible_orders=len(oo),total_orders=len(orders),
++    excluded_no_other_hour=len(orders)-len(oo),buckets='overnight,08:30-13:59,14:00-15:09 CT',risk='original ticks')
++matched=backtest(bars,sig.loc[oo.index],Fills(),s.manage)
++result['matched_real']=stats(matched)
++del matched
++rng=np.random.default_rng(20261120); rows=[]
++side=oo.side.to_numpy(int);risk=oo.R.to_numpy(int)
++for run in range(300):
++    b=np.array([x[rng.integers(len(x))] for x in choices])
++    E=side*bars.c[b]
++    ns=pd.DataFrame(dict(side=side,limit=side*E*.01,stop=side*(E-risk)*.01,target=side*(E+risk)*.01,
++                         expire_min=60,kill=side*(E+risk)*.01),index=b)
++    ns=ns.loc[~ns.index.duplicated()].sort_index()
++    nt=backtest(bars,ns,Fills(),s.manage)
++    rows.append(dict(run=run,orders=len(ns),**stats(nt)))
++    del nt
++    if run%25==0: print('null',run,flush=True)
++n=pd.DataFrame(rows);n.to_csv(OUT+'round3_same_day_null.csv',index=False)
++result['null_summary']=dict(pf_quantiles={str(q):float(x) for q,x in n.pf.quantile([0,.025,.5,.95,.975,1]).items()},
++    mean=float(n.pf.mean()),sd=float(n.pf.std()),exceed_real=int((n.pf>=result['real']['pf']).sum()),
++    exceed_matched=int((n.pf>=result['matched_real']['pf']).sum()),median_trades=float(n.n.median()))
++with open(OUT+'round3_summary.json','w') as f: json.dump(result,f,indent=2)
++print(json.dumps(result,indent=2),flush=True)
+diff --git a/studies/rlm/codex/round3_followup.py b/studies/rlm/codex/round3_followup.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..5b52521aca28745376e3697a3d8ee066fae19db3
+--- /dev/null
++++ b/studies/rlm/codex/round3_followup.py
+@@ -0,0 +1,20 @@
++"""Lightweight summaries from round3 CSVs, run after the main Python process exits."""
++import json
++import pandas as pd
++OUT='studies/rlm/codex/'
++t=pd.read_csv(OUT+'round3_trade_audit.csv')
++o=pd.read_csv(OUT+'round3_orders.csv').set_index('bar')
++def stats(x):
++    v=x.net
++    return dict(n=len(x),net=float(v.sum()),pf=float(v[v>0].sum()/-v[v<0].sum()))
++r={}
++r['delayed_hour_completion_trades']=stats(t[t.signal_bar.isin(o.index[o.ct_min%60!=59])])
++r['exclude_all_flagged']=stats(t[~(t.late|t.early_close_day|t.roll_window|t.incomplete_candle|t.open_through)])
++r['early_close_dates']=sorted(t.loc[t.early_close_day,'trading_day'].unique().tolist())
++r['filled_intended_risk_ticks_quantiles']=o.loc[t.signal_bar,'R'].quantile([0,.5,.9,.95,.99,1]).to_dict()
++r['five_cl_planned_loss_ge_2000_trades']=int(((o.loc[t.signal_bar,'R']*10+4.04)*5>=2000).sum())
++r['one_cl_planned_loss_ge_2000_trades']=int(((o.loc[t.signal_bar,'R']*10+4.04)>=2000).sum())
++r['planned_loss_at_most_200_trades']=int(((o.loc[t.signal_bar,'R']*10+4.04)<=200).sum())
++r['late_hours']=pd.to_datetime(t.loc[t.late,'entry_ts']).dt.tz_convert('America/Chicago').dt.hour.value_counts().to_dict()
++with open(OUT+'round3_followup.json','w') as f:json.dump(r,f,indent=2)
++print(json.dumps(r,indent=2))
+
+exec
+/bin/bash -lc "bash -c 'ulimit -v 3000000; PYTHONPATH=. .venv/bin/python studies/rlm/codex/round3_followup.py > studies/rlm/codex/round3_followup.log 2>&1'; head -7 studies/rlm/codex/round3_followup.log" in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 173ms:
+{
+  "delayed_hour_completion_trades": {
+    "n": 28,
+    "net": -893.1199999999999,
+    "pf": 0.7995079288113071
+  },
+  "exclude_all_flagged": {
+
+apply patch
+patch: completed
+/home/mrullldhm/personal/tradingview-tester/studies/rlm/codex/reply3.md
+diff --git a/studies/rlm/codex/reply3.md b/studies/rlm/codex/reply3.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..035198ffdd19b2ed2f5e29b7061c5fb9c638b7cf
+--- /dev/null
++++ b/studies/rlm/codex/reply3.md
+@@ -0,0 +1,20 @@
++Conditional yes to ONE frozen validation; no parameter changes. The close-entry audit did not break the result. However, the declared family maximum-PF bootstrap remains outstanding: neither single-version null completes that guard. Finish it on dev before giving a protocol-compliant validation go. Validation was not accessed.
++
++All performance numbers below are **dev, in-sample, selected from 13,824 versions**.
++
++1. **Execution and timing.** Independent replay reproduced 1,281 trades, $61,525 net, PF 1.309.
++
++   - 1,206 trades filled on the next minute bar. Of these, 335 opened strictly through the limit: PF 1.228. Across all fill bars, 346 received price improvement; removing those trades leaves PF 1.352. Improvement totals 497 ticks/$4,970; subtracting it from P&L, without changing exits, leaves PF 1.280. No fill opened beyond its stop. A full engine rerun delaying order activation one additional minute gives 1,241 trades, PF 1.322. This does not model queue priority or subminute latency.
++   - Of 91 entries at/after 14:00 CT, 90 flatten and one stops; net $2,152. Excluding late signals and rerunning gives 1,190 trades, PF 1.303. They are mostly forced-exit bets, but do not explain the edge.
++   - Across 1,393 orders: zero signals before hourly completion, zero hourly-close mismatches, zero cross-session or cross-contract signal candles. There are 31 delayed completions because the final minute is missing; their 28 filled trades lose $893, PF 0.800. Candles with fewer than 60 observed minute bars produce 289 trades, PF 1.128; complete candles produce 992, PF 1.362.
++   - Early-ending observed sessions produce 40 trades, PF 1.924; excluding them leaves PF 1.292. This is a holiday/data-gap proxy, not a verified holiday calendar. Within ±3 calendar days of contract switches: 177 trades, PF 1.611; outside: 1,104, PF 1.268. Five trades exit explicitly at roll. Removing all flagged trades together—improved fills, late entries, early-ending sessions, roll windows, incomplete candles—leaves 599 trades, PF 1.328. These exclusions are diagnostics, not proposed filters.
++
++2. **Stronger null.** The random-date null preserves clock minute but breaks daily volatility, directional conditions and bracket-risk compatibility. I instead relocate each order to another completed hour on the same trading day, same side, same side-adjusted CLV ≥0.6, and same broad time bucket: overnight, 08:30–13:59, or 14:00–15:09 CT. Keep original risk ticks, 1R target, expiry, fees and engine rules; remove the level condition. Deduplicate colliding signals and enforce one position as usual.
++
++   1,279/1,393 orders have another eligible hour; the matched real subset gives 1,187 trades, PF 1.357. Across 300 null runs: median 1,176 trades; PF median **0.845**, central 95% **0.774–0.919**, maximum **0.948**; **0/300** reach either 1.309 or 1.357. Conditioning more closely makes this control more relevant, not necessarily more profitable. It still does not preserve exact local ATR or band-derived geometry. Zero exceedances gives Monte Carlo p=1/301≈0.0033, not a family-adjusted significance result. Do not interpret z=5.2 as selection-adjusted evidence.
++
++3. **Freeze and sizing.** Keep the exact version and existing validation gates (PF≥1.10, pass≥40%); add no time, touch, holiday or roll filters. Flat versus TF weights changes effective selectivity, so the weaker sibling does not cleanly isolate weighting's value.
++
++   Use **one CL at most**, never automatically five. Planned one-CL stop loss including fees: median **$374**, 95th percentile **$924**, maximum **$2,354**. At five CL, **581/1,281** planned losses exceed the starting $2,000 cushion. Even one CL is unsuitable for some signals. For eventual execution, size against remaining MLL cushion; my conservative cap would be 10% including fees/slippage, with zero contracts meaning skip. Only 89 historical trades meet $200 planned risk before slippage. That cap creates a separate variant and cannot inherit the reported 52% pass rate. Topstep confirms the $2,000 MLL trails EOD balance but is enforced intraday, including open P&L: https://help.topstep.com/en/articles/8284204-what-is-the-maximum-loss-limit
++
++Artifacts: round3_audit.py, round3_summary.json, round3_trade_audit.csv, round3_orders.csv, round3_same_day_null.csv, round3_followup.py/json, logs and source hashes, all in this directory. Python processes ran sequentially under ulimit -v 3000000. The initial memory-limited attempt stopped with MemoryError; the successful audit uses equivalent process-local timestamp indexing to avoid object expansion and drops unused columns. No production sources were edited; no swing-stack snapshots were stored.
+diff --git a/studies/rlm/codex/round3_audit.py b/studies/rlm/codex/round3_audit.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..23f457359c61a306d1044238fb8915d350e2f4ef
+--- /dev/null
++++ b/studies/rlm/codex/round3_audit.py
+@@ -0,0 +1,130 @@
++"""Dev-only independent audit. Run under the user-specified 3 GB virtual-memory limit."""
++import json
++import inspect
++import numpy as np
++import pandas as pd
++from cltester.data import load_period, Bars
++from cltester.engine import backtest, Fills
++from cltester.swings import build_candles
++from strategies.rlm import Strategy
++import cltester.swings as sw
++import strategies.rlm as rlm
++
++# Equivalent timestamp indexing avoids materializing four million Python Timestamp objects.
++# Local process only; production sources remain untouched.
++source=inspect.getsource(sw.build_candles)
++source=source.replace('df["ts"].to_numpy()[start[done]]', 'df["ts"].iloc[start[done]]')
++exec(source,sw.__dict__)
++rlm.build_candles=sw.build_candles
++build_candles=sw.build_candles
++
++OUT = 'studies/rlm/codex/'
++P = dict(sig_tf='1h', reg='confirm', sources='all', weight='flat', tol=.4,
++         score=50, clv=.6, entry='close', stop='band', exit='r1', session='all')
++def stats(t):
++    v = t.net
++    return dict(n=len(t), net=float(v.sum()), pf=float(v[v>0].sum() / -v[v<0].sum()) if (v<0).any() else None)
++result = {}
++df = load_period('dev')
++df.drop(columns=['vendor','volume','ct'],inplace=True)
++df['raw_symbol']=df.raw_symbol.astype('category')
++print('loaded', len(df), flush=True)
++bars = Bars.from_frame(df)
++s = Strategy()
++sig = s.signals(df, P)
++orders = s.orders(df, P).set_index('bar')
++orders.to_csv(OUT+'round3_orders.csv')
++t = backtest(bars, sig, Fills(), s.manage)
++print('real', stats(t), 'orders',len(orders), flush=True)
++result['real'] = stats(t)
++cd = build_candles(df, '1h')
++ci = orders.c.to_numpy(int)
++av = orders.index.to_numpy(int)
++result['timing'] = dict(orders=len(orders), before_completion=int((av<cd.avail[ci]).sum()),
++    delayed_completion=int((cd.avail[ci]>cd.last[ci]).sum()),
++    incomplete_minutes=int(((cd.last[ci]-cd.first[ci]+1)<60).sum()),
++    close_mismatch=int((orders.cl.to_numpy()!=cd.c[ci]).sum()),
++    cross_day=int((bars.day_id[cd.first[ci]]!=bars.day_id[av]).sum()),
++    cross_contract=int((bars.sym_id[cd.first[ci]]!=bars.sym_id[av]).sum()))
++i=t.signal_bar.to_numpy(int); j=t.entry_bar.to_numpy(int)
++sd=t.side.to_numpy(int); lim=orders.loc[i,'E'].to_numpy()
++improve=lim-sd*bars.o[j]
++next_improve=lim-sd*bars.o[i+1]
++t['improvement_ticks']=np.maximum(improve,0)
++t['next_bar']=j==i+1
++t['open_through']=improve>0
++t['next_open_through']=(j==i+1)&(next_improve>0)
++t['late']=df.ct_minute.to_numpy()[j]>=840
++t['late'] &= df.ct_minute.to_numpy()[j]<1020
++# Early-close proxy: trading-day final observed CT minute < 15:10; report as proxy, not a holiday calendar.
++lasts=df.groupby('trading_day',sort=False).tail(1)
++early=lasts.loc[lasts.ct_minute<910,'trading_day'].to_numpy()
++t['early_close_day']=np.isin(t.trading_day.to_numpy(),early)
++roll_ix=np.flatnonzero(bars.sym_id[1:]!=bars.sym_id[:-1])+1
++roll_days=np.unique(bars.trading_day[roll_ix]).astype('datetime64[D]').astype(int)
++td=t.trading_day.to_numpy().astype('datetime64[D]').astype(int)
++near=np.zeros(len(t),bool)
++for r in roll_days: near |= np.abs(td-r)<=3
++t['roll_window']=near
++t['incomplete_candle']=(cd.last[orders.loc[i,'c'].to_numpy(int)]-cd.first[orders.loc[i,'c'].to_numpy(int)]+1)<60
++result['subgroups']={}
++for col in ['next_bar','open_through','next_open_through','late','early_close_day','roll_window','incomplete_candle']:
++    result['subgroups'][col]={'yes':stats(t[t[col]]),'no':stats(t[~t[col]])}
++result['late_reasons']=t[t.late].reason.value_counts().to_dict()
++result['reasons']=t.reason.value_counts().to_dict()
++result['improvement']=dict(total_ticks=float(t.improvement_ticks.sum()),median=float(t.improvement_ticks.median()),
++    max=float(t.improvement_ticks.max()),opens_beyond_stop=int((sd*bars.o[j]<=orders.loc[i,'S'].to_numpy()).sum()))
++cost=t.copy();cost.net-=10*cost.improvement_ticks
++result['remove_improvement_pnl_only']=stats(cost)
++for name,ss in [('exclude_late',sig.loc[~((df.ct_minute.to_numpy()[sig.index]>=839)&(df.ct_minute.to_numpy()[sig.index]<1020))]),
++                ('delay_one_minute',sig.set_axis(sig.index+1).loc[lambda x:x.index<len(df)-1])]:
++    tx=backtest(bars,ss,Fills(),s.manage)
++    result[name]=stats(tx)
++    del tx
++result['risk_quantiles_dollars']={str(q):float(x) for q,x in (orders.loc[i,'R']*10+4.04).quantile([0,.5,.9,.95,.99,1]).items()}
++t.drop(columns='path').to_csv(OUT+'round3_trade_audit.csv',index=False)
++del cost
++# Same trading day, same side, CLV>=.6, another completed 1h candle; same absolute bracket risk.
++# Candidate hours match overnight (17..08:29), daytime (08:30..13:59), late (14..15:09) buckets.
++# This preserves coarse time of day as well as daily market regime. All draws precede engine outcome calculation.
++ctm=df.ct_minute.to_numpy(); day=bars.day_id
++bucket=lambda m: np.where((m>=840)&(m<1020),2,np.where((m>=510)&(m<840),1,0))
++avc=cd.avail
++valid=(avc==cd.last)&(bars.day_id[cd.first]==day[avc])&(bars.sym_id[cd.first]==bars.sym_id[avc])
++valid &= bars.sess_minute[avc]<1329 # no order can start at/after 15:10
++clv=np.divide(cd.c-cd.l,cd.h-cd.l,out=np.full(len(cd),.5),where=cd.h!=cd.l)
++pools={}
++for side in (1,-1):
++    ids=np.flatnonzero(valid & ((clv>=.6) if side==1 else (clv<=.4)))
++    for c in ids:
++        b=int(avc[c]);key=(int(day[b]),side,int(bucket(ctm[b])))
++        pools.setdefault(key,[]).append(b)
++choices=[]; keep=[]
++for r,row in enumerate(orders.itertuples()):
++    key=(int(day[row.Index]),int(row.side),int(bucket(ctm[row.Index])))
++    other=np.array([b for b in pools.get(key,[]) if b!=row.Index],int)
++    if len(other): keep.append(r); choices.append(other)
++oo=orders.iloc[keep]
++result['null_design']=dict(runs=300,seed=20261120,eligible_orders=len(oo),total_orders=len(orders),
++    excluded_no_other_hour=len(orders)-len(oo),buckets='overnight,08:30-13:59,14:00-15:09 CT',risk='original ticks')
++matched=backtest(bars,sig.loc[oo.index],Fills(),s.manage)
++result['matched_real']=stats(matched)
++del matched
++rng=np.random.default_rng(20261120); rows=[]
++side=oo.side.to_numpy(int);risk=oo.R.to_numpy(int)
++for run in range(300):
++    b=np.array([x[rng.integers(len(x))] for x in choices])
++    E=side*bars.c[b]
++    ns=pd.DataFrame(dict(side=side,limit=side*E*.01,stop=side*(E-risk)*.01,target=side*(E+risk)*.01,
++                         expire_min=60,kill=side*(E+risk)*.01),index=b)
++    ns=ns.loc[~ns.index.duplicated()].sort_index()
++    nt=backtest(bars,ns,Fills(),s.manage)
++    rows.append(dict(run=run,orders=len(ns),**stats(nt)))
++    del nt
++    if run%25==0: print('null',run,flush=True)
++n=pd.DataFrame(rows);n.to_csv(OUT+'round3_same_day_null.csv',index=False)
++result['null_summary']=dict(pf_quantiles={str(q):float(x) for q,x in n.pf.quantile([0,.025,.5,.95,.975,1]).items()},
++    mean=float(n.pf.mean()),sd=float(n.pf.std()),exceed_real=int((n.pf>=result['real']['pf']).sum()),
++    exceed_matched=int((n.pf>=result['matched_real']['pf']).sum()),median_trades=float(n.n.median()))
++with open(OUT+'round3_summary.json','w') as f: json.dump(result,f,indent=2)
++print(json.dumps(result,indent=2),flush=True)
+diff --git a/studies/rlm/codex/round3_followup.py b/studies/rlm/codex/round3_followup.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..5b52521aca28745376e3697a3d8ee066fae19db3
+--- /dev/null
++++ b/studies/rlm/codex/round3_followup.py
+@@ -0,0 +1,20 @@
++"""Lightweight summaries from round3 CSVs, run after the main Python process exits."""
++import json
++import pandas as pd
++OUT='studies/rlm/codex/'
++t=pd.read_csv(OUT+'round3_trade_audit.csv')
++o=pd.read_csv(OUT+'round3_orders.csv').set_index('bar')
++def stats(x):
++    v=x.net
++    return dict(n=len(x),net=float(v.sum()),pf=float(v[v>0].sum()/-v[v<0].sum()))
++r={}
++r['delayed_hour_completion_trades']=stats(t[t.signal_bar.isin(o.index[o.ct_min%60!=59])])
++r['exclude_all_flagged']=stats(t[~(t.late|t.early_close_day|t.roll_window|t.incomplete_candle|t.open_through)])
++r['early_close_dates']=sorted(t.loc[t.early_close_day,'trading_day'].unique().tolist())
++r['filled_intended_risk_ticks_quantiles']=o.loc[t.signal_bar,'R'].quantile([0,.5,.9,.95,.99,1]).to_dict()
++r['five_cl_planned_loss_ge_2000_trades']=int(((o.loc[t.signal_bar,'R']*10+4.04)*5>=2000).sum())
++r['one_cl_planned_loss_ge_2000_trades']=int(((o.loc[t.signal_bar,'R']*10+4.04)>=2000).sum())
++r['planned_loss_at_most_200_trades']=int(((o.loc[t.signal_bar,'R']*10+4.04)<=200).sum())
++r['late_hours']=pd.to_datetime(t.loc[t.late,'entry_ts']).dt.tz_convert('America/Chicago').dt.hour.value_counts().to_dict()
++with open(OUT+'round3_followup.json','w') as f:json.dump(r,f,indent=2)
++print(json.dumps(r,indent=2))
+
+exec
+/bin/bash -lc 'wc -w studies/rlm/codex/reply3.md; git status --short' in /home/mrullldhm/personal/tradingview-tester
+ succeeded in 0ms:
+652 studies/rlm/codex/reply3.md
+ M results/ledger.csv
+ M strategies/cbr.py
+?? docs/strategies/rlm/
+?? strategies/rlm.py
+?? studies/cbr_optimize/
+?? studies/rlm/
+?? tests/test_rlm.py
+
+codex
+**Conditional yes to ONE frozen validation, with no parameter changes.** The close-entry audit did not break the result. However, the declared family maximum-PF bootstrap remains outstanding; finish that dev-only guard before a protocol-compliant validation go. I did not access validation.
+
+All performance numbers below are **dev, in-sample, selected from 13,824 versions**.
+
+1. **Execution and timing**
+
+   Independent replay reproduced **1,281 trades, $61,525 net, PF 1.309**.
+
+   - **Open-through fills:** 1,206 trades filled on the next minute bar; 335 opened strictly through the limit, with PF 1.228. Across all fill bars, 346 received price improvement. Excluding those trades leaves PF **1.352**. Subtracting their $4,970 improvement from P&L, keeping exits unchanged, leaves PF **1.280**. No fill opened beyond its stop.
+   - **Activation delay:** a full engine rerun delaying activation one additional minute gives 1,241 trades, PF **1.322**. Queue priority remains unmodelled.
+   - **Late entries:** of 91 entries at/after 14:00 CT, **90 flatten and one stops**, contributing $2,152. Excluding late signals and rerunning leaves 1,190 trades, PF **1.303**.
+   - **Completion:** across 1,393 orders, zero signals precede hourly completion, zero hourly-close mismatches, and zero signal candles cross sessions or contracts. There are 31 delayed completions from missing final minutes; their 28 trades lose $893, PF **0.800**.
+   - **Missing minutes:** 289 trades originate from hourly candles containing fewer than 60 observed minutes: PF **1.128**. Complete candles: 992 trades, PF **1.362**.
+   - **Early-ending sessions:** 40 trades, PF 1.924; excluding them leaves PF **1.292**. This is a holiday/data-gap proxy, not a verified holiday calendar.
+   - **Roll windows:** within ±3 calendar days of contract switches, 177 trades, PF 1.611; outside, 1,104 trades, PF **1.268**. Five trades explicitly exit at roll.
+
+   Removing all flagged trades together leaves **599 trades, PF 1.328**. These are diagnostics, not proposed filters.
+
+2. **Stronger null**
+
+   The random-date null breaks daily volatility, directional conditions and bracket-risk compatibility.
+
+   I relocated each order to **another completed hour on the same trading day**, requiring the same side, side-adjusted CLV ≥0.6, and broad time bucket: overnight, 08:30–13:59, or 14:00–15:09 CT. Original risk ticks, 1R target, expiry, fees and engine rules remain; the level condition disappears.
+
+   Of 1,393 orders, 1,279 have another eligible hour. The matched real subset produces **1,187 trades, PF 1.357**.
+
+   Across **300 null runs**:
+
+   | In-sample statistic | Result |
+   |---|---:|
+   | Median trades | 1,176 |
+   | Median PF | **0.845** |
+   | Central 95% PF range | **0.774–0.919** |
+   | Maximum PF | **0.948** |
+   | Runs reaching PF 1.309 | **0/300** |
+
+   This controls daily conditions and rejection direction more closely, although exact local ATR and band geometry remain unmatched. Zero exceedances gives a plus-one Monte Carlo p-value of approximately **0.0033**, not family-adjusted significance. The reported z=5.2 does not resolve selection across 13,824 trials.
+
+3. **Freeze and sizing**
+
+   Keep the exact version and existing validation gates: **PF ≥1.10, pass ≥40%**. Add no filters. Flat versus TF weights changes effective selectivity, so that sibling comparison does not cleanly isolate weighting.
+
+   **One CL at most; never automatically five.** Planned one-CL stop loss including fees has median **$374**, 95th percentile **$924**, maximum **$2,354**. At five CL, **581/1,281** planned losses exceed the entire initial $2,000 cushion.
+
+   Even one CL is sometimes too large. For eventual execution, I would cap planned risk including fees/slippage at 10% of remaining MLL cushion, skipping when one CL exceeds it. That creates a separate variant and cannot inherit the reported 52% pass rate. The MLL trails EOD balance but is enforced intraday, including open P&L. [Topstep rules](https://help.topstep.com/en/articles/8284204-what-is-the-maximum-loss-limit)
+
+Saved [reply and methodology](studies/rlm/codex/reply3.md), [audit script](studies/rlm/codex/round3_audit.py), and [results](studies/rlm/codex/round3_summary.json). All new files are under the authorized directory; Python ran sequentially under the specified memory limit.
+tokens used
+72,967
+**Conditional yes to ONE frozen validation, with no parameter changes.** The close-entry audit did not break the result. However, the declared family maximum-PF bootstrap remains outstanding; finish that dev-only guard before a protocol-compliant validation go. I did not access validation.
+
+All performance numbers below are **dev, in-sample, selected from 13,824 versions**.
+
+1. **Execution and timing**
+
+   Independent replay reproduced **1,281 trades, $61,525 net, PF 1.309**.
+
+   - **Open-through fills:** 1,206 trades filled on the next minute bar; 335 opened strictly through the limit, with PF 1.228. Across all fill bars, 346 received price improvement. Excluding those trades leaves PF **1.352**. Subtracting their $4,970 improvement from P&L, keeping exits unchanged, leaves PF **1.280**. No fill opened beyond its stop.
+   - **Activation delay:** a full engine rerun delaying activation one additional minute gives 1,241 trades, PF **1.322**. Queue priority remains unmodelled.
+   - **Late entries:** of 91 entries at/after 14:00 CT, **90 flatten and one stops**, contributing $2,152. Excluding late signals and rerunning leaves 1,190 trades, PF **1.303**.
+   - **Completion:** across 1,393 orders, zero signals precede hourly completion, zero hourly-close mismatches, and zero signal candles cross sessions or contracts. There are 31 delayed completions from missing final minutes; their 28 trades lose $893, PF **0.800**.
+   - **Missing minutes:** 289 trades originate from hourly candles containing fewer than 60 observed minutes: PF **1.128**. Complete candles: 992 trades, PF **1.362**.
+   - **Early-ending sessions:** 40 trades, PF 1.924; excluding them leaves PF **1.292**. This is a holiday/data-gap proxy, not a verified holiday calendar.
+   - **Roll windows:** within ±3 calendar days of contract switches, 177 trades, PF 1.611; outside, 1,104 trades, PF **1.268**. Five trades explicitly exit at roll.
+
+   Removing all flagged trades together leaves **599 trades, PF 1.328**. These are diagnostics, not proposed filters.
+
+2. **Stronger null**
+
+   The random-date null breaks daily volatility, directional conditions and bracket-risk compatibility.
+
+   I relocated each order to **another completed hour on the same trading day**, requiring the same side, side-adjusted CLV ≥0.6, and broad time bucket: overnight, 08:30–13:59, or 14:00–15:09 CT. Original risk ticks, 1R target, expiry, fees and engine rules remain; the level condition disappears.
+
+   Of 1,393 orders, 1,279 have another eligible hour. The matched real subset produces **1,187 trades, PF 1.357**.
+
+   Across **300 null runs**:
+
+   | In-sample statistic | Result |
+   |---|---:|
+   | Median trades | 1,176 |
+   | Median PF | **0.845** |
+   | Central 95% PF range | **0.774–0.919** |
+   | Maximum PF | **0.948** |
+   | Runs reaching PF 1.309 | **0/300** |
+
+   This controls daily conditions and rejection direction more closely, although exact local ATR and band geometry remain unmatched. Zero exceedances gives a plus-one Monte Carlo p-value of approximately **0.0033**, not family-adjusted significance. The reported z=5.2 does not resolve selection across 13,824 trials.
+
+3. **Freeze and sizing**
+
+   Keep the exact version and existing validation gates: **PF ≥1.10, pass ≥40%**. Add no filters. Flat versus TF weights changes effective selectivity, so that sibling comparison does not cleanly isolate weighting.
+
+   **One CL at most; never automatically five.** Planned one-CL stop loss including fees has median **$374**, 95th percentile **$924**, maximum **$2,354**. At five CL, **581/1,281** planned losses exceed the entire initial $2,000 cushion.
+
+   Even one CL is sometimes too large. For eventual execution, I would cap planned risk including fees/slippage at 10% of remaining MLL cushion, skipping when one CL exceeds it. That creates a separate variant and cannot inherit the reported 52% pass rate. The MLL trails EOD balance but is enforced intraday, including open P&L. [Topstep rules](https://help.topstep.com/en/articles/8284204-what-is-the-maximum-loss-limit)
+
+Saved [reply and methodology](studies/rlm/codex/reply3.md), [audit script](studies/rlm/codex/round3_audit.py), and [results](studies/rlm/codex/round3_summary.json). All new files are under the authorized directory; Python ran sequentially under the specified memory limit.

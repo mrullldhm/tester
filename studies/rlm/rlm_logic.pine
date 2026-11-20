@@ -1,0 +1,81 @@
+// Reaction Level Matrix [WillyAlgoTrader] v1.0.0 — LOGIC EXCERPT (owner paste 2026-11-19).
+// Visuals, dashboard, alerts, colors and input tooltips removed; trading logic copied verbatim.
+
+STRUCT_ATR_LEN     = 34
+MIN_HALF_WIDTH_ATR = 0.15
+REACTION_CAP       = 2.5
+SCORE_SCALE        = 6.0
+POLARITY_BONUS     = 1.25
+CROSS_PENALTY      = 0.7
+MIN_STRENGTH       = 0.25
+MAX_LEVELS         = 60
+MERGE_PASSES       = 5
+WICK_BUFFER_ATR   = 0.25
+WICK_MIN_ATR      = 0.5
+
+swingLenInput      = 6      // ta.pivothigh/pivotlow left=right=6
+levelTolInput      = 0.6    // ×ATR34
+minTouchesInput    = 2
+halfLifeInput      = 500    // bars
+levelsPerSideInput = 3
+minScoreInput      = 50
+rejectClvInput     = 0.6
+cooldownInput      = 10     // bars per level
+riskPreset "Balanced" => SL 1.5×ATR (ATR mode), TP 1R/2R/3R
+slModeInput        = "Wick-Anchored"
+atrLenRiskInput    = 14
+beInput            = true, beOffset 0
+
+type Level: lo, hi, mid, sumW, sumWP, sumWP2, strength, touches, highTouches, lowTouches, firstTime, firstBar,
+            activeTime, lastTouchBar, crosses, side (+1 price above = support, -1 below = resistance), sideBar,
+            lastSignalBar, shown
+
+levelScore(lv) = 100 * (1 - exp(-(strength * (polar ? 1.25 : 1)) / 6))     // polar = touched by highs AND lows
+
+refitBand: mid = Σw·p/Σw ; hw = clamp(weighted std, 0.15·ATR, tol·ATR) ; lo/hi = mid ∓ hw
+addTouch: sums += w, strength += w, touches += 1, high/lowTouches, lastTouchBar; activeTime when touches >= 2; refit
+newLevel(price, w, ...): side = close > price ? 1 : -1 ; sideBar = bar_index ; addTouch
+
+registerSwing(lvls, price, w, isHigh, pBar, pTime, a):
+    join the level with the nearest mid within tol·ATR (|mid - price| <= tol·ATR), else push newLevel
+    after a join: up to 5 passes, merge every other level whose [lo,hi] overlaps the joined level's [lo,hi]
+        (sums/strength/touches add; crosses = max; lastSignalBar = max)
+    while size > 60: remove the weakest-strength level
+
+ageAndCross(lvls, decay) once per confirmed bar, BEFORE registering this bar's new swings:
+    strength *= decay (decay = 0.5^(1/500))
+    newSide = close > hi ? 1 : close < lo ? -1 : side
+    if newSide != side:
+        if touches >= 2: crosses += 1 ; strength *= 0.7 ; (count break of shown levels for trend display)
+        side = newSide ; sideBar = bar_index
+    remove if strength < 0.25
+
+selectNearest(lvls, sideWanted, 3): the 3 levels with touches >= 2 and side == sideWanted nearest to close (|close-mid|)
+
+Per bar (confirmed only):
+    structAtr = ATR(34) ; swHigh = pivothigh(high,6,6) ; swLow = pivotlow(low,6,6)
+    wHigh = 1 + min((swHigh - lowest(low,6)) / ATR34[6], 2.5)      // reaction during the 6 confirmation bars
+    wLow  = 1 + min((highest(high,6) - swLow) / ATR34[6], 2.5)
+    ageAndCross ; registerSwing(high) ; registerSwing(low)
+    selRes = selectNearest(-1, 3) ; selSup = selectNearest(+1, 3)
+
+checkBuyRejection(sup): clv = (close-low)/(high-low) (0.5 if range 0); for each shown support, nearest first:
+    approached = side == 1 and sideBar < bar_index
+    touched    = low <= hi
+    heldAbove  = close > hi
+    strongBar  = clv >= 0.6
+    scoreOk    = levelScore >= 50
+    rested     = lastSignalBar na or bar_index - lastSignalBar >= 10
+    all true -> fire, lastSignalBar = bar_index, break
+checkSellRejection: mirror (high >= lo, close < lo, (high-close)/range >= 0.6)
+long wins if both fire; signals only after warmup (bar >= max(34, 13)).
+
+Trade engine (one position, no pyramiding):
+    entry = signal bar close (market)
+    Wick SL long = min(low - 0.25·ATR14, close - 0.5·ATR14)    ; short mirror
+    TP1/2/3 = entry ± 1R/2R/3R (R = |entry - SL|)
+    hit checks from the bar after entry, confirmed bars, intrabar: TP touch registered even if SL touched same bar
+    ("TP priority": optimistic); SL close blocked when TP1 or TP3 first touched on that bar
+    BE after TP1: stop -> entry (+offset)
+    close on TP3 touch or SL; opposite signal = reversal (close, count, then enter new side)
+    WIN = TP1 was touched (a BE stop after TP1 is a win; P&L never computed, no fees/slippage)

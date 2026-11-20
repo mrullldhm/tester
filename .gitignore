@@ -24,3 +24,6 @@ studies/swing_confluence/codex/*.parquet
 studies/swing_confluence/codex/cells.csv
 studies/swing_confluence/codex/mining_summary.json
 studies/swing_confluence/codex3/*.parquet
+
+# RLM family-wise check: per-version daily P&L (158 MB), rebuilt by studies/rlm/family.py --collect
+studies/rlm/family_parts/

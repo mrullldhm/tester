@@ -14,6 +14,7 @@ high. Owner example: after a swing high, the candle holding the lowest low becom
 when the candle after it has a higher low and a lower high.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -162,10 +163,13 @@ def _record(stack: list[Point], state: dict[str, np.ndarray], k: int) -> None:
         state[f"{key}_price"][k], state[f"{key}_candle"][k] = p.price, p.candle
 
 
-def detect(cd: Candles) -> tuple[list[Point], dict[str, np.ndarray]]:
+def detect(cd: Candles, observer: Callable[[int, list[Point]], None] | None = None,
+           ) -> tuple[list[Point], dict[str, np.ndarray]]:
     """Run the rule over all candles. Returns the final swing points and the state as known after each candle's
     processing (candle k is processed when candle k+1 closes): last swing high / low price (ticks) and candle
-    (sh, sl) and the ones before them (sh2, sl2), or -1 when none; newest: kind of the newest point (0 when none)."""
+    (sh, sl) and the ones before them (sh2, sl2), or -1 when none; newest: kind of the newest point (0 when none).
+    observer(k, stack), optional, is called after candle k is processed with the live structure (read only): it
+    sees every point added or removed, also by deep rule-4 cascades. It does not change the result."""
     n = len(cd)
     ev_hi = np.full(2 * n, -np.inf)  # high of a high event; -inf on low events
     ev_lo = np.full(2 * n, np.inf)
@@ -191,9 +195,13 @@ def detect(cd: Candles) -> tuple[list[Point], dict[str, np.ndarray]]:
                     high_first = 1 - high_first
                 else:
                     _record(stack, state, k)
+                    if observer is not None:
+                        observer(k, stack)
                     continue
         _process(stack, cd, k, high_first, is_low, is_high, ev_hi, ev_lo)
         _record(stack, state, k)
+        if observer is not None:
+            observer(k, stack)
     return stack, state
 
 
