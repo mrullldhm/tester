@@ -25,7 +25,7 @@ import pandas as pd
 from cltester.config import ROOT
 from cltester.data import add_session, load_bars, to_ticks
 from cltester.indicators import ema
-from cltester.swings import HIGH, LOW, UNKNOWN, Candles, build_candles, detect
+from cltester.swings import HIGH, LOW, Candles, build_candles, detect
 
 END = "2025-01-01"  # holdout is never loaded
 OUT = ROOT / "studies" / "juda_swing_point"
@@ -36,11 +36,6 @@ DEV_END = "2022-01-01"  # outcomes are computed only before this trading day
 def load() -> pd.DataFrame:
     df = add_session(load_bars("2010-05-31", END))
     return df[(df["trading_day"] >= "2010-06-01") & (df["trading_day"] < END)].reset_index(drop=True)
-
-
-def mirror(cd: Candles) -> Candles:
-    hf = np.where(cd.high_first == UNKNOWN, UNKNOWN, 1 - cd.high_first)
-    return Candles(cd.ts, -cd.o, -cd.l, -cd.h, -cd.c, hf, cd.avail, cd.first, cd.last)
 
 
 def first_order(h1, l1, o1, a, b, hi_lvl, lo_lvl) -> str:
@@ -105,7 +100,7 @@ def events(df: pd.DataFrame, side: int) -> pd.DataFrame:
     sym = pd.factorize(df["raw_symbol"])[0]
     h1, l1, o1, c1 = (to_ticks(df[k]) for k in ("high", "low", "open", "close"))
     if side == -1:
-        cd = mirror(cd)
+        cd = cd.mirrored()
         h1, l1, o1, c1 = -l1, -h1, -o1, -c1
     _, st = detect(cd)
     e10, e20, e50 = (ema(cd.c.astype(float), n).to_numpy() for n in (10, 20, 50))

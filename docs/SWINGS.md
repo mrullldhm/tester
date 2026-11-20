@@ -21,25 +21,33 @@ adjustable swing settings. Tests: `tests/test_swings.py`.
   prices count in the order they printed:
   - higher timeframes: the order of the 1-minute bars inside it (first 1m bar that printed the high vs the low);
   - unknown order (a 1-minute candle, or both prices in the same 1m bar): **continue the order**: after a swing
-    high its low comes first, after a swing low its high. If that order would break rule 4 for the existing last
-    point, the other order is used (that order is the only one where the structure holds).
+    high its low comes first, after a swing low its high. Use the other order if rule 4 removes the existing last
+    point in the default order. The usual rules still apply to both points in the other order.
 - **Rule 4 vs rule 2**: when the lowest candle fails rule 2 because its right candle has an equal or lower low,
   the right candle is the lowest price. When the candle after it has a higher low and a lower high, that right candle
   is the swing low and the swing high (owner example, tested).
 - When no candle meets rules 2 and 4 together between two swing highs, there is no swing low between them: the two
   highs merge and rule 5 keeps the higher one.
 
+## Outside-candle touch invalidation
+
+When an outside candle gives a swing low followed by a swing high, a later touch or break of that high removes it
+while it is still the newest swing point. The swing low stays in place at the touch. A new high still needs its own
+right candle and must pass the swing rules. The rule mirrors for a swing high followed by a swing low.
+
 ## Timing (no look-ahead)
 
 - A candidate at candle k is known when candle k+1 **closes**.
-- The newest point can still be replaced (rule 5) or removed (rule 4) by later candles. Earlier points can be
-  removed only through rule 4 (rare).
+- The newest point can still be replaced (rule 5) or removed (rule 4 or the outside-candle touch rule) by later
+  candles. Earlier points can be removed only through rule 4 (rare).
 - `swing_state(df, tf)`: per 1m bar, the last swing high and swing low **as known at that bar's close**. Use it for
   signals; `prev=True` adds the swing high and low before them (`{tf}_sh2`, `{tf}_sl2`); `newest=True` adds `{tf}_newest`
   (1 swing high, −1 swing low, 0 none): which point came last, also when one candle is both. `swing_points(df, tf)` is the final structure after all data: charts and studies only.
-- An unfinished candle is ignored until it is complete, so it can never act as a right candle.
-- Every update publishes the full state. A point removed by rule 4 shows as empty (NaN) from that bar on. An old
-  level is never carried forward after it was removed.
+- An unfinished candle cannot confirm a swing. Its price can invalidate the newest outside-candle swing point at
+  the close of the first 1m bar that reaches its level. If that bar also makes the prior candle available after a
+  gap, the touched point is omitted from that close's published state.
+- Every update publishes the latest swing high and low still in the structure. If a removal exposes an older
+  point, that point becomes current again. A side with no remaining point shows as empty (NaN).
 
 ## Timeframes
 
@@ -51,7 +59,8 @@ Monday). 1mo is the trading days of one calendar month (named `1mo`, never `1M`,
 If that minute has no bar (early-close holidays, quiet minutes), it is complete at the close of the next bar. Swings
 continue across contract changes (prices are not back-adjusted).
 
-## Checked on 2025 data
+## Audit on 2024 CL data
 
-1m 113,345 points, 5m 24,459, 1h 1,876, 4h 470, 1d 94: zero order breaks, zero rule 2/3 breaks, and no lower low
-(higher high) inside any transition. 1m detection takes about 1 s per year.
+The audit checked 148,873 swing points across all nine timeframes for alternation, candidate inequalities,
+recorded order when both points came from one candle, and the highest high or lowest low in each completed
+transition. It also checked that all 72 truncated-data snapshots matched the same minutes in the longer run.

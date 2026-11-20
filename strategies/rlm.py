@@ -80,8 +80,8 @@ def swing_events(df: pd.DataFrame, tf: str, reg: str, key: str | None = None) ->
     can no longer replace it); read from the top-4 state. A locked point removed later by a deep rule-4 cascade
     stays registered (documented approximation).
     reg="confirm": exact structure changes from the detector (observer hook): op +1 when a point enters the
-    structure, op -1 when it leaves it (rule-5 replacement or rule-4 removal at any depth; a point that resurfaces
-    after a cascade enters again). Codex adversarial review 2026-11-20 replaced an inference from the top-4 state.
+    structure, op -1 when it leaves it (touch invalidation, rule-5 replacement, or rule-4 removal at any depth;
+    a point that resurfaces after a cascade enters again).
     first / last: 1m bars of the extreme's candle; ref_first: first 1m bar of the candle left of it (its rule-2/3
     reference, used by the roll guard)."""
     key = key or _content_key(df)
@@ -114,16 +114,13 @@ def swing_events(df: pd.DataFrame, tf: str, reg: str, key: str | None = None) ->
     else:
         mirror: list = []  # the structure as last seen (Point objects); only its top changes between candles
 
-        def observe(k: int, stack: list) -> None:
+        def publish(known: int, stack: list) -> None:
             i = min(len(mirror), len(stack))
             while i > 0 and mirror[i - 1] is not stack[i - 1]:  # below the first identical point nothing changed
                 i -= 1
             old = {(p.kind, p.candle): p.price for p in mirror[i:]}
             new = {(p.kind, p.candle): p.price for p in stack[i:]}
             mirror[i:] = stack[i:]
-            if k + 1 >= n_c or int(cd.avail[k + 1]) >= n:
-                return
-            known = int(cd.avail[k + 1])
             for (kind, cnd), price in old.items():
                 if (kind, cnd) not in new:
                     rows.append(row(known, -1, kind, cnd, price))
@@ -131,7 +128,14 @@ def swing_events(df: pd.DataFrame, tf: str, reg: str, key: str | None = None) ->
                 if (kind, cnd) not in old:
                     rows.append(row(known, 1, kind, cnd, price))
 
-        detect(cd, observer=observe)
+        def observe(k: int, stack: list) -> None:
+            if k + 1 < n_c and cd.avail[k + 1] < n:
+                publish(int(cd.avail[k + 1]), stack)
+
+        def observe_touch(k: int, minute: int, stack: list) -> None:
+            publish(minute, stack)
+
+        detect(cd, observer=observe, on_touch=observe_touch)
     out = pd.DataFrame(rows, columns=EV_COLS)
     _EVENTS[(key, tf, reg)] = out
     return out

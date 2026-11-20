@@ -17,7 +17,7 @@ import pandas as pd
 from cltester.config import TICK
 from cltester.data import to_ticks
 from cltester.strategy import Base
-from cltester.swings import LOW, UNKNOWN, Candles, build_candles, detect, swing_state
+from cltester.swings import LOW, build_candles, detect, swing_state
 
 MIN_RISK = 5  # ticks: entry - stop below this is fee/noise dominated ($4.04 fee = 8% of 5 ticks)
 LOOKBACK = 60  # bars: the extension origin lies 20..60 minutes before L2
@@ -40,11 +40,6 @@ EXTENSIONS = {"e20": (20, 0.5, 0.30), "e30": (30, 0.5, 0.25), "e20loose": (20, 0
 CONTEXTS = ("fh", "reb", "reb30")
 BIASES = ("none", "body", "engulf", "struct")
 TARGETS = ("mid", "r1.5", "r2")
-
-
-def _mirror(cd: Candles) -> Candles:
-    hf = np.where(cd.high_first == UNKNOWN, UNKNOWN, 1 - cd.high_first)
-    return Candles(cd.ts, -cd.o, -cd.l, -cd.h, -cd.c, hf, cd.avail, cd.first, cd.last)
 
 
 def _local_minutes(df: pd.DataFrame) -> dict[str, np.ndarray]:
@@ -165,7 +160,7 @@ def _candidates(df: pd.DataFrame) -> pd.DataFrame:
     c30 = build_candles(df, "30m")
     rows = []
     for side in (1, -1):
-        cd = base if side == 1 else _mirror(base)
+        cd = base if side == 1 else base.mirrored()
         h, lo, c = cd.h, cd.l, cd.c
         _, st = detect(cd)
         # state known at bar i = st[i-1] (candle i-1 is processed when candle i closes)

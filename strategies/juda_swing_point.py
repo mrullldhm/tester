@@ -15,15 +15,10 @@ from cltester.config import TICK
 from cltester.data import to_ticks
 from cltester.indicators import ema
 from cltester.strategy import Base
-from cltester.swings import HIGH, UNKNOWN, Candles, build_candles, detect
+from cltester.swings import HIGH, Candles, build_candles, detect
 
 NO_EXPIRY = 100_000  # bars; the engine still cancels at the day change, contract change and 3:10 PM CT
 EMA_WARMUP = 50
-
-
-def _mirror(cd: Candles) -> Candles:
-    hf = np.where(cd.high_first == UNKNOWN, UNKNOWN, 1 - cd.high_first)
-    return Candles(cd.ts, -cd.o, -cd.l, -cd.h, -cd.c, hf, cd.avail, cd.first, cd.last)
 
 
 def _high_first(h1, l1, o1, a: int, b: int, hi_lvl: int, lo_lvl: int) -> str:
@@ -120,7 +115,7 @@ class Strategy(Base):
         hi_, lo_, op_ = (to_ticks(df[k]) for k in ("high", "low", "open"))
         rows = []
         for side in (1, -1):
-            cd = base if side == 1 else _mirror(base)
+            cd = base if side == 1 else base.mirrored()
             h1, l1, o1 = (hi_, lo_, op_) if side == 1 else (-lo_, -hi_, -op_)
             found, st = scan(cd, h1, l1, o1)
             for pc, m, c in found:

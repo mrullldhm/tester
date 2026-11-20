@@ -70,6 +70,21 @@ def test_owner_example_lowest_candle_becomes_low_then_high():
     assert p["ts"].iloc[1] == p["ts"].iloc[2] == df["ts"].iloc[4]
 
 
+def test_unknown_outside_order_retries_when_rule4_removes_the_prior_point():
+    df = bars([(70.3, 70.1), (70.4, 70.1), (70.6, 70.2), (70.6, 70.0), (70.6, 70.0), (70.5, 70.2)])
+    assert points(df.iloc[:3]) == [("SL", 70.1)]
+    assert points(df) == [("SL", 70.0), ("SH", 70.6)]
+    assert swing_points(df)["ts"].eq(df["ts"].iloc[4]).all()
+
+
+def test_unknown_outside_order_keeps_default_when_rule5_replaces_the_prior_point():
+    # High first after the old swing low. The new high is too low for rule 4, then the equal low wins under rule 5.
+    df = bars([(70.7, 70.4), (70.5, 70.0), (70.2, 70.1), (70.4, 70.0), (70.3, 70.2)])
+    assert points(df.iloc[:3]) == [("SL", 70.0)]
+    assert points(df) == [("SL", 70.0)]
+    assert swing_points(df)["ts"].iloc[0] == df["ts"].iloc[3]
+
+
 def test_rule4_lowest_candle_replaces_a_provisional_low():
     # SH 71.2 (bar 1), provisional SL 70.00 (bar 3). Bar 5 prints 69.80 but fails rule 2 (bar 6 has an equal low).
     # Bar 6 holds the lowest low 69.80 and is also a swing high candidate; bar 7 is inside it.
@@ -212,3 +227,48 @@ def test_newest_settles_order_when_one_candle_is_both_points():
     assert st["1m_sh_ts"].iloc[5] == st["1m_sl_ts"].iloc[5] == df["ts"].iloc[4]
     assert st["1m_newest"].iloc[5] == 1
     assert list(swing_state(bars(ZIGZAG), "1m", newest=True)["1m_newest"]) == [0, 0, 0, 1, 1, -1, -1, 1, -1]
+
+
+@pytest.mark.parametrize("fourth_high", [71.0, 71.1])
+def test_touch_invalidates_outside_candle_swing_high_without_waiting_for_confirmation(fourth_high):
+    df = bars([(70.8, 70.2), (71.0, 70.0), (70.7, 70.3), (fourth_high, 70.4), (70.9, 70.5)])
+    st = swing_state(df, newest=True)
+    assert st["1m_sh"].iloc[2] == 71.0 and st["1m_newest"].iloc[2] == 1
+    assert pd.isna(st["1m_sh"].iloc[3]) and pd.isna(st["1m_sh_ts"].iloc[3])
+    assert st["1m_sl"].iloc[3] == 70.0 and st["1m_newest"].iloc[3] == -1
+    assert points(df.iloc[:4]) == [("SL", 70.0)]
+    assert st["1m_sh"].iloc[4] == fourth_high and st["1m_sh_ts"].iloc[4] == df["ts"].iloc[3]
+
+
+@pytest.mark.parametrize("mirrored", [False, True])
+def test_touch_invalidates_latest_outside_candle_swing_during_an_unfinished_candle(mirrored):
+    hl = [(70.8, 70.2)] * 5 + [(70.8, 70.0)] + [(71.0, 70.1)] * 4 + [(70.7, 70.3)] * 5
+    hl += [(70.9, 70.4), (71.0, 70.4), (70.8, 70.4)]
+    if mirrored:
+        hl = [(140 - low, 140 - high) for high, low in hl]
+    touched, retained, level, newest = ("sl", "sh", 69.0, 1) if mirrored else ("sh", "sl", 71.0, -1)
+    df = bars(hl)
+    st = swing_state(df, "5m", newest=True)
+    assert list(st[f"5m_{touched}"].iloc[14:16]) == [level, level]
+    assert st[f"5m_{touched}"].iloc[16:].isna().all()
+    assert list(st[f"5m_{retained}"].iloc[16:]) == [70.0, 70.0]
+    assert list(st["5m_newest"].iloc[16:]) == [newest, newest]
+    assert points(df, "5m") == [(retained.upper(), 70.0)]
+
+
+@pytest.mark.parametrize("next_high, expected_high", [(70.9, 71.0), (71.0, None), (71.1, None)])
+def test_touch_on_bar_that_completes_a_gap_delayed_right_candle(next_high, expected_high):
+    hl = [(70.8, 70.2)] * 5 + [(70.8, 70.0)] + [(71.0, 70.1)] * 4 + [(70.7, 70.3)] * 5
+    df = bars(hl + [(next_high, 70.4)]).drop(index=14).reset_index(drop=True)
+    cd = build_candles(df, "5m")
+    assert list(cd.last) == [4, 9, 13] and list(cd.avail) == [4, 9, 14]
+    st = swing_state(df, "5m")
+    assert st[["5m_sl", "5m_sh"]].iloc[:-1].isna().all().all()
+    assert st["5m_sl"].iloc[-1] == 70.0
+    expected_points = [("SL", 70.0)]
+    if expected_high is None:
+        assert pd.isna(st["5m_sh"].iloc[-1])
+    else:
+        assert st["5m_sh"].iloc[-1] == expected_high
+        expected_points.append(("SH", expected_high))
+    assert points(df, "5m") == expected_points
