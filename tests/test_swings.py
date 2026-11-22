@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from cltester.data import add_session
-from cltester.swings import build_candles, swing_points, swing_state
+from cltester.swings import LOW, build_candles, detect, provisional_swings, swing_points, swing_state
 
 
 def bars(hl, start="2024-03-05 08:00"):
@@ -27,6 +27,23 @@ ZIGZAG = [(70.10, 70.00), (70.20, 70.05), (70.50, 70.30), (70.40, 70.20), (70.25
 
 def test_alternating_swings():
     assert points(bars(ZIGZAG)) == [("SH", 70.50), ("SL", 70.00), ("SH", 70.60), ("SL", 70.30)]
+
+
+def test_provisional_low_with_incomplete_right_candle_and_later_break():
+    df = bars([(110, 100)] * 5 + [(108, 90)] * 5 + [(109, 94)] * 4 + [(109, 89)])
+    prefix = build_candles(df.iloc[:-1], "5m", include_incomplete=True)
+    full = build_candles(df, "5m")
+    assert len(build_candles(df.iloc[:-1], "5m")) == 2
+    assert prefix.avail[2] == len(df) - 1
+    for candles in (prefix, full):
+        preview = provisional_swings(candles)
+        assert preview.kinds[1, 0, 1, 0] == LOW
+        confirmed, state = detect(candles)
+        assert not confirmed
+        assert state["newest"][1] == 0
+    qualifying_close = df.copy()
+    qualifying_close.loc[14, "low"] = 94
+    assert points(qualifying_close, "5m") == [("SL", 90)]
 
 
 def test_left_candle_may_equal_right_must_be_strict():

@@ -57,11 +57,12 @@ class Candles:
                        minute_highs, minute_lows)
 
 
-def build_candles(df: pd.DataFrame, tf: str) -> Candles:
+def build_candles(df: pd.DataFrame, tf: str, *, include_incomplete: bool = False) -> Candles:
     """Candles from 1m bars. 5m-1h: clock aligned. 4h: blocks from the 17:00 CT session open. 1d: trading day.
     1w: trading days Monday-Friday. 1mo: trading days of one calendar month.
     A candle is complete at the close of its last minute (the 15:59 CT bar for the day's last 4h block and the daily
-    candle); when that minute has no bar (early closes, quiet minutes), at the close of the next bar."""
+    candle); when that minute has no bar (early closes, quiet minutes), at the close of the next bar.
+    With include_incomplete, the last candle can have availability equal to the number of minute bars."""
     if tf not in TIMEFRAMES:
         raise ValueError(f"timeframe {tf} not in {list(TIMEFRAMES)}")
     if "sess_minute" not in df:
@@ -107,7 +108,7 @@ def build_candles(df: pd.DataFrame, tf: str) -> Candles:
     first_lo = np.array([s + int(np.argmax(l[s:e + 1] == v)) for s, e, v in zip(start, end, lo, strict=True)])
     order = np.where(first_hi < first_lo, 1, np.where(first_lo < first_hi, 0, UNKNOWN))
     avail = np.where(last_minute[end], end, end + 1)
-    done = avail < n  # the last candle is left out until it is complete: it may still print new prices
+    done = (avail < n) | include_incomplete  # an unfinished candle keeps its out-of-range availability index
     return Candles(pd.DatetimeIndex(df["ts"].to_numpy()[start[done]]), o[start[done]], hi[done], lo[done],
                    c[end[done]], order[done], avail[done], start[done], end[done], h, l)
 
@@ -212,46 +213,85 @@ def _touch_on_delayed_confirmation(cd: Candles, right: int, point: Point) -> boo
     if right >= len(cd) or cd.avail[right] == cd.last[right]:
         return False
     minute = cd.avail[right]
+    if cd.minute_highs is not None and minute >= len(cd.minute_highs):
+        return False
     if point.kind == HIGH:
         return cd.minute_highs is not None and bool(cd.minute_highs[minute] >= point.price)
     return cd.minute_lows is not None and bool(cd.minute_lows[minute] <= point.price)
 
 
+def _process_ordered(stack: list[Point], cd: Candles, k: int, is_low: bool, is_high: bool,
+                     ev_hi: np.ndarray, ev_lo: np.ndarray) -> None:
+    order_known = cd.high_first[k] != UNKNOWN
+    high_first = int(cd.high_first[k]) if order_known else int(bool(stack and stack[-1].kind == LOW))
+    if order_known or not (is_low and is_high and stack):
+        _process(stack, cd, k, high_first, is_low, is_high, ev_hi, ev_lo)
+        return
+    prior_removals: list[tuple[Point, bool]] = []
+    _process(stack, cd, k, high_first, is_low, is_high, ev_hi, ev_lo, prior_removals)
+    if prior_removals and prior_removals[0][1]:
+        while stack and stack[-1].candle == k:
+            stack.pop()
+        stack.extend(point for point, _ in reversed(prior_removals))
+        _process(stack, cd, k, 1 - high_first, is_low, is_high, ev_hi, ev_lo)
+
+
+@dataclass
+class ProvisionalSwings:
+    kinds: np.ndarray  # candle, whether the prior paired point was touched, low candidate, high candidate
+    touches: np.ndarray  # the minute of a prior paired-point removal, or the end of the minute data
+
+
+def provisional_swings(cd: Candles) -> ProvisionalSwings:
+    """Owner swing decisions for an in-progress right candle of any qualifying shape."""
+    result = ProvisionalSwings(np.zeros((len(cd), 2, 2, 2), dtype=np.int8),
+                               np.full(len(cd), np.iinfo(np.int64).max, dtype=np.int64))
+    detect(cd, provisional=result)
+    return result
+
+
+def _preview_shapes(output, stack, cd, k, ev_hi, ev_lo):
+    for low, high in ((1, 0), (0, 1), (1, 1)):
+        if (low and cd.l[k - 1] < cd.l[k]) or (high and cd.h[k - 1] > cd.h[k]):
+            continue
+        preview = stack.copy()
+        _process_ordered(preview, cd, k, bool(low), bool(high), ev_hi, ev_lo)
+        if preview and preview[-1].candle == k:
+            output[low, high] = preview[-1].kind
+
+
 def detect(cd: Candles, observer: Callable[[int, list[Point]], None] | None = None, *,
            on_touch: Callable[[int, int, list[Point]], None] | None = None,
+           provisional: ProvisionalSwings | None = None,
            ) -> tuple[list[Point], dict[str, np.ndarray]]:
     """Run the rule over all candles. Returns the final swing points and the state as known after each candle's
     processing (candle k is processed when candle k+1 closes): last swing high / low price (ticks) and candle
     (sh, sl) and the ones before them (sh2, sl2), or -1 when none; newest: kind of the newest point (0 when none).
     observer(k, stack), optional, is called after candle k is processed with the live structure (read only): it
     sees the resulting points, including changes from deep rule-4 cascades. on_touch(k, minute, stack) receives
-    the read-only structure immediately after a touch removal before processing candle k."""
+    the read-only structure immediately after a touch removal before processing candle k.
+    If supplied, fill provisional swing decisions before and after any paired-point touch during the right candle."""
     n = len(cd)
+    minute_count = len(cd.minute_highs) if cd.minute_highs is not None else None
     ev_hi = np.full(2 * n, -np.inf)  # high of a high event; -inf on low events
     ev_lo = np.full(2 * n, np.inf)
     stack: list[Point] = []
     state = _empty_state(n)
     for k in range(n):
-        if _paired_swing(stack):
-            touched_at = _touch_bar(cd, k, stack[-1])
-            if touched_at is not None:
-                stack.pop()
-                if on_touch is not None:
-                    on_touch(k, touched_at, stack)
-        is_low = 0 < k < n - 1 and cd.l[k - 1] >= cd.l[k] and cd.l[k + 1] > cd.l[k]
-        is_high = 0 < k < n - 1 and cd.h[k - 1] <= cd.h[k] and cd.h[k + 1] < cd.h[k]
-        order_known = cd.high_first[k] != UNKNOWN
-        high_first = int(cd.high_first[k]) if order_known else int(bool(stack and stack[-1].kind == LOW))
-        if not order_known and is_low and is_high and stack:
-            prior_removals: list[tuple[Point, bool]] = []  # prior point and whether rule 4 removed it
-            _process(stack, cd, k, high_first, is_low, is_high, ev_hi, ev_lo, prior_removals)
-            if prior_removals and prior_removals[0][1]:
-                while stack and stack[-1].candle == k:
-                    stack.pop()
-                stack.extend(point for point, _ in reversed(prior_removals))
-                _process(stack, cd, k, 1 - high_first, is_low, is_high, ev_hi, ev_lo)
-        else:
-            _process(stack, cd, k, high_first, is_low, is_high, ev_hi, ev_lo)
+        touched_at = _touch_bar(cd, k, stack[-1]) if _paired_swing(stack) else None
+        if provisional is not None and 0 < k < n - 1:
+            _preview_shapes(provisional.kinds[k, 0], stack, cd, k, ev_hi, ev_lo)
+        if touched_at is not None:
+            stack.pop()
+            if on_touch is not None:
+                on_touch(k, touched_at, stack)
+            if provisional is not None and 0 < k < n - 1:
+                provisional.touches[k] = touched_at
+                _preview_shapes(provisional.kinds[k, 1], stack, cd, k, ev_hi, ev_lo)
+        right_closed = 0 < k < n - 1 and (minute_count is None or cd.avail[k + 1] < minute_count)
+        is_low = right_closed and cd.l[k - 1] >= cd.l[k] and cd.l[k + 1] > cd.l[k]
+        is_high = right_closed and cd.h[k - 1] <= cd.h[k] and cd.h[k + 1] < cd.h[k]
+        _process_ordered(stack, cd, k, is_low, is_high, ev_hi, ev_lo)
         if _paired_swing(stack) and _touch_on_delayed_confirmation(cd, k + 1, stack[-1]):
             stack.pop()
         _record(stack, state, k)
