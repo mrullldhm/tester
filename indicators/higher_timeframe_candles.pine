@@ -1,0 +1,289 @@
+//@version=6
+indicator("Higher Timeframe Candles", overlay = true, max_boxes_count = 500, max_lines_count = 500, behind_chart = true)
+
+// One source for the swing engine and candle overlay on minute-based charts.
+type MinuteBounds
+    array<int> starts
+    array<int> ends
+
+type MinuteFeed
+    array<int> starts
+    array<int> ends
+    array<float> opens
+    array<float> highs
+    array<float> lows
+    array<float> closes
+    array<MinuteBounds> bounds
+
+drawingStyle(string style) =>
+    switch style
+        "Dashed" => line.style_dashed
+        "Dotted" => line.style_dotted
+        => line.style_solid
+
+// The slot order is Monthly, Weekly, Daily, 4H, 1H, 30m, 15m, 5m, 1m, chart.
+minuteData(int offset) =>
+    bool chartAtLeastOneMinute = timeframe.in_seconds(timeframe.main_period) >= 60
+    int chartStart = chartAtLeastOneMinute ? time(timeframe.main_period) : time
+    int chartEnd = chartAtLeastOneMinute ? time_close(timeframe.main_period) : time_close
+    [time[offset], time_close[offset], open[offset], high[offset], low[offset], close[offset],
+     time("1M")[offset], time_close("1M")[offset],
+     time("1W")[offset], time_close("1W")[offset],
+     time("1D")[offset], time_close("1D")[offset],
+     time("240")[offset], time_close("240")[offset],
+     time("60")[offset], time_close("60")[offset],
+     time("30")[offset], time_close("30")[offset],
+     time("15")[offset], time_close("15")[offset],
+     time("5")[offset], time_close("5")[offset],
+     chartStart[offset], chartEnd[offset]]
+
+chartFeed(string symbol, int seconds, bool requestMinute = false) =>
+    if seconds > 60 or requestMinute
+        [starts, ends, opens, highs, lows, closes, s0, e0, s1, e1, s2, e2, s3, e3, s4, e4, s5, e5, s6, e6, s7, e7, chartStarts, chartEnds] = request.security_lower_tf(symbol, "1", minuteData(0), calc_bars_count = 100000)
+        MinuteFeed.new(starts, ends, opens, highs, lows, closes,
+             array.from(MinuteBounds.new(s0, e0),
+                 MinuteBounds.new(s1, e1),
+                 MinuteBounds.new(s2, e2),
+                 MinuteBounds.new(s3, e3),
+                 MinuteBounds.new(s4, e4),
+                 MinuteBounds.new(s5, e5),
+                 MinuteBounds.new(s6, e6),
+                 MinuteBounds.new(s7, e7),
+                 MinuteBounds.new(starts, ends),
+                 MinuteBounds.new(chartStarts, chartEnds)))
+    else
+        MinuteFeed.new(array.from(time), array.from(time_close), array.from(open), array.from(high), array.from(low), array.from(close),
+             array.from(MinuteBounds.new(array.from(time("1M")), array.from(time_close("1M"))),
+                 MinuteBounds.new(array.from(time("1W")), array.from(time_close("1W"))),
+                 MinuteBounds.new(array.from(time("1D")), array.from(time_close("1D"))),
+                 MinuteBounds.new(array.from(time("240")), array.from(time_close("240"))),
+                 MinuteBounds.new(array.from(time("60")), array.from(time_close("60"))),
+                 MinuteBounds.new(array.from(time("30")), array.from(time_close("30"))),
+                 MinuteBounds.new(array.from(time("15")), array.from(time_close("15"))),
+                 MinuteBounds.new(array.from(time("5")), array.from(time_close("5"))),
+                 MinuteBounds.new(array.from(time("1")), array.from(time_close("1"))),
+                 MinuteBounds.new(array.from(time(timeframe.main_period)), array.from(time_close(timeframe.main_period)))))
+
+int chartSeconds = timeframe.isticks ? 0 : timeframe.in_seconds()
+MinuteFeed chartMinutes = na
+if chartSeconds > 0
+    chartMinutes := chartFeed(syminfo.tickerid, chartSeconds)
+// A confirmed chart close or a newer intrabar establishes feed progress.
+// Wall time can be ahead of a delayed or replayed feed.
+int chartConfirmedThrough = barstate.isconfirmed ? time_close : time
+feedConfirmedThrough(MinuteFeed source) =>
+    source.starts.size() > 0 ? math.max(chartConfirmedThrough, nz(source.starts.last(), chartConfirmedThrough)) : chartConfirmedThrough
+var array<string> supportedFrames = array.from("1M", "1W", "1D", "240", "60", "30", "15", "5", "1")
+
+const string CANDLE_GROUP = "Higher Timeframe Candles"
+bool candleMonthVisible = input.bool(false, "1M", group = CANDLE_GROUP, inline = "candleMonth")
+color candleMonthColor = input.color(color.white, "", group = CANDLE_GROUP, inline = "candleMonth")
+string candleMonthStyle = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"], group = CANDLE_GROUP, inline = "candleMonth")
+int candleMonthWidth = input.int(1, "", minval = 1, maxval = 4, tooltip = "The swatch, dropdown, and number set the color, line style, and width.", group = CANDLE_GROUP, inline = "candleMonth")
+bool candleWeekVisible = input.bool(false, "1W", group = CANDLE_GROUP, inline = "candleWeek")
+color candleWeekColor = input.color(color.white, "", group = CANDLE_GROUP, inline = "candleWeek")
+string candleWeekStyle = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"], group = CANDLE_GROUP, inline = "candleWeek")
+int candleWeekWidth = input.int(1, "", minval = 1, maxval = 4, group = CANDLE_GROUP, inline = "candleWeek")
+bool candleDayVisible = input.bool(false, "1D", group = CANDLE_GROUP, inline = "candleDay")
+color candleDayColor = input.color(color.white, "", group = CANDLE_GROUP, inline = "candleDay")
+string candleDayStyle = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"], group = CANDLE_GROUP, inline = "candleDay")
+int candleDayWidth = input.int(1, "", minval = 1, maxval = 4, group = CANDLE_GROUP, inline = "candleDay")
+bool candle4hVisible = input.bool(false, "4H", group = CANDLE_GROUP, inline = "candle4h")
+color candle4hColor = input.color(color.white, "", group = CANDLE_GROUP, inline = "candle4h")
+string candle4hStyle = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"], group = CANDLE_GROUP, inline = "candle4h")
+int candle4hWidth = input.int(1, "", minval = 1, maxval = 4, group = CANDLE_GROUP, inline = "candle4h")
+bool candle1hVisible = input.bool(true, "1H", group = CANDLE_GROUP, inline = "candle1h")
+color candle1hColor = input.color(color.white, "", group = CANDLE_GROUP, inline = "candle1h")
+string candle1hStyle = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"], group = CANDLE_GROUP, inline = "candle1h")
+int candle1hWidth = input.int(1, "", minval = 1, maxval = 4, group = CANDLE_GROUP, inline = "candle1h")
+bool candle30mVisible = input.bool(false, "30m", group = CANDLE_GROUP, inline = "candle30m")
+color candle30mColor = input.color(color.white, "", group = CANDLE_GROUP, inline = "candle30m")
+string candle30mStyle = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"], group = CANDLE_GROUP, inline = "candle30m")
+int candle30mWidth = input.int(1, "", minval = 1, maxval = 4, group = CANDLE_GROUP, inline = "candle30m")
+bool candle15mVisible = input.bool(false, "15m", group = CANDLE_GROUP, inline = "candle15m")
+color candle15mColor = input.color(color.white, "", group = CANDLE_GROUP, inline = "candle15m")
+string candle15mStyle = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"], group = CANDLE_GROUP, inline = "candle15m")
+int candle15mWidth = input.int(1, "", minval = 1, maxval = 4, group = CANDLE_GROUP, inline = "candle15m")
+bool candle5mVisible = input.bool(false, "5m", group = CANDLE_GROUP, inline = "candle5m")
+color candle5mColor = input.color(color.white, "", group = CANDLE_GROUP, inline = "candle5m")
+string candle5mStyle = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"], group = CANDLE_GROUP, inline = "candle5m")
+int candle5mWidth = input.int(1, "", minval = 1, maxval = 4, group = CANDLE_GROUP, inline = "candle5m")
+bool candle1mVisible = input.bool(false, "1m", group = CANDLE_GROUP, inline = "candle1m")
+color candle1mColor = input.color(color.white, "", group = CANDLE_GROUP, inline = "candle1m")
+string candle1mStyle = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"], group = CANDLE_GROUP, inline = "candle1m")
+int candle1mWidth = input.int(1, "", minval = 1, maxval = 4, group = CANDLE_GROUP, inline = "candle1m")
+bool showCandleTimer = input.bool(true, "Countdown to candle close", group = CANDLE_GROUP)
+
+const int CANDLE_DRAWING_BUDGET = 250  // Two lines per candle.
+
+type CandleDrawing
+    box body
+    line upperWick
+    line lowerWick
+    int slot
+    bool retained = true
+
+type CandleLayer
+    int slot
+    string resolution
+    string caption
+    color stroke
+    string style
+    int width
+    CandleDrawing lastDrawing = na
+    CandleDrawing developing = na
+    int lastCompleted = na
+    int lastNativePrevious = na
+    int runningStart = na
+    int runningEnd = na
+    float runningOpen = na
+    float runningHigh = na
+    float runningLow = na
+    float runningClose = na
+
+newCandleDrawing(CandleLayer layer) =>
+    CandleDrawing.new(
+         box.new(na, na, na, na, border_color = layer.stroke, border_width = layer.width, border_style = layer.style, xloc = xloc.bar_time, bgcolor = na),
+         line.new(na, na, na, na, xloc = xloc.bar_time, color = layer.stroke, style = layer.style, width = layer.width),
+         line.new(na, na, na, na, xloc = xloc.bar_time, color = layer.stroke, style = layer.style, width = layer.width), layer.slot)
+
+method paintCandle(CandleDrawing drawing, color stroke, int startsAt, int endsAt, float opening, float highest, float lowest, float closing) =>
+    float top = math.max(opening, closing)
+    float bottom = math.min(opening, closing)
+    int midpoint = startsAt + int((endsAt - startsAt) / 2)
+    bool flat = opening == closing
+
+    box.set_lefttop(drawing.body, startsAt, top)
+    box.set_rightbottom(drawing.body, endsAt, bottom)
+    box.set_border_color(drawing.body, flat ? na : stroke)
+    box.set_bgcolor(drawing.body, closing < opening ? color.new(stroke, 92) : na)
+    line.set_xy1(drawing.upperWick, midpoint, highest)
+    line.set_xy2(drawing.upperWick, midpoint, flat ? lowest : top)
+    line.set_xy1(drawing.lowerWick, flat ? startsAt : midpoint, flat ? opening : bottom)
+    line.set_xy2(drawing.lowerWick, flat ? endsAt : midpoint, flat ? opening : lowest)
+
+method deleteCandle(CandleDrawing drawing) =>
+    box.delete(drawing.body)
+    line.delete(drawing.upperWick)
+    line.delete(drawing.lowerWick)
+    drawing.retained := false
+
+var array<CandleDrawing> completedCandles = array.new<CandleDrawing>()
+var array<int> completedCounts = array.new<int>(9, 0)
+
+method keepCompleted(CandleLayer layer, int budget, int fairShare, int startsAt, int endsAt, float opening, float highest, float lowest, float closing) =>
+    if not na(startsAt) and not na(endsAt) and not na(closing)
+        if na(layer.lastCompleted) or startsAt > layer.lastCompleted
+            if completedCandles.size() >= budget
+                // Reserve a share for each timeframe and lend empty slots to
+                // layers with more history. Retire the oldest borrowed slot.
+                int evict = 0
+                for [i, item] in completedCandles
+                    if completedCounts.get(item.slot) + (item.slot == layer.slot ? 1 : 0) > fairShare
+                        evict := i
+                        break
+                CandleDrawing oldest = completedCandles.remove(evict)
+                oldest.deleteCandle()
+                completedCounts.set(oldest.slot, completedCounts.get(oldest.slot) - 1)
+            layer.lastDrawing := newCandleDrawing(layer)
+            completedCandles.push(layer.lastDrawing)
+            completedCounts.set(layer.slot, completedCounts.get(layer.slot) + 1)
+            layer.lastCompleted := startsAt
+        if startsAt == layer.lastCompleted and not na(layer.lastDrawing) and layer.lastDrawing.retained
+            layer.lastDrawing.paintCandle(layer.stroke, startsAt, endsAt, opening, highest, lowest, closing)
+
+method finishCandle(CandleLayer layer, int budget, int fairShare) =>
+    if na(layer.lastCompleted) or layer.runningStart > layer.lastCompleted
+        layer.keepCompleted(budget, fairShare, layer.runningStart, layer.runningEnd, layer.runningOpen, layer.runningHigh, layer.runningLow, layer.runningClose)
+    layer.runningStart := na
+
+method ingestCandleMinute(CandleLayer layer, int budget, int fairShare, int startsAt, int endsAt, float opening, float highest, float lowest, float closing) =>
+    if not na(layer.runningStart) and startsAt != layer.runningStart
+        layer.finishCandle(budget, fairShare)
+
+    if na(layer.runningStart)
+        layer.runningStart := startsAt
+        layer.runningOpen := opening
+        layer.runningHigh := highest
+        layer.runningLow := lowest
+    else
+        layer.runningHigh := math.max(layer.runningHigh, highest)
+        layer.runningLow := math.min(layer.runningLow, lowest)
+    layer.runningEnd := endsAt
+    layer.runningClose := closing
+
+method hideDeveloping(CandleLayer layer) =>
+    if not na(layer.developing)
+        CandleDrawing drawing = layer.developing
+        drawing.deleteCandle()
+        layer.developing := na
+
+method drawDeveloping(CandleLayer layer) =>
+    if na(layer.developing)
+        layer.developing := newCandleDrawing(layer)
+    CandleDrawing candle = layer.developing
+    candle.paintCandle(layer.stroke, layer.runningStart, layer.runningEnd, layer.runningOpen, layer.runningHigh, layer.runningLow, layer.runningClose)
+
+candleCountdown(int endsAt, int nowAt) =>
+    int remaining = int(math.ceil(math.max(0, endsAt - nowAt) / 1000.0))
+    int days = int(remaining / 86400)
+    int hours = int(remaining / 3600) % 24
+    int minutes = int(remaining / 60) % 60
+    int seconds = remaining % 60
+    string clock = str.tostring(minutes, "00") + ":" + str.tostring(seconds, "00")
+    if remaining >= 3600
+        clock := str.tostring(hours, "00") + ":" + clock
+    if days > 0
+        clock := str.tostring(days) + "d " + clock
+    clock
+
+var array<string> candleCaptions = array.from("1M", "1W", "1D", "4H", "1H", "30m", "15m", "5m", "1m")
+var array<bool> candleVisibility = array.from(candleMonthVisible, candleWeekVisible, candleDayVisible, candle4hVisible, candle1hVisible, candle30mVisible, candle15mVisible, candle5mVisible, candle1mVisible)
+var array<color> candleColors = array.from(candleMonthColor, candleWeekColor, candleDayColor, candle4hColor, candle1hColor, candle30mColor, candle15mColor, candle5mColor, candle1mColor)
+var array<string> candleStyles = array.from(candleMonthStyle, candleWeekStyle, candleDayStyle, candle4hStyle, candle1hStyle, candle30mStyle, candle15mStyle, candle5mStyle, candle1mStyle)
+var array<int> candleWidths = array.from(candleMonthWidth, candleWeekWidth, candleDayWidth, candle4hWidth, candle1hWidth, candle30mWidth, candle15mWidth, candle5mWidth, candle1mWidth)
+var array<CandleLayer> candleLayers = array.new<CandleLayer>()
+var table candleTimers = table.new(position.middle_right, 1, 9)
+
+if barstate.isfirst and chartSeconds > 0
+    for [slot, resolution] in supportedFrames
+        if candleVisibility.get(slot) and timeframe.in_seconds(resolution) > chartSeconds
+            candleLayers.push(CandleLayer.new(slot, resolution, candleCaptions.get(slot), candleColors.get(slot), drawingStyle(candleStyles.get(slot)), candleWidths.get(slot)))
+
+int candleLayerCount = candleLayers.size()
+if candleLayerCount > 0
+    int candleConfirmedThrough = feedConfirmedThrough(chartMinutes)
+    int countdownTime = barstate.isrealtime and timenow < time_close ? math.max(candleConfirmedThrough, timenow) : candleConfirmedThrough
+    int completedBudget = CANDLE_DRAWING_BUDGET - candleLayerCount
+    int fairShare = int(completedBudget / candleLayerCount)
+    if barstate.islast and showCandleTimer
+        table.clear(candleTimers, 0, 0, 0, 8)
+
+    for [row, layer] in candleLayers
+        // Preserve native OHLC for finished candles, including prices such
+        // as daily settlement. Never use future native highs/lows in replay.
+        [priorStart, priorEnd, priorOpen, priorHigh, priorLow, priorClose, nativeStart, nativeEnd, nativeOpen, nativeHigh, nativeLow, nativeClose] = request.security(syminfo.tickerid, layer.resolution, [time[1], time_close[1], open[1], high[1], low[1], close[1], time, time_close, open, high, low, close], lookahead = barmerge.lookahead_on)
+        if not na(priorStart) and (na(layer.lastNativePrevious) or priorStart > layer.lastNativePrevious)
+            layer.keepCompleted(completedBudget, fairShare, priorStart, priorEnd, priorOpen, priorHigh, priorLow, priorClose)
+            layer.lastNativePrevious := priorStart
+        if nativeEnd <= candleConfirmedThrough and (na(layer.lastCompleted) or nativeStart >= layer.lastCompleted)
+            layer.keepCompleted(completedBudget, fairShare, nativeStart, nativeEnd, nativeOpen, nativeHigh, nativeLow, nativeClose)
+
+        MinuteBounds bounds = chartMinutes.bounds.get(layer.slot)
+        // Classify each intrabar by its own higher-timeframe open. A chart bar
+        // that crosses a boundary can contribute to both higher candles.
+        for [idx, opensAt] in bounds.starts
+            int closesAt = bounds.ends.get(idx)
+            if not na(opensAt) and not na(closesAt) and not na(chartMinutes.starts.get(idx))
+                layer.ingestCandleMinute(completedBudget, fairShare, opensAt, closesAt, chartMinutes.opens.get(idx), chartMinutes.highs.get(idx), chartMinutes.lows.get(idx), chartMinutes.closes.get(idx))
+
+        if not na(layer.runningStart) and candleConfirmedThrough >= layer.runningEnd
+            layer.finishCandle(completedBudget, fairShare)
+
+        if barstate.islast
+            if not na(layer.runningStart)
+                layer.drawDeveloping()
+                if showCandleTimer
+                    table.cell(candleTimers, 0, row, layer.caption + "  " + candleCountdown(layer.runningEnd, countdownTime), text_color = layer.stroke, text_size = size.small, text_halign = text.align_right)
+            else
+                layer.hideDeveloping()

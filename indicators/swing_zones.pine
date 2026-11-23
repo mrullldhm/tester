@@ -1,0 +1,799 @@
+//@version=6
+indicator("Swing Zones", overlay = true, max_boxes_count = 500, behind_chart = true)
+
+// One source for the swing engine and candle overlay on minute-based charts.
+type MinuteBounds
+    array<int> starts
+    array<int> ends
+
+type MinuteFeed
+    array<int> starts
+    array<int> ends
+    array<float> opens
+    array<float> highs
+    array<float> lows
+    array<float> closes
+    array<MinuteBounds> bounds
+
+// The slot order is Monthly, Weekly, Daily, 4H, 1H, 30m, 15m, 5m, 1m, chart.
+minuteData(int offset) =>
+    bool chartAtLeastOneMinute = timeframe.in_seconds(timeframe.main_period) >= 60
+    int chartStart = chartAtLeastOneMinute ? time(timeframe.main_period) : time
+    int chartEnd = chartAtLeastOneMinute ? time_close(timeframe.main_period) : time_close
+    [time[offset], time_close[offset], open[offset], high[offset], low[offset], close[offset],
+     time("1M")[offset], time_close("1M")[offset],
+     time("1W")[offset], time_close("1W")[offset],
+     time("1D")[offset], time_close("1D")[offset],
+     time("240")[offset], time_close("240")[offset],
+     time("60")[offset], time_close("60")[offset],
+     time("30")[offset], time_close("30")[offset],
+     time("15")[offset], time_close("15")[offset],
+     time("5")[offset], time_close("5")[offset],
+     chartStart[offset], chartEnd[offset]]
+
+chartFeed(string symbol, int seconds, bool requestMinute = false) =>
+    if seconds > 60 or requestMinute
+        [starts, ends, opens, highs, lows, closes, s0, e0, s1, e1, s2, e2, s3, e3, s4, e4, s5, e5, s6, e6, s7, e7, chartStarts, chartEnds] = request.security_lower_tf(symbol, "1", minuteData(0), calc_bars_count = 100000)
+        MinuteFeed.new(starts, ends, opens, highs, lows, closes,
+             array.from(MinuteBounds.new(s0, e0),
+                 MinuteBounds.new(s1, e1),
+                 MinuteBounds.new(s2, e2),
+                 MinuteBounds.new(s3, e3),
+                 MinuteBounds.new(s4, e4),
+                 MinuteBounds.new(s5, e5),
+                 MinuteBounds.new(s6, e6),
+                 MinuteBounds.new(s7, e7),
+                 MinuteBounds.new(starts, ends),
+                 MinuteBounds.new(chartStarts, chartEnds)))
+    else
+        MinuteFeed.new(array.from(time), array.from(time_close), array.from(open), array.from(high), array.from(low), array.from(close),
+             array.from(MinuteBounds.new(array.from(time("1M")), array.from(time_close("1M"))),
+                 MinuteBounds.new(array.from(time("1W")), array.from(time_close("1W"))),
+                 MinuteBounds.new(array.from(time("1D")), array.from(time_close("1D"))),
+                 MinuteBounds.new(array.from(time("240")), array.from(time_close("240"))),
+                 MinuteBounds.new(array.from(time("60")), array.from(time_close("60"))),
+                 MinuteBounds.new(array.from(time("30")), array.from(time_close("30"))),
+                 MinuteBounds.new(array.from(time("15")), array.from(time_close("15"))),
+                 MinuteBounds.new(array.from(time("5")), array.from(time_close("5"))),
+                 MinuteBounds.new(array.from(time("1")), array.from(time_close("1"))),
+                 MinuteBounds.new(array.from(time(timeframe.main_period)), array.from(time_close(timeframe.main_period)))))
+
+int chartSeconds = timeframe.isticks ? 0 : timeframe.in_seconds()
+MinuteFeed chartMinutes = na
+if chartSeconds > 0
+    chartMinutes := chartFeed(syminfo.tickerid, chartSeconds)
+// A confirmed chart close or a newer intrabar establishes feed progress.
+// Wall time can be ahead of a delayed or replayed feed.
+int chartConfirmedThrough = barstate.isconfirmed ? time_close : time
+feedConfirmedThrough(MinuteFeed source) =>
+    source.starts.size() > 0 ? math.max(chartConfirmedThrough, nz(source.starts.last(), chartConfirmedThrough)) : chartConfirmedThrough
+bool useClSession = syminfo.type == "futures" and syminfo.root == "CL"
+if barstate.isfirst and not chart.is_standard
+    runtime.error("Use a standard price chart for swing detection.")
+if barstate.isfirst and useClSession and syminfo.session == "us_regular"
+    runtime.error("Use Electronic Trading Hours (ETH) for CL swing detection.")
+string swingTicker = useClSession ? ticker.modify(ticker.standard(syminfo.tickerid), session = session.regular, backadjustment = backadjustment.off) : syminfo.tickerid
+var array<string> supportedFrames = array.from("1M", "1W", "1D", "240", "60", "30", "15", "5", "1")
+
+const string ZONE_GROUP = "Swing Zones"
+const color DEFAULT_ZONE_FILL = color.new(color.white, 92)
+bool zoneChartVisible = input.bool(true, "Chart TF", group = ZONE_GROUP, inline = "zoneChart")
+color zoneChartFill = input.color(DEFAULT_ZONE_FILL, "", group = ZONE_GROUP, inline = "zoneChart")
+bool zone1mVisible = input.bool(false, "1m", group = ZONE_GROUP, inline = "zone1m")
+color zone1mFill = input.color(DEFAULT_ZONE_FILL, "", group = ZONE_GROUP, inline = "zone1m")
+bool zone5mVisible = input.bool(false, "5m", group = ZONE_GROUP, inline = "zone5m")
+color zone5mFill = input.color(DEFAULT_ZONE_FILL, "", group = ZONE_GROUP, inline = "zone5m")
+bool zone15mVisible = input.bool(false, "15m", group = ZONE_GROUP, inline = "zone15m")
+color zone15mFill = input.color(DEFAULT_ZONE_FILL, "", group = ZONE_GROUP, inline = "zone15m")
+bool zone30mVisible = input.bool(false, "30m", group = ZONE_GROUP, inline = "zone30m")
+color zone30mFill = input.color(DEFAULT_ZONE_FILL, "", group = ZONE_GROUP, inline = "zone30m")
+bool zone1hVisible = input.bool(false, "1H", group = ZONE_GROUP, inline = "zone1h")
+color zone1hFill = input.color(DEFAULT_ZONE_FILL, "", group = ZONE_GROUP, inline = "zone1h")
+bool zone4hVisible = input.bool(false, "4H", group = ZONE_GROUP, inline = "zone4h")
+color zone4hFill = input.color(DEFAULT_ZONE_FILL, "", group = ZONE_GROUP, inline = "zone4h")
+bool zoneDayVisible = input.bool(false, "1D", group = ZONE_GROUP, inline = "zoneDay")
+color zoneDayFill = input.color(DEFAULT_ZONE_FILL, "", group = ZONE_GROUP, inline = "zoneDay")
+bool zoneWeekVisible = input.bool(false, "1W", group = ZONE_GROUP, inline = "zoneWeek")
+color zoneWeekFill = input.color(DEFAULT_ZONE_FILL, "", group = ZONE_GROUP, inline = "zoneWeek")
+bool zoneMonthVisible = input.bool(false, "1M", group = ZONE_GROUP, inline = "zoneMonth")
+color zoneMonthFill = input.color(DEFAULT_ZONE_FILL, "", group = ZONE_GROUP, inline = "zoneMonth")
+
+// Swing event rules from docs/SWINGS.md and cltester/swings.py.
+const int HIGH = 1
+const int LOW = -1
+const int UNKNOWN = 0
+
+type SwingZone
+    int startsAt
+    int endsAt
+    float bottom
+    float top
+    float displayOffset = 0.0
+    int approach = 0
+    int stoppedAt = na
+    bool invalidated = false
+
+type ZoneDrawing
+    SwingZone zone
+    box drawing
+
+// Choose the price overlap with the most participating candles. If only two
+// overlap, prefer the widest pair. Equal widths prefer a pair with candle 2.
+findSwingZone(int startsAt, int endsAt, float leftHigh, float leftLow, float centerHigh, float centerLow, float rightHigh, float rightLow) =>
+    float bottom = math.max(leftLow, centerLow, rightLow)
+    float top = math.min(leftHigh, centerHigh, rightHigh)
+    if top <= bottom
+        bottom := math.max(leftLow, centerLow)
+        top := math.min(leftHigh, centerHigh)
+
+        float centerRightBottom = math.max(centerLow, rightLow)
+        float centerRightTop = math.min(centerHigh, rightHigh)
+        if centerRightTop - centerRightBottom > top - bottom
+            bottom := centerRightBottom
+            top := centerRightTop
+
+        float outerBottom = math.max(leftLow, rightLow)
+        float outerTop = math.min(leftHigh, rightHigh)
+        if outerTop - outerBottom > top - bottom
+            bottom := outerBottom
+            top := outerTop
+    top > bottom ? SwingZone.new(startsAt, endsAt, bottom, top) : na
+
+type SwingPoint
+    int side
+    float price
+    int candleTime
+    int eventIndex
+    SwingZone zone
+
+type SwingEventLevel
+    array<float> highs
+    array<float> lows
+
+type ZigZag
+    array<SwingPoint> points
+    array<SwingEventLevel> eventLevels
+    float leftHigh = na
+    float leftLow = na
+    int leftTime = na
+    float centerHigh = na
+    float centerLow = na
+    int centerTime = na
+    float centerOffset = 0.0
+    int centerOrder = 0
+    bool changed = false
+    array<ZoneDrawing> zoneDrawings = na
+    array<SwingZone> openZones = na
+    float nextUpperTouch = na
+    float nextLowerTouch = na
+    bool hasUnclassifiedZones = false
+    int bucket = na
+    int bucketStart = na
+    int bucketEnd = na
+    float bucketOffset = 0.0
+    float bucketHigh = na
+    float bucketLow = na
+    float bucketClose = na
+    int highMinute = na
+    int lowMinute = na
+
+newZigZag() =>
+    ZigZag.new(array.new<SwingPoint>(), array.from(SwingEventLevel.new(array.new<float>(), array.new<float>())), zoneDrawings = array.new<ZoneDrawing>(), openZones = array.new<SwingZone>())
+
+method appendEvent(ZigZag state, int side, float price) =>
+    int level = 0
+    int index = state.eventLevels.first().highs.size()
+    float eventHigh = side == HIGH ? price : na
+    float eventLow = side == LOW ? price : na
+    while true
+        if level == state.eventLevels.size()
+            state.eventLevels.push(SwingEventLevel.new(array.new<float>(), array.new<float>()))
+        SwingEventLevel events = state.eventLevels.get(level)
+        events.highs.push(eventHigh)
+        events.lows.push(eventLow)
+        if index % 2 == 0
+            break
+        float priorHigh = events.highs.get(index - 1)
+        float priorLow = events.lows.get(index - 1)
+        eventHigh := na(eventHigh) ? priorHigh : math.max(eventHigh, nz(priorHigh, eventHigh))
+        eventLow := na(eventLow) ? priorLow : math.min(eventLow, nz(priorLow, eventLow))
+        index := int(index / 2)
+        level += 1
+
+method removeEvent(ZigZag state) =>
+    int level = 0
+    int index = state.eventLevels.first().highs.size() - 1
+    while true
+        SwingEventLevel events = state.eventLevels.get(level)
+        events.highs.pop()
+        events.lows.pop()
+        if index % 2 == 0
+            break
+        index := int(index / 2)
+        level += 1
+
+exceedsExtreme(float other, int side, float price) =>
+    not na(other) and (side == HIGH ? other > price : other < price)
+
+method isExtreme(ZigZag state, int side, float price, int firstEvent, int lastEvent) =>
+    int left = firstEvent
+    int right = lastEvent
+    int level = 0
+    bool valid = true
+    while left <= right
+        SwingEventLevel events = state.eventLevels.get(level)
+        array<float> prices = side == HIGH ? events.highs : events.lows
+        if left % 2 == 1
+            if exceedsExtreme(prices.get(left), side, price)
+                valid := false
+                break
+            left += 1
+        if left <= right and right % 2 == 0
+            if exceedsExtreme(prices.get(right), side, price)
+                valid := false
+                break
+            right -= 1
+        if left > right
+            break
+        left := int(left / 2)
+        right := int(right / 2)
+        level += 1
+    valid
+
+// The first removed prior point determines whether an unknown outside-candle
+// order needs to be retried. Keep any other removed points for that rollback.
+method offer(ZigZag state, SwingPoint candidate, array<SwingPoint> removed, bool firstRemovalByRange) =>
+    bool retry = firstRemovalByRange
+    while true
+        int count = state.points.size()
+        if count == 0
+            if state.isExtreme(candidate.side, candidate.price, 0, candidate.eventIndex)
+                state.points.push(candidate)
+                state.changed := true
+            break
+
+        SwingPoint last = state.points.last()
+        bool sameSide = last.side == candidate.side
+        if sameSide
+            if (candidate.side == HIGH ? candidate.price < last.price : candidate.price > last.price)
+                break
+        else
+            if not state.isExtreme(candidate.side, candidate.price, last.eventIndex + 1, candidate.eventIndex)
+                break
+            int previousEvent = count > 1 ? state.points.get(count - 2).eventIndex + 1 : 0
+            if state.isExtreme(last.side, last.price, previousEvent, candidate.eventIndex - 1)
+                state.points.push(candidate)
+                state.changed := true
+                break
+
+        state.points.pop()
+        state.changed := true
+        if not na(removed) and last.candleTime < candidate.candleTime
+            if removed.size() == 0
+                retry := not sameSide
+            removed.push(last)
+    retry
+
+method processCenter(ZigZag state, int firstSide, bool swingHigh, bool swingLow, array<SwingPoint> removed, SwingZone zone) =>
+    bool retry = false
+    for slot = 0 to 1
+        int side = slot == 0 ? firstSide : -firstSide
+        int eventIndex = state.eventLevels.first().highs.size()
+        float price = side == HIGH ? state.centerHigh : state.centerLow
+        state.appendEvent(side, price)
+        if (side == HIGH ? swingHigh : swingLow)
+            retry := state.offer(SwingPoint.new(side, price, state.centerTime, eventIndex, zone), removed, retry)
+    retry
+
+method invalidateTouch(ZigZag state, float tradedHigh, float tradedLow) =>
+    int count = state.points.size()
+    if count >= 2
+        SwingPoint last = state.points.last()
+        SwingPoint previous = state.points.get(count - 2)
+        if last.candleTime == previous.candleTime and (last.side == HIGH ? tradedHigh >= last.price : tradedLow <= last.price)
+            state.points.pop()
+            state.changed := true
+
+// A new adverse extreme invalidates the newest swing's zone until an
+// opposite swing confirms. A strict break is required for this zone rule.
+method invalidateBrokenSwingZone(ZigZag state, float tradedHigh, float tradedLow) =>
+    if state.points.size() > 0
+        SwingPoint latest = state.points.last()
+        if not na(latest.zone) and not latest.zone.invalidated
+            bool broken = latest.side == LOW ? tradedLow < latest.price : tradedHigh > latest.price
+            if broken
+                latest.zone.invalidated := true
+                state.changed := true
+
+// Only scan the open zones when one can change. This avoids walking all
+// untouched historical zones on every minute of a long trend.
+method indexOpenZone(ZigZag state, SwingZone zone) =>
+    if zone.approach == LOW
+        state.nextUpperTouch := na(state.nextUpperTouch) ? zone.top : math.min(state.nextUpperTouch, zone.top)
+    if zone.approach == HIGH
+        state.nextLowerTouch := na(state.nextLowerTouch) ? zone.bottom : math.max(state.nextLowerTouch, zone.bottom)
+    state.hasUnclassifiedZones := state.hasUnclassifiedZones or zone.approach == UNKNOWN
+
+method updateZoneTouches(ZigZag state, int tradeTime, int chartBarTime, float opening, float highest, float lowest) =>
+    if state.hasUnclassifiedZones or highest >= state.nextUpperTouch or lowest <= state.nextLowerTouch
+        state.nextUpperTouch := na
+        state.nextLowerTouch := na
+        state.hasUnclassifiedZones := false
+        int count = state.openZones.size()
+        if count > 0
+            for i = count - 1 to 0
+                SwingZone zone = state.openZones.get(i)
+                if tradeTime >= zone.endsAt and not zone.invalidated
+                    if zone.approach == UNKNOWN
+                        if opening <= zone.bottom
+                            zone.approach := LOW
+                        else if opening >= zone.top
+                            zone.approach := HIGH
+                        else if highest >= zone.top and lowest <= zone.bottom
+                            zone.stoppedAt := chartBarTime
+                        else if lowest < zone.bottom
+                            zone.approach := LOW
+                        else if highest > zone.top
+                            zone.approach := HIGH
+
+                    if (zone.approach == LOW and highest >= zone.top) or (zone.approach == HIGH and lowest <= zone.bottom)
+                        zone.stoppedAt := chartBarTime
+
+                if zone.invalidated or not na(zone.stoppedAt)
+                    // Swap with the tail to remove in constant time.
+                    SwingZone tail = state.openZones.pop()
+                    if i < state.openZones.size()
+                        state.openZones.set(i, tail)
+                    continue
+                state.indexOpenZone(zone)
+
+method closeCandle(ZigZag state, int candleTime, int candleEnd, float candleHigh, float candleLow, float candleClose, int order, float displayOffset) =>
+    if not na(state.centerTime)
+        bool swingHigh = state.centerHigh >= state.leftHigh and state.centerHigh > candleHigh
+        bool swingLow = state.centerLow <= state.leftLow and state.centerLow < candleLow
+        SwingZone zone = na
+        if swingHigh or swingLow
+            zone := findSwingZone(state.leftTime, candleEnd, state.leftHigh, state.leftLow, state.centerHigh, state.centerLow, candleHigh, candleLow)
+        int count = state.points.size()
+        int firstSide = state.centerOrder
+        if state.centerOrder == UNKNOWN
+            firstSide := count > 0 and state.points.last().side == LOW ? HIGH : LOW
+
+        array<SwingPoint> removed = na
+        if state.centerOrder == UNKNOWN and swingHigh and swingLow and count > 0
+            removed := array.new<SwingPoint>()
+        if state.processCenter(firstSide, swingHigh, swingLow, removed, zone)
+            while state.points.size() > 0 and state.points.last().candleTime == state.centerTime
+                state.points.pop()
+            while removed.size() > 0
+                state.points.push(removed.pop())
+            for slot = 0 to 1
+                state.removeEvent()
+            state.processCenter(-firstSide, swingHigh, swingLow, na, zone)
+
+        if not na(zone) and state.points.size() > 0 and state.points.last().candleTime == state.centerTime
+            zone.displayOffset := state.centerOffset
+            zone.approach := candleClose < zone.bottom ? LOW : candleClose > zone.top ? HIGH : UNKNOWN
+            state.openZones.push(zone)
+            state.indexOpenZone(zone)
+
+    state.leftHigh := state.centerHigh
+    state.leftLow := state.centerLow
+    state.leftTime := state.centerTime
+    state.centerHigh := candleHigh
+    state.centerLow := candleLow
+    state.centerTime := candleTime
+    state.centerOffset := displayOffset
+    state.centerOrder := order
+
+method clearZoneDrawings(ZigZag state) =>
+    for item in state.zoneDrawings
+        box.delete(item.drawing)
+    state.zoneDrawings.clear()
+
+method drawZones(ZigZag state, int limit, color fillColor, int chartBarTime) =>
+    int count = state.points.size()
+    if count > 0
+        int lastCandle = na
+        for i = count - 1 to 0
+            SwingPoint point = state.points.get(i)
+            if not na(point.zone) and not point.zone.invalidated and (na(lastCandle) or point.candleTime != lastCandle)
+                SwingZone zone = point.zone
+                lastCandle := point.candleTime
+                int rightTime = na(zone.stoppedAt) ? chartBarTime : zone.stoppedAt
+                box drawing = box.new(zone.startsAt, zone.top + zone.displayOffset, rightTime, zone.bottom + zone.displayOffset,
+                     xloc = xloc.bar_time, border_color = na, bgcolor = fillColor)
+                state.zoneDrawings.push(ZoneDrawing.new(zone, drawing))
+                if state.zoneDrawings.size() >= limit
+                    break
+
+method extendOpenDrawings(ZigZag state, int chartBarTime) =>
+    for item in state.zoneDrawings
+        int rightTime = na(item.zone.stoppedAt) ? chartBarTime : item.zone.stoppedAt
+        if box.get_right(item.drawing) != rightTime
+            box.set_right(item.drawing, rightTime)
+
+method countZones(ZigZag state, int limit) =>
+    int total = 0
+    int lastCandle = na
+    int count = state.points.size()
+    if count > 0
+        for i = count - 1 to 0
+            SwingPoint point = state.points.get(i)
+            if not na(point.zone) and not point.zone.invalidated and (na(lastCandle) or point.candleTime != lastCandle)
+                lastCandle := point.candleTime
+                total += 1
+                if total >= limit
+                    break
+    total
+
+type ZoneLayer
+    ZigZag engine
+    color fill
+
+renderZones(array<ZoneLayer> layers, int budget) =>
+    array<int> demand = array.new<int>()
+    array<int> allowance = array.new<int>(layers.size(), 0)
+    int remaining = budget
+    int needsSlots = 0
+    for layer in layers
+        int count = layer.engine.countZones(budget)
+        demand.push(count)
+        if count > 0
+            needsSlots += 1
+
+    // Lend unused drawing slots to timeframes with more confirmed zones.
+    while remaining > 0 and needsSlots > 0
+        int share = math.max(1, int(remaining / needsSlots))
+        for [i, count] in demand
+            int unmet = count - allowance.get(i)
+            if unmet > 0
+                int granted = math.min(unmet, share, remaining)
+                allowance.set(i, allowance.get(i) + granted)
+                remaining -= granted
+                if granted == unmet
+                    needsSlots -= 1
+                if remaining == 0
+                    break
+
+    // Clear outgoing drawings first so Pine never evicts another layer's box.
+    for [i, layer] in layers
+        if layer.engine.changed or layer.engine.zoneDrawings.size() != allowance.get(i)
+            layer.engine.clearZoneDrawings()
+    for [i, layer] in layers
+        int limit = allowance.get(i)
+        if limit > 0 and layer.engine.zoneDrawings.size() == 0
+            layer.engine.drawZones(limit, layer.fill, time)
+        layer.engine.extendOpenDrawings(time)
+
+method finishBucket(ZigZag state) =>
+    int order = state.highMinute == state.lowMinute ? UNKNOWN : state.highMinute < state.lowMinute ? HIGH : LOW
+    state.closeCandle(state.bucketStart, state.bucketEnd, state.bucketHigh, state.bucketLow, state.bucketClose, order, state.bucketOffset)
+    state.bucket := na
+
+method ingestSwingMinute(ZigZag state, int key, bool lastMinute, int startsAt, float displayOffset, int endsAt, float tradedHigh, float tradedLow, float tradedClose, int highAt = na, int lowAt = na) =>
+    state.invalidateBrokenSwingZone(tradedHigh, tradedLow)
+    // The next observed minute can close a candle whose scheduled last
+    // minute was missing. Its touch applies both before and after that close.
+    if not na(state.bucket) and key != state.bucket
+        state.invalidateTouch(tradedHigh, tradedLow)
+        state.finishBucket()
+        state.invalidateBrokenSwingZone(tradedHigh, tradedLow)
+    state.invalidateTouch(tradedHigh, tradedLow)
+
+    if na(state.bucket)
+        state.bucket := key
+        state.bucketStart := startsAt
+        state.bucketHigh := tradedHigh
+        state.bucketLow := tradedLow
+        state.highMinute := nz(highAt, startsAt)
+        state.lowMinute := nz(lowAt, startsAt)
+    else
+        if tradedHigh > state.bucketHigh
+            state.bucketHigh := tradedHigh
+            state.highMinute := nz(highAt, startsAt)
+        if tradedLow < state.bucketLow
+            state.bucketLow := tradedLow
+            state.lowMinute := nz(lowAt, startsAt)
+    state.bucketClose := tradedClose
+    state.bucketEnd := endsAt
+    state.bucketOffset := displayOffset
+    if lastMinute
+        state.finishBucket()
+
+const string CHICAGO = "America/Chicago"
+const int MINUTE_MS = 60000
+const int DAY_MS = 86400000
+const int CME_DAY_CLOSE = 1379
+
+clTradingDay(int startsAt, int chicagoMinute) =>
+    // UTC midnight is a date key only. The date itself is Chicago-local.
+    int dateKey = timestamp("UTC", year(startsAt, CHICAGO), month(startsAt, CHICAGO), dayofmonth(startsAt, CHICAGO), 0, 0)
+    dateKey + (chicagoMinute >= 1020 ? DAY_MS : 0)
+
+clBucket(int slot, int startsAt, int tradingDay, int sessionMinute) =>
+    bool dayEnd = sessionMinute == CME_DAY_CLOSE
+    switch slot
+        0 =>
+            int tradingMonth = month(tradingDay, "UTC")
+            // The last weekday's next business date lies in the following month.
+            int nextBusinessDay = tradingDay + (dayofweek(tradingDay, "UTC") == dayofweek.friday ? 3 : 1) * DAY_MS
+            [year(tradingDay, "UTC") * 12 + tradingMonth, dayEnd and month(nextBusinessDay, "UTC") != tradingMonth]
+        1 =>
+            int weekday = dayofweek(tradingDay, "UTC")
+            [tradingDay - ((weekday + 5) % 7) * DAY_MS, dayEnd and weekday == dayofweek.friday]
+        2 => [tradingDay, dayEnd]
+        3 => [int(tradingDay / DAY_MS) * 10 + int(sessionMinute / 240), (sessionMinute + 1) % 240 == 0 or dayEnd]
+        =>
+            int clockLength = slot == 4 ? 60 : slot == 5 ? 30 : slot == 6 ? 15 : slot == 7 ? 5 : 1
+            int unixMinute = int(startsAt / MINUTE_MS)
+            [int(unixMinute / clockLength), (unixMinute + 1) % clockLength == 0]
+
+clSessionOpen(int tradingDay) =>
+    int priorDate = tradingDay - DAY_MS
+    timestamp(CHICAGO, year(priorDate, "UTC"), month(priorDate, "UTC"), dayofmonth(priorDate, "UTC"), 17, 0)
+
+clBucketOpen(int slot, int startsAt, int tradingDay, int sessionMinute) =>
+    switch slot
+        0 =>
+            int monthStart = timestamp("UTC", year(tradingDay, "UTC"), month(tradingDay, "UTC"), 1, 0, 0)
+            int weekday = dayofweek(monthStart, "UTC")
+            int firstTradingDay = monthStart + (weekday == dayofweek.saturday ? 2 : weekday == dayofweek.sunday ? 1 : 0) * DAY_MS
+            clSessionOpen(firstTradingDay)
+        1 => clSessionOpen(tradingDay - ((dayofweek(tradingDay, "UTC") + 5) % 7) * DAY_MS)
+        2 => clSessionOpen(tradingDay)
+        3 => clSessionOpen(tradingDay) + int(sessionMinute / 240) * 240 * MINUTE_MS
+        =>
+            int lengthMs = (slot == 4 ? 60 : slot == 5 ? 30 : slot == 6 ? 15 : slot == 7 ? 5 : 1) * MINUTE_MS
+            startsAt - startsAt % lengthMs
+
+type MonthlyHour
+    int startsAt
+    int endsAt
+    float opening
+    float highest
+    float lowest
+    float closing
+    int highAt
+    int lowAt
+
+monthlyHour() =>
+    [minuteStarts, minuteHighs, minuteLows] = request.security_lower_tf(syminfo.tickerid, "1", [time, high, low], calc_bars_count = 100000)
+    int highIndex = minuteHighs.indexof(high)
+    int lowIndex = minuteLows.indexof(low)
+    int highAt = highIndex >= 0 ? minuteStarts.get(highIndex) : time
+    int lowAt = lowIndex >= 0 ? minuteStarts.get(lowIndex) : time
+    // No sub-hour order is asserted when one extreme is missing.
+    if highIndex < 0 or lowIndex < 0
+        highAt := time
+        lowAt := time
+    MonthlyHour.new(time, time_close, open, high, low, close, highAt, lowAt)
+
+monthlyHours(string symbol, int seconds) =>
+    if seconds > 3600
+        request.security_lower_tf(symbol, "60", monthlyHour(), calc_bars_count = 100000)
+    else
+        MonthlyHour prior = request.security(symbol, "60", monthlyHour()[1], lookahead = barmerge.lookahead_on)
+        MonthlyHour current = request.security(symbol, "60", monthlyHour(), lookahead = barmerge.lookahead_off)
+        array.from(prior, current)
+
+type SwingLayer
+    ZigZag engine
+    int slot
+    color zoneColor
+    bool sawFirstMinute = false
+    int partialBucket = na
+
+
+method acceptSwingMinute(SwingLayer layer, int key, int startsAt, int bucketOpen) =>
+    if not layer.sawFirstMinute
+        layer.sawFirstMinute := true
+        if startsAt > bucketOpen
+            layer.partialBucket := key
+    na(layer.partialBucket) or key != layer.partialBucket
+
+// On sub-minute charts wait for the actual one-minute source to close.
+confirmedMinuteFeed(string symbol) =>
+    [starts, ends, opens, highs, lows, closes, s0, e0, s1, e1, s2, e2, s3, e3, s4, e4, s5, e5, s6, e6, s7, e7, chartStarts, chartEnds] = request.security(symbol, "1", minuteData(1), lookahead = barmerge.lookahead_on)
+    [liveStarts, liveEnds, liveOpens, liveHighs, liveLows, liveCloses, liveS0, liveE0, liveS1, liveE1, liveS2, liveE2, liveS3, liveE3, liveS4, liveE4, liveS5, liveE5, liveS6, liveE6, liveS7, liveE7, liveChartStarts, liveChartEnds] = request.security(symbol, "1", minuteData(0), lookahead = barmerge.lookahead_off)
+    MinuteFeed.new(array.from(starts, liveStarts), array.from(ends, liveEnds), array.from(opens, liveOpens), array.from(highs, liveHighs), array.from(lows, liveLows), array.from(closes, liveCloses),
+             array.from(MinuteBounds.new(array.from(s0, liveS0), array.from(e0, liveE0)),
+                 MinuteBounds.new(array.from(s1, liveS1), array.from(e1, liveE1)),
+                 MinuteBounds.new(array.from(s2, liveS2), array.from(e2, liveE2)),
+                 MinuteBounds.new(array.from(s3, liveS3), array.from(e3, liveE3)),
+                 MinuteBounds.new(array.from(s4, liveS4), array.from(e4, liveE4)),
+                 MinuteBounds.new(array.from(s5, liveS5), array.from(e5, liveE5)),
+                 MinuteBounds.new(array.from(s6, liveS6), array.from(e6, liveE6)),
+                 MinuteBounds.new(array.from(s7, liveS7), array.from(e7, liveE7)),
+                 MinuteBounds.new(array.from(starts, liveStarts), array.from(ends, liveEnds)),
+                 MinuteBounds.new(array.from(chartStarts, liveChartStarts), array.from(chartEnds, liveChartEnds))))
+
+var array<bool> zoneVisibility = array.from(zoneMonthVisible, zoneWeekVisible, zoneDayVisible, zone4hVisible, zone1hVisible, zone30mVisible, zone15mVisible, zone5mVisible, zone1mVisible)
+var array<color> zoneColors = array.from(zoneMonthFill, zoneWeekFill, zoneDayFill, zone4hFill, zone1hFill, zone30mFill, zone15mFill, zone5mFill, zone1mFill)
+var array<SwingLayer> swingLayers = array.new<SwingLayer>()
+var ZigZag secondChartSwing = newZigZag()
+var int processedSwingMinute = na
+
+// Apply the repository's CME session calendar to CL futures. Other instruments
+// use the exchange's own timeframe boundaries from the same minute feed.
+if barstate.isfirst and chartSeconds > 0
+    int chartSlot = 9
+    for [slot, resolution] in supportedFrames
+        int seconds = timeframe.in_seconds(resolution)
+        if seconds == chartSeconds
+            chartSlot := slot
+        bool showZones = zoneVisibility.get(slot)
+        if showZones and seconds > chartSeconds
+            swingLayers.push(SwingLayer.new(newZigZag(), slot, zoneColors.get(slot)))
+    bool matchingZone = chartSlot < 9 and zoneVisibility.get(chartSlot)
+    bool showChartZones = zoneChartVisible or matchingZone
+    color chartZoneColor = matchingZone ? zoneColors.get(chartSlot) : zoneChartFill
+    if showChartZones and chartSeconds >= 60
+        swingLayers.push(SwingLayer.new(newZigZag(), chartSlot, chartZoneColor))
+
+var array<ZoneLayer> zoneLayers = array.new<ZoneLayer>()
+if barstate.isfirst
+    for layer in swingLayers
+        zoneLayers.push(ZoneLayer.new(layer.engine, layer.zoneColor))
+    if chartSeconds > 0 and chartSeconds < 60 and zoneChartVisible
+        zoneLayers.push(ZoneLayer.new(secondChartSwing, zoneChartFill))
+
+bool drawSwingsNow = barstate.islastconfirmedhistory or barstate.islast
+
+float chartDisplayOffset = 0.0
+float swingChartOpen = open
+float swingChartHigh = high
+float swingChartLow = low
+float swingChartClose = close
+if useClSession and chartSeconds > 0 and chartSeconds < 60
+    [rawOpen, rawHigh, rawLow, rawClose] = request.security(swingTicker, timeframe.period, [open, high, low, close])
+    swingChartOpen := rawOpen
+    swingChartHigh := rawHigh
+    swingChartLow := rawLow
+    swingChartClose := rawClose
+    chartDisplayOffset := nz(close - rawClose)
+
+isClSessionOpen(int stamp) =>
+    int localMinute = hour(stamp, CHICAGO) * 60 + minute(stamp, CHICAGO)
+    stamp == clSessionOpen(clTradingDay(stamp, localMinute))
+
+var int monthlyMinuteStart = na
+var int lastMonthlyHour = na
+SwingLayer monthlyLayer = na
+SwingLayer dailyChartLayer = na
+if useClSession
+    for layer in swingLayers
+        if layer.slot == 0
+            monthlyLayer := layer
+        if chartSeconds == 86400 and layer.slot == 2
+            dailyChartLayer := layer
+
+if swingLayers.size() > 0
+    MinuteFeed source = chartSeconds < 60 ? confirmedMinuteFeed(swingTicker) : useClSession ? chartFeed(swingTicker, chartSeconds, true) : chartMinutes
+    int confirmedThrough = chartSeconds < 60 ? chartConfirmedThrough : feedConfirmedThrough(source)
+    if not na(monthlyLayer) and na(monthlyMinuteStart)
+        for stamp in source.starts
+            if not na(stamp) and stamp <= confirmedThrough
+                int localMinute = hour(stamp, CHICAGO) * 60 + minute(stamp, CHICAGO)
+                int tradeDay = clTradingDay(stamp, localMinute)
+                if stamp == clBucketOpen(0, stamp, tradeDay, 0)
+                    monthlyMinuteStart := stamp
+                    break
+
+        array<MonthlyHour> hourly = monthlyHours(swingTicker, chartSeconds)
+        int seenThrough = chartConfirmedThrough
+        if chartSeconds > 3600 and hourly.size() > 0
+            MonthlyHour latestHour = hourly.last()
+            seenThrough := math.max(seenThrough, latestHour.startsAt)
+
+        float rawChartClose = request.security(swingTicker, timeframe.period, close)
+        float hourOffset = nz(close - rawChartClose)
+        for item in hourly
+            if not na(item) and item.endsAt <= seenThrough and (na(lastMonthlyHour) or item.startsAt > lastMonthlyHour) and (na(monthlyMinuteStart) or item.endsAt <= monthlyMinuteStart)
+                int localMinute = hour(item.startsAt, CHICAGO) * 60 + minute(item.startsAt, CHICAGO)
+                int tradeDay = clTradingDay(item.startsAt, localMinute)
+                [key, _] = clBucket(0, item.startsAt, tradeDay, (localMinute + 420) % 1440)
+                int lastOpen = item.endsAt - MINUTE_MS
+                int localEndMinute = hour(lastOpen, CHICAGO) * 60 + minute(lastOpen, CHICAGO)
+                [_, scheduledEnd] = clBucket(0, lastOpen, tradeDay, (localEndMinute + 420) % 1440)
+                if monthlyLayer.acceptSwingMinute(key, item.startsAt, monthlyLayer.sawFirstMinute ? item.startsAt : clBucketOpen(0, item.startsAt, tradeDay, 0))
+                    monthlyLayer.engine.ingestSwingMinute(key, scheduledEnd, item.startsAt, hourOffset, item.endsAt, item.highest, item.lowest, item.closing, item.highAt, item.lowAt)
+                    monthlyLayer.engine.updateZoneTouches(item.startsAt, time, item.opening, item.highest, item.lowest)
+                lastMonthlyHour := item.startsAt
+
+    bool dailyFromMinutes = true
+    if not na(dailyChartLayer)
+        // TradingView can omit minute history on older daily bars or return
+        // only part of the session. Use the finest complete feed available.
+        MonthlyHour rawDaily = request.security(swingTicker, "1D",
+             MonthlyHour.new(time, time_close, open, high, low, close, time, time))
+        if not na(rawDaily)
+            dailyFromMinutes := source.starts.size() > 0 and isClSessionOpen(source.starts.first())
+                 and (not barstate.isconfirmed or source.ends.last() >= rawDaily.endsAt)
+            if not dailyFromMinutes
+                float dailyOffset = nz(close - rawDaily.closing)
+                array<MonthlyHour> sessionHours = request.security_lower_tf(swingTicker, "60", monthlyHour(), calc_bars_count = 100000)
+                bool dailyFromHours = false
+                if sessionHours.size() > 0
+                    MonthlyHour firstHour = sessionHours.first()
+                    MonthlyHour lastHour = sessionHours.last()
+                    dailyFromHours := not na(firstHour) and not na(lastHour) and isClSessionOpen(firstHour.startsAt)
+                         and (not barstate.isconfirmed or lastHour.endsAt >= rawDaily.endsAt)
+
+                int lastDailyMinute = rawDaily.endsAt - MINUTE_MS
+                int localMinute = hour(lastDailyMinute, CHICAGO) * 60 + minute(lastDailyMinute, CHICAGO)
+                int key = clTradingDay(lastDailyMinute, localMinute)
+                if dailyFromHours
+                    MonthlyHour lastHour = sessionHours.last()
+                    int seenThrough = math.max(chartConfirmedThrough, lastHour.startsAt)
+                    for item in sessionHours
+                        if not na(item) and item.endsAt <= seenThrough
+                            bool terminal = item.endsAt >= rawDaily.endsAt
+                            dailyChartLayer.engine.ingestSwingMinute(key, terminal, item.startsAt, dailyOffset, item.endsAt, item.highest, item.lowest, item.closing, item.highAt, item.lowAt)
+                            dailyChartLayer.engine.updateZoneTouches(item.startsAt, time, item.opening, item.highest, item.lowest)
+                else if barstate.isconfirmed and not na(rawDaily.closing)
+                    // Native daily OHLC is the last resort. Its extrema have
+                    // unknown order until intraday evidence is available.
+                    dailyChartLayer.engine.ingestSwingMinute(key, true, time, dailyOffset, rawDaily.endsAt, rawDaily.highest, rawDaily.lowest, rawDaily.closing)
+                    dailyChartLayer.engine.updateZoneTouches(rawDaily.startsAt, time, rawDaily.opening, rawDaily.highest, rawDaily.lowest)
+                else
+                    dailyChartLayer.engine.invalidateBrokenSwingZone(rawDaily.highest, rawDaily.lowest)
+                    dailyChartLayer.engine.updateZoneTouches(rawDaily.startsAt, time, rawDaily.opening, rawDaily.highest, rawDaily.lowest)
+
+    for [idx, startsAt] in source.starts
+        int endsAt = source.ends.get(idx)
+        if not na(startsAt) and (na(processedSwingMinute) or startsAt > processedSwingMinute)
+            float tradedHigh = source.highs.get(idx)
+            float tradedLow = source.lows.get(idx)
+            float tradedOpen = source.opens.get(idx)
+            float tradedClose = source.closes.get(idx)
+            bool minuteClosed = endsAt <= confirmedThrough
+            float displayOffset = 0.0
+            if useClSession and chartSeconds >= 60
+                int chartIndex = chartMinutes.starts.binary_search(startsAt)
+                if chartIndex >= 0
+                    displayOffset := nz(chartMinutes.closes.get(chartIndex) - source.closes.get(idx))
+            else if useClSession
+                displayOffset := chartDisplayOffset
+            int chicagoMinute = useClSession ? hour(startsAt, CHICAGO) * 60 + minute(startsAt, CHICAGO) : 0
+            int tradingDay = useClSession ? clTradingDay(startsAt, chicagoMinute) : 0
+            int sessionMinute = (chicagoMinute + 420) % 1440
+            for layer in swingLayers
+                if layer.slot == 2 and not dailyFromMinutes
+                    continue
+                if useClSession and layer.slot == 0 and (na(monthlyMinuteStart) or startsAt < monthlyMinuteStart)
+                    continue
+                if minuteClosed
+                    if useClSession and layer.slot < 9
+                        [key, lastMinute] = clBucket(layer.slot, startsAt, tradingDay, sessionMinute)
+                        if layer.acceptSwingMinute(key, startsAt, layer.sawFirstMinute ? startsAt : clBucketOpen(layer.slot, startsAt, tradingDay, sessionMinute))
+                            layer.engine.ingestSwingMinute(key, lastMinute, startsAt, displayOffset, endsAt, tradedHigh, tradedLow, tradedClose)
+                    else
+                        MinuteBounds bounds = source.bounds.get(layer.slot)
+                        int key = bounds.starts.get(idx)
+                        if not na(key) and layer.acceptSwingMinute(key, startsAt, key)
+                            layer.engine.ingestSwingMinute(key, endsAt >= bounds.ends.get(idx), startsAt, displayOffset, endsAt, tradedHigh, tradedLow, tradedClose)
+                if chartSeconds >= 60 and (minuteClosed or barstate.isrealtime)
+                    if not minuteClosed
+                        layer.engine.invalidateBrokenSwingZone(tradedHigh, tradedLow)
+                    layer.engine.updateZoneTouches(startsAt, time, tradedOpen, tradedHigh, tradedLow)
+            if minuteClosed
+                processedSwingMinute := startsAt
+
+    if chartSeconds < 60
+        for layer in swingLayers
+            layer.engine.invalidateBrokenSwingZone(swingChartHigh, swingChartLow)
+            layer.engine.updateZoneTouches(time, time, swingChartOpen, swingChartHigh, swingChartLow)
+
+if zoneChartVisible and chartSeconds > 0 and chartSeconds < 60
+    secondChartSwing.invalidateBrokenSwingZone(swingChartHigh, swingChartLow)
+    if barstate.isconfirmed
+        secondChartSwing.invalidateTouch(swingChartHigh, swingChartLow)
+        secondChartSwing.closeCandle(time, time_close, swingChartHigh, swingChartLow, swingChartClose, UNKNOWN, chartDisplayOffset)
+    secondChartSwing.updateZoneTouches(time, time, swingChartOpen, swingChartHigh, swingChartLow)
+if drawSwingsNow
+    if zoneLayers.size() > 0
+        renderZones(zoneLayers, 500)
+    for layer in swingLayers
+        layer.engine.changed := false
+    secondChartSwing.changed := false
